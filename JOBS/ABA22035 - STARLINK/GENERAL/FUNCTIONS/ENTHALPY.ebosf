@@ -1,0 +1,17 @@
+  ' This function calculates the enthalpy, in BTU/lb of dry air, given the
+  ' dry bulb temp and the percent RH.
+
+  Numeric Input Temp
+  Numeric Input RH
+
+  Numeric X, Enthalpy
+
+  X = 273.16 / ((Temp - 32) / 1.8 + 273.16)
+  X = -10.7959 * (1 - X) - (2.1836 * ln(X)) + 2.2196
+  X = 29.92 * (1 / EXP(2.3026 * X))
+  X = RH * X / 100
+  X = 0.622 * X / (29.92 - X)
+  Enthalpy = (0.24 + (0.444 * X)) * Temp + (1061 * X)
+
+
+  Return Enthalpy

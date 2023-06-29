@@ -1,0 +1,19 @@
+'_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_
+' DECLARE ALL VARIABLES INPUTS, OUTPUTS and PUBLICS
+  numeric public EXA_FAN_SS, SAF_SS, EXA_DAMPER_CMD, OA_DAMPER_CMD, CHWC_VALVE_CTRL, HWC_VALVE_CTRL, ERW_SS
+  numeric input UNOCCUPIED_MODE
+'_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_
+' INITALIZE ANY VALUES and ISSUE FIRST LINE CALL
+  Goto UNOCC_MODE
+'_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_
+'UNOCC MODE
+	UNOCC_MODE:
+	if UNOCCUPIED_MODE = 1 then
+	EXA_DAMPER_CMD = 0
+	OA_DAMPER_CMD = 0
+	EXA_FAN_SS = 0
+	SAF_SS = 0
+	CHWC_VALVE_CTRL = 0
+	HWC_VALVE_CTRL = 0
+	ERW_SS = 0
+	endif

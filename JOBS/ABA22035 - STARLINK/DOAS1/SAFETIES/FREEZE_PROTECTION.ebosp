@@ -1,0 +1,23 @@
+Numeric Public ALARM_LOW_TEMP, EXA_DAMPER_CMD_BYPASS, OA_DAMPER_CMD
+
+
+Goto ALARM_MONITOR
+
+ALARM_MONITOR:
+' Check the temperature downstream of the heating coil
+  If (ALARM_LOW_TEMP) then Goto FreezeProtection
+
+' If the temperature is normal, continue normal operation
+  Goto WAITLOOP
+
+FreezeProtection:
+' If the temperature downstream of the heating coil is 38 °F or less, activate freeze protection
+  EXA_DAMPER_CMD_BYPASS = 0
+  OA_DAMPER_CMD = 0
+  
+
+' The system will stay in freeze protection mode until manually reset
+  Goto FreezeProtection
+
+WAITLOOP:
+if  ts>30 then goto ALARM_MONITOR

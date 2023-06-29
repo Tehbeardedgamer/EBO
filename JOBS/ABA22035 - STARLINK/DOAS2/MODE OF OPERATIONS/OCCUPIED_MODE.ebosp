@@ -1,0 +1,74 @@
+'_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_
+'DECLARE ALL VARIABLE INPUTS, OUTPUTS and PUBLICS
+  Numeric Public COOLING_SEASON, HEATING_SEASON, SAF_SS, EXA_SAF_SS, EXA_DAMPER_CMD, OA_DAMPER_CMD, ERW_SS, EXA_FAN_SPEED_CTRL, SAF_SPEED_CTRL, BLDG_PRESS, SPACE_TVOC_SP, EXA_FAN_SS
+  Numeric Input SPACE_TVOC, EXHAUST_FAN_OFFSET, EXA_FAN_STATUS_A, EXA_FAN_STATUS_B , EXA_FAN_STATUS_C ,EXA_FAN_STATUS_D, SAF_STATUS_A ,SAF_STATUS_B, SAF_STATUS_C, SAF_STATUS_D,BLDG_PRESS_SP,BLDG_PRESS_DB, EXA_DAMPER_POS, OCCUPIED
+  Numeric BLDG_PRESS_SEASON_SP, PRESSURE_TIME_UNDER , PRESSURE_TIME_OVER
+
+
+'_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_
+'INITALIZE ANY REQUIRED VALUES and MAKE FIRST LINE CALL
+  Goto OccupiedMode
+'_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_
+'OCCUPIED MODE
+  OccupiedMode:
+  if OCCUPIED = 1 Then ERW_SS = on
+    else goto WAITLOOP
+  if (ERW_SS = on) then goto ENABLE_EXA
+'_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_
+'ENABLE EXHAUST
+  ENABLE_EXA:
+  if OCCUPIED = 1 Then EXA_SAF_SS = 1 & EXA_DAMPER_CMD = 100
+  else goto WAITLOOP
+
+  if ( EXA_FAN_STATUS_A = 1 &  EXA_FAN_STATUS_B = 1 &  EXA_FAN_STATUS_C = 1 &  EXA_FAN_STATUS_D = 1 & EXA_DAMPER_POS = 100)  Then goto ENABLE_SAF
+'_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_
+'ENABLE SUPPLY AIR FANS
+  ENABLE_SAF:
+     if OCCUPIED = 1 Then SAF_SS = 1 & OA_DAMPER_CMD = 100
+     Else Goto WAITLOOP
+    if (SAF_STATUS_A = 1 &  SAF_STATUS_B = 1  &  SAF_STATUS_C= 1 &  SAF_STATUS_D = 1 & OA_DAMPER_CMD = 100)  Then goto ENABLE_TVOC
+'_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_
+'ENABLE TVOC
+  ENABLE_TVOC:
+  If OCCUPIED = 1 Then SAF_SPEED_CTRL = Minimum((SPACE_TVOC / (SPACE_TVOC_SP / 100)),100)
+    else Goto WAITLOOP
+  goto ENABLE_EXA_SPEED_CTRL
+
+
+
+  ENABLE_EXA_SPEED_CTRL:
+  EXA_FAN_SPEED_CTRL = (SAF_SPEED_CTRL * EXHAUST_FAN_OFFSET)
+
+  Goto ENABLE_PRESSURE_TRACKING
+
+'_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_
+'ENABLE PRESSURE TRACKING
+  ENABLE_PRESSURE_TRACKING:
+  If COOLING_SEASON = On then BLDG_PRESS_SEASON_SP = BLDG_PRESS_SP + 0.02
+  If HEATING_SEASON = On then BLDG_PRESS_SEASON_SP = BLDG_PRESS_SP
+  '_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_
+  'MANAGE FAN SPEED
+    If BLDG_PRESS > BLDG_PRESS_SEASON_SP + BLDG_PRESS_DB then
+      If Time - PRESSURE_TIME_OVER >= 30 then
+        EXA_FAN_SPEED_CTRL = 100
+      Endif
+    Else
+        PRESSURE_TIME_OVER = Time
+    Endif
+  '_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_
+  'MANAGE FAN START STOP
+    If EXA_FAN_SPEED_CTRL = 0 and BLDG_PRESS < BLDG_PRESS_SEASON_SP - BLDG_PRESS_DB then
+      If Time - PRESSURE_TIME_UNDER >= 30 then
+        EXA_FAN_SS = Off
+      Endif
+    Else
+      PRESSURE_TIME_UNDER = Time
+    Endif
+
+
+  goto WAITLOOP
+
+'_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_
+'WAIT
+  WAITLOOP:
+  if ts>20 then Goto OccupiedMode

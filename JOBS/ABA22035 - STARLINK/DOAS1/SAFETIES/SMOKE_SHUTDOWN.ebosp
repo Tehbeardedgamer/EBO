@@ -1,0 +1,13 @@
+Numeric Public SAF_SS , EXA_FAN_SS
+Numeric Input ALERT_FIRE
+
+
+Goto ALERT_MONITOR
+
+ALERT_MONITOR:
+  WHILE (ALERT_FIRE)  SAF_SS = 0 & EXA_FAN_SS  = 0
+  endwhile
+  Goto WAITLOOP
+
+WAITLOOP:
+if  ts>10 then goto ALERT_MONITOR

@@ -1,0 +1,61 @@
+'BASE LOAD OPERATIONS:
+'INDIVIDUAL CHILLER MINIMUM LOAD IS 50 TONS (10% LOADED).
+'THE CH-1 CHILLERS SHALL OPERATE AS REQUIRED TO MEET THE CWS TEMPERATURE SETPOINT.
+
+Numeric Public CH_CAPACITY_1,CH_CAPACITY_2,CH_CAPACITY_3,CH_CAPACITY_4,CH_CAPACITY_5,CH_CAPACITY_6,CH_CAPACITY_7,CH_CAPACITY_8,CH_CAPACITY_9,CH_CAPACITY_10,CH_CAPACITY_11,CH_CAPACITY_12,REQ_LOAD
+Numeric Input VALVE_POSITION'VALVE POSITION BOUND TO CHW_VALVE_POS FROM  CHECK_CHW_VALVE_POS PROGRAM OUTPUT
+Numeric Output CHW_SETPOINT
+Numeric tmr
+Function PID_FCT, Sectimer
+
+Goto Initialize
+
+	Initialize:
+	  'Initialization of setpoints and parameters
+	  'Sets the default chilled water supply setpoint to 45°F.
+	  CHW_SETPOINT = 45
+
+Goto SETLOAD
+
+	SETLOAD:
+		CH_CAPACITY_1 = REQ_LOAD
+		CH_CAPACITY_2 = REQ_LOAD
+		CH_CAPACITY_3 = REQ_LOAD
+		CH_CAPACITY_4 = REQ_LOAD
+		CH_CAPACITY_5 = REQ_LOAD
+		CH_CAPACITY_6 = REQ_LOAD
+		CH_CAPACITY_7 = REQ_LOAD
+		CH_CAPACITY_8 = REQ_LOAD
+		CH_CAPACITY_9 = REQ_LOAD
+		CH_CAPACITY_10 = REQ_LOAD
+		CH_CAPACITY_11 = REQ_LOAD
+		CH_CAPACITY_12 = REQ_LOAD
+
+
+Goto CTRL_LOOP
+
+	CTRL_LOOP:
+		If VALVE_POSITION <90 then goto INCREASE_CHW_SP
+		If VALVE_POSITION >=90 then goto DECREASE_CHW_SP
+
+	INCREASE_CHW_SP:
+		'Routine to increase the chilled water supply setpoint until any valve reaches 90% open.
+		If (CHW_SETPOINT < 50) then CHW_SETPOINT = CHW_SETPOINT + 0.2
+		Goto HEATING_LOOP
+
+	DECREASE_CHW_SP:
+		'Routine to decrease the chilled water supply setpoint in increments of 0.5°F every 15 minutes, if any valve stays 90% open continuously for 15 minutes.
+		'The decreasing continues until the position of all control valves reach not more than 85% open.
+		If (CHW_SETPOINT > 45) then CHW_SETPOINT = CHW_SETPOINT - 0.5
+		Goto COOLING_LOOP
+
+	HEATING_LOOP:
+		'Waits 15 minutes then evaluates the highest valve position again.
+		Wait(900)
+		If VALVE_POSITION <=90 Then Goto INCREASE_CHW_SP
+		Goto SETLOAD
+
+	COOLING_LOOP:
+		Wait (900)
+		If VALVE_POSITION > 85 Then Goto DECREASE_CHW_SP
+		Goto SETLOAD

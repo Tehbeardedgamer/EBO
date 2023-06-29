@@ -1,0 +1,25 @@
+'PROGRAM VARIABLES
+Numeric Public SAF_SS, DUCT_PRESS_SP, DUCT_PRESS, SAF_SPEED_CTRL
+numeric Input SAF_STATUS_B, SAF_STATUS_A
+numeric OldError, PK, IK, DK, I
+function PID_CTRL
+
+'PROGRAM START
+goto Initialize
+
+Initialize:
+    PK = 3
+    IK = 0.05
+    DK = 0
+
+    goto ENABLE_SAF
+
+ENABLE_SAF:
+    if SAF_SS = 0 then SAF_SS = 1
+    Goto PROVE_SAF
+
+PROVE_SAF:
+    If SAF_STATUS_A = 1 & SAF_STATUS_B = 1 then goto ENABLE_CTRL
+
+ENABLE_CTRL:
+    SAF_SPEED_CTRL = PID_CTRL(1,DUCT_PRESS, DUCT_PRESS_SP, I, PK,IK,DK, OldError)
