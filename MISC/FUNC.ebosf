@@ -1,0 +1,81 @@
+Numeric Input CHW_PUMP_DOWN_1, CHW_PUMP_STATUS_1, CHW_PUMPS_REQ, CHW_PUMPS_SEQ_1
+Numeric Input CHW_PUMP_SPEED, CHW_PUMPS_RUNNING, CHW_PUMPS_AVAIL
+Numeric Output CHW_PUMP_SPEED_1, CHW_PUMP_CMD_1
+Numeric Public CHW_PUMP_FAIL_1
+Datetime Output CHW_PUMP_LSTART_1, CHW_PUMP_LSTOP_1
+Numeric Tmr
+
+Function pgSecTimer
+  'Implementation of the pgSecTimer function
+
+
+Function 
+  If CHW_PUMP_STATUS_1 = On Then Goto PumpOn Else Goto PumpOff
+
+  PumpOff:
+    If CHW_PUMPS_SEQ_1 <= CHW_PUMPS_REQ And CHW_PUMPS_SEQ_1 > 0 And CHW_PUMP_DOWN_1 = Off Then
+      CHW_PUMP_LSTART_1 = Date
+      CHW_PUMP_SPEED_1 = 40
+      Goto PumpStart
+    Endif
+    CHW_PUMP_CMD_1 = Off
+    CHW_PUMP_SPEED_1 = 0
+
+  PumpStart:
+    If CHW_PUMPS_SEQ_1 > CHW_PUMPS_REQ And CHW_PUMPS_SEQ_1 <> 0 And CHW_PUMP_DOWN_1 = Off And CHW_PUMPS_RUNNING > CHW_PUMPS_REQ Then
+      Goto RampPumpDown
+    Endif
+    If TS >= 30 Then
+      CHW_PUMP_FAIL_1 = On
+      Goto PumpFailed
+    Endif
+    CHW_PUMP_CMD_1 = On
+
+  RampPumpUp:
+    If CHW_PUMPS_SEQ_1 > CHW_PUMPS_REQ And CHW_PUMPS_SEQ_1 <> 0 And CHW_PUMP_DOWN_1 = Off And CHW_PUMPS_RUNNING > CHW_PUMPS_REQ Then
+      Goto RampPumpDown
+    Endif
+    If CHW_PUMP_SPEED_1 >= CHW_PUMP_SPEED - 2 Then Goto PumpOn
+    CHW_PUMP_SPEED_1 = Minimum(CHW_PUMP_SPEED_1 + 5, 100)
+    Goto RampUpWait
+
+  RampUpWait:
+    If CHW_PUMP_STATUS_1 = Off Then Goto PumpStart
+    If TS >= 5 Then Goto RampPumpUp
+
+  PumpOn:
+    If CHW_PUMPS_SEQ_1 > CHW_PUMPS_REQ And CHW_PUMPS_SEQ_1 <> 0 And CHW_PUMP_DOWN_1 = Off And CHW_PUMPS_RUNNING > CHW_PUMPS_REQ Then
+      Goto RampDownWait
+    Endif
+    If pgSecTimer(CHW_PUMP_STATUS_1 = Off, 10, Tmr) Then
+      CHW_PUMP_FAIL_1 = On
+      Goto PumpFailed
+    Endif
+    CHW_PUMP_CMD_1 = On
+    CHW_PUMP_SPEED_1 = CHW_PUMP_SPEED
+
+  RampPumpDown:
+    If CHW_PUMPS_SEQ_1 <= CHW_PUMPS_REQ And CHW_PUMPS_SEQ_1 > 0 And CHW_PUMP_DOWN_1 = Off Then
+      Goto RampPumpUp
+    Endif
+    If CHW_PUMP_SPEED_1 <= 40 Or CHW_PUMP_STATUS_1 = Off Or CHW_PUMPS_REQ = 0 Then
+      CHW_PUMP_LSTOP_1 = Date
+      Goto PumpOff
+    Endif
+    CHW_PUMP_SPEED_1 = Maximum(CHW_PUMP_SPEED_1 - 5, 40)
+    Goto RampDownWait
+
+  RampDownWait:
+    If TS >= 10 Then Goto RampPumpDown
+
+  PumpFailed:
+    If CHW_PUMPS_AVAIL = 0 Then CHW_PUMP_FAIL_1 = Off
+    If CHW_PUMP_FAIL_1 = Off Then Goto PumpOff
+    CHW_PUMP_CMD_1 = Off
+    CHW_PUMP_SPEED_1 = 0
+
+    return
+
+
+
+
