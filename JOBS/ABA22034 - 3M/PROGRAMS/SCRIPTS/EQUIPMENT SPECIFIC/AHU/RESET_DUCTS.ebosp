@@ -1,0 +1,51 @@
+'_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_
+' DECLARE VARIABLE INPUTS, OUTPUTS and PUBLICS   
+    'Program checks VAV damper positions for duct pressure reset
+    NUMERIC INPUT DAMPER_POS_1, DAMPER_POS_2, DAMPER_POS_3, DAMPER_POS_4, DAMPER_POS_5, DAMPER_POS_6, DAMPER_POS_7, DAMPER_POS_8, DAMPER_POS_9, DAMPER_POS_10, DUCT_PRESS_MIN, DUCT_PRESS_MAX, AHU01_STATUS
+    NUMERIC OUTPUT OPEN_DAMPER_MAX, DUCT_PRESS_SP
+    NUMERIC OPEN_DAMPER[10]
+
+    Goto AHUOff
+
+    GET_THEM:
+    OPEN_DAMPER[1] = DAMPER_POS_1
+    OPEN_DAMPER[2] = DAMPER_POS_2
+    OPEN_DAMPER[3] = DAMPER_POS_3
+    OPEN_DAMPER[4] = DAMPER_POS_4
+    OPEN_DAMPER[5] = DAMPER_POS_5
+    OPEN_DAMPER[6] = DAMPER_POS_6
+    OPEN_DAMPER[7] = DAMPER_POS_7
+    OPEN_DAMPER[8] = DAMPER_POS_8
+    OPEN_DAMPER[9] = DAMPER_POS_9
+    OPEN_DAMPER[10] = DAMPER_POS_10
+
+    OPEN_DAMPER_MAX = max(OPEN_DAMPER)
+
+    Goto CHECK_DAMPER
+'_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_
+' CHECK DAMPER
+    CHECK_DAMPER:  
+    If (OPEN_DAMPER_MAX > 100) then Goto RESET_SP_UP
+    If (OPEN_DAMPER_MAX < 95) then Goto RESET_SP_DOWN
+    Goto WAIT_LOOP
+'_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_
+' RESET SET POINT DOWN
+    RESET_SP_DOWN:
+    DUCT_PRESS_SP= maximum(DUCT_PRESS_SP= - 0.01, DUCT_PRESS_MIN)
+    Goto WAIT_LOOP
+'_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_
+' RESET SET POINT UP
+    RESET_SP_UP:
+    DUCT_PRESS_SP= minimum(DUCT_PRESS_SP= + 0.01, DUCT_PRESS_MAX)
+    Goto WAIT_LOOP
+'_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_
+' AHU OFF
+    AHUOff:
+    If AHU01_STATUS = On then Goto GET_THEM
+    DUCT_PRESS_SP = 1.25
+    Goto WAIT_LOOP
+'_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_
+' WAIT LOOP
+    WAIT_LOOP:
+    If TS > 900 then Goto AHUOff
+    

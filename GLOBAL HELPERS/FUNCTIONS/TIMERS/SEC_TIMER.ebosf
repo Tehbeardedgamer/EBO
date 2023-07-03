@@ -1,0 +1,29 @@
+'_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_
+' 'UPDATES - JULY 2023 - SWENNERMARK@ENTECHSALES.COM
+    
+'   DESCRIPTION
+    ' If Condition is True for the given number of seconds,then this function evaluates to true. 
+    ' Every time the Condition is False, the timer is reset.
+    ' If AutoReset is true, the timer is reset the first, second the function is called on a new line.  
+    ' AutoReset defaults to true if not passed.
+    ' KES - 8/4/97
+
+'_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_
+' DEFINE REQUIRED ARGUMENTS
+Arg 1 Condition
+Arg 2 NumofSecs
+Arg 3 Tmr
+
+'_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_
+' DEFINE QUALIFIERS
+Numeric AutoReset
+
+'_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_
+' FUNCTION CALCULATIONS
+If passed(4) then AutoReset = Arg[4] Else Turn On AutoReset
+Tmr = (Tmr + Scan) * (Condition)
+If AutoReset and TS = 0 then Tmr = 0
+
+'_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_
+' RETURN TO CALLING PROGRAM
+Return (Tmr > NumofSecs)

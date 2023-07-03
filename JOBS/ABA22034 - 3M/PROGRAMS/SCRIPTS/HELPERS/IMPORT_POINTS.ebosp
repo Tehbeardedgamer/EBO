@@ -1,0 +1,22 @@
+'_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_
+' DECLARE VARIABLE INPUTS, OUTPUTS and PUBLICS
+    Numeric Input SPACE_PRESSURE,AHU01_STATUS,SAF_STATUS_1,SAF_STATUS_2,OA_HUMID,OA_TEMP,OCCUPIED
+    Numeric Output X_SPACE_PRESSURE,X_AHU01_STATUS,xSAF_STATUS_1,xSAF_STATUS_2,xOA_HUMID,xOA_TEMP,xOCCUPIED
+
+    Goto IMPORT
+'_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_
+' IMPORT
+    IMPORT:
+    X_AHU01_STATUS = AHU01_STATUS
+    X_SPACE_PRESSURE = SPACE_PRESSURE
+    xSAF_STATUS_1 = SAF_STATUS_1
+    xSAF_STATUS_2 = SAF_STATUS_2
+    xOA_HUMID = OA_HUMID
+    xOA_TEMP = OA_TEMP
+    xOCCUPIED = OCCUPIED
+    
+    Goto WAIT_LOOP
+'_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_
+' WAIT_LOOP
+    WAIT_LOOP:
+    IF  TS > 10 then goto IMPORT

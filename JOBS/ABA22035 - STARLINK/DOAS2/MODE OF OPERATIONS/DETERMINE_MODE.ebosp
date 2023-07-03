@@ -7,8 +7,8 @@ DETERMINEMODE:
   'OCCUPIED_MODE
     Select Case True
         Case OCC_SCHEDULE = on
-            OCCUPIED_MODE = on
-        UNOCCUPIED_MODE = off
+             OCCUPIED_MODE = on
+             UNOCCUPIED_MODE = off
         Case Else
             UNOCCUPIED_MODE = on
             OCCUPIED_MODE = off

@@ -1,0 +1,40 @@
+'_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_
+' DECLARE VARIABLE INPUTS, OUTPUTS and PUBLICS
+    'RLF Air Damper control program.
+    'Looping, AutoStart, CommandLine
+    Numeric Input AHU01Running,SPACE_PRESS,SPACE_PRESS_SP
+    Numeric Output RELIEF_DAMPER_EAST
+    Numeric kp, ki, kd, bias, actn, lerr, intg
+    Function PID_FCT
+
+    Goto INITALIZE
+'_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_
+' INITIALIZE
+    INITALIZE:
+    kp = 0.0001 
+    ki = 1e-005
+    kd = 0
+    lerr and intg = 0
+    actn = 0
+    bias = 1
+
+    Goto FanOff
+'_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_
+' CONTROL LOOP
+    CONTROL_LOOP:
+    If (AHU01Running = Off) then Goto FanOff
+    RELIEF_DAMPER_EAST = PID_FCT(SPACE_PRESS,SPACE_PRESS_SP,kp, ki, kd, bias, actn, lerr, intg) * 100
+    Goto WAIT_LINE
+
+'_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_
+' FAN OFF
+    FanOff:
+    If (AHU01Running = On) then Goto CONTROL_LOOP
+    RELIEF_DAMPER_EAST = 0
+    lerr and intg = 0
+'_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_
+' WAIT LINE
+WAIT_LINE:
+  If TS >= 15 then Goto CONTROL_LOOP
+
+'End of Program

@@ -1,0 +1,30 @@
+{
+	"EBO Script Setup": {
+		"prefix": "EBOSP",
+		"body": [
+		  "'_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_",
+		  "' DECLARE VARIABLE INPUTS, OUTPUTS and PUBLICS ",
+		  "  'NUMERIC PUBLIC",
+		  "  'NUMERIC INPUT",
+		  "  'NUMERIC OUTPUT",
+		  "  'NUMERIC",
+		  "  'FUNCTION",
+		  "",
+		  "  Goto INITALIZE",
+		  "'_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_",
+		  "' INITALIZE",
+		  "  INITALIZE:",
+		  "  'ADD VALUES OR VARIABLES HERE",
+		  "  Goto ${1:StartLine}",
+		  "'_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_",
+		  "'PROGRAM START LINE NAME",
+		  "  ${1:StartLine}:",
+		  "",
+		  "'_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_",
+		  "' WAIT LINE",
+		  "  WAIT_LINE:",
+		  "  If TS>30 Then Goto ${2:ControlLine}"
+		],
+		"description": "EBO Script Setup"
+	  }
+}

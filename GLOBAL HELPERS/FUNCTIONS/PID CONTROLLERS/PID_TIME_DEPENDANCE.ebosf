@@ -1,0 +1,38 @@
+'_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_
+' UPDATES JULY 2023 SWENNERMARK@ENCTECHSALES.COM 
+    'PIDLoop Function ( Short Version ) - PRODUCES SIGNAL FROM 0 TO 1 REPRESENTING 0-100% CAPACITY
+'_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_
+' DEFINE REQUIRED ARGUMENTS
+    Arg 1 controlledVariable            ' controlled variable (sensor)
+    Arg 2 setPoint                      ' setpoint
+    Arg 3 kP                            ' proportional gain - constant
+    Arg 4 kI                            ' integral gain - constant
+    Arg 5 kD                            ' derivative gain - constant
+    Arg 6 bias                          ' initial output value when no error exists
+    Arg 7 directionAction               ' directional relationship of controlledVariable and output capacity (1=DA 0=RA)
+    Arg 8 initialError                  ' error from previous scan - stored in calling program
+    Arg 9 integralValue                 ' integral value - stored in calling program
+    Arg 10 lastTimeCalled               ' last time the function was called - datetime variable
+
+'_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_
+' DEFINE QUALIFIERS
+Numeric actualError	   		        ' difference between setPoint and controlledVariable
+Numeric diffCurrentLastTimeCalled 	' difference between current time and lastTimeCalled
+Numeric outputValue       		      ' output capacity (0-1) - returned to calling program
+
+'_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_
+' FUNCTION CALCULATIONS
+If passed(10) then
+  diffCurrentLastTimeCalled = maximum((Time - lastTimeCalled), Scan)
+  lastTimeCalled = Time
+Else
+  diffCurrentLastTimeCalled = Scan
+Endif
+
+actualError = ((controlledVariable - setPoint) * (directionAction = 1)) + ((setPoint - controlledVariable) * (directionAction = 0))
+outputValue = maximum(minimum(((kP * actualError) + (kI * integralValue) + (kD * ((actualError - initialError) / diffCurrentLastTimeCalled)) + bias), 1), 0)
+integralValue = integralValue + (actualError * diffCurrentLastTimeCalled * (((outputValue < 1) or (actualError < 0)) and ((outputValue > 0) or (actualError > 0))))
+initialError = actualError
+'_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_
+' RETURN TO CALLING PROGRAM 
+Return outputValue

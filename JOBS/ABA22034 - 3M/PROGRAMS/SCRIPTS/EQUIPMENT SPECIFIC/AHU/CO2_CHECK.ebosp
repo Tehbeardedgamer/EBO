@@ -1,0 +1,34 @@
+'_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_
+' DECLARE VARIABLE INPUTS, OUTPUTS and PUBLICS
+    Numeric Input SPACE_CO2_1,SPACE_CO2_2, SPACE_CO2_3,SPACE_CO2_4,SPACE_CO2_5,SPACE_CO2_6,SPACE_CO2_7,SPACE_CO2_8,SPACE_CO2_9,SPACE_CO2_10,AHU01_STATUS
+    Numeric Output CO2_CURRENT
+    'Program checks VAV CO2 levels, returns the max CO2 Level and waits to check again.
+    Numeric CO2_CHECK[10]
+
+    Goto GET_CO2
+'_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_
+'CHECK CO2 LEVELS
+    GET_CO2:
+    CO2_CHECK [1] = SPACE_CO2_1
+    CO2_CHECK [2] = SPACE_CO2_2
+    CO2_CHECK [3] = SPACE_CO2_3
+    CO2_CHECK [4] = SPACE_CO2_4
+    CO2_CHECK [5] = SPACE_CO2_5
+    CO2_CHECK [6] = SPACE_CO2_6
+    CO2_CHECK [7] = SPACE_CO2_7
+    CO2_CHECK [8] = SPACE_CO2_8
+    CO2_CHECK [9] = SPACE_CO2_9
+    CO2_CHECK [10] = SPACE_CO2_10
+
+    CO2_CURRENT = max(CO2_CHECK)
+
+    Goto WAIT_LOOP
+
+'_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_
+' WAIT
+    WAIT_LOOP:
+    IF TS >= 30 & AHU01_STATUS = Off then goto AHU_OFF
+'_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_
+' AHU OFF
+    AHU_OFF:
+    IF TS >= 30 & AHU01_STATUS = On THEN Goto GET_CO2  

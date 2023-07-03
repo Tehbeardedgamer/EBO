@@ -1,0 +1,68 @@
+'_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_
+' UPDATES JULY 2023 SWENNERMARK@ENCTECHSALES.COM 
+    'If Arguments 9, 10 and 11 are passed, the function returns the CONVERTED value instead of a percentage value, and sets Arg[11] to the percentage value
+        'Arg[9]  = Zero Percent Position
+        'Arg[10] = Hundred Percent Position
+        'Arg[11] = Percent Numeric
+
+    ' Output = PIDControl(0, Temp, Stpt, I.Vlv, Pk, Ik, Dk, OldError) sets the Output to a value between 0-100 percent
+        ' NO ADDITIONAL ARGS PASSED
+
+    ' Output = PIDControl(0, Temp, Stpt, I.Vlv, Pk, Ik, Dk, OldError, 0.1, 12.85, Pct.Vlv)  - sets the Output to a value between 0.1-12.85 (0.1=0% and 12.85=100%), and sets Pct.Vlv to a value between 0-100 percent
+        ' WITH ARGS 9. 10, 11 PASSED
+
+    ' Output = PIDControl(0, Temp, Stpt, I.Vlv, Pk, Ik, Dk, OldError, 12.85, 0.1, Pct.Vlv) - sets the Output to a value between 0.1-12.85 (12.85=0% and 01.=100%), and sets Pct.Vlv to a value between 0-100 percent
+        ' WITH ARGS 9. 10, 11 PASSED
+
+'_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_
+' DEFINE REQUIRED ARGUMENTS
+    Arg 1 ReverseActing
+
+    Arg 2 ProcessVariable
+
+    Arg 3 Setpoint
+
+    Arg 4 Integral
+
+    Arg 5 ProportionalK
+
+    Arg 6 IntegralK
+
+    Arg 7 DerivativeK
+
+    Arg 8 OldError
+
+
+'_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_
+' DEFINE REQUIRED QUALIFIERS
+    Numeric ThisError
+'_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_
+' DETERMINES CALCULATION METHOD
+    If ReverseActing = 1 then
+
+    ThisError = ProcessVariable - Setpoint
+
+    Else
+
+    ThisError = Setpoint - ProcessVariable
+
+    Endif
+
+'_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_
+' FUNCTION CALCULATIONS 
+
+    Integral = maximum(minimum(Integral + (ThisError * IntegralK) + ((ThisError - OldError) * DerivativeK), 100), 0)
+
+    OldError = ThisError
+
+    If passed(9) & passed(10) & passed(11) then
+
+    Arg[11] = maximum(minimum(Integral + (ThisError * ProportionalK), 100), 0)
+
+    Return (Arg[11] * ((Arg[10] - Arg[9]) / 100)) + Arg[9]
+
+    Else
+
+    Return maximum(minimum(Integral + (ThisError * ProportionalK), 100), 0)
+
+    Endif

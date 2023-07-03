@@ -1,0 +1,33 @@
+'_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_
+' DECLARE VARIABLE INPUTS, OUTPUTS and PUBLICS
+    Numeric Input SPACE_TEMP,UNOCC_OVRD_TIMER
+    Numeric Output OVRD,OVRD_TIME
+    Numeric LastMinute
+    'AfterHoursCheck - Looks for space temperature sensors override button to be pushed
+    'Pgm Config - Looping, AutoStart, Command Line
+     Goto Initalize
+'_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_
+' INITALIZE
+    Initalize:
+    LastMinute = Minute
+    Goto TimeCheck
+'_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_
+' TIME CHECK
+    TimeCheck:
+    If SPACE_TEMP > 120 then '120 is a value used to detect that the override button has been depressed.
+    'When the override button is depressed the temp value will momentarily be increased above 120.
+        OVRD = 1
+        If OVRD_TIME < UNOCC_OVRD_TIMER then OVRD_TIME = UNOCC_OVRD_TIMER 'UnOccOvdTimer initially set to 60 minutes.
+    Endif
+    If LastMinute <> Minute then Goto ShaveOff
+'_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_
+' OVERRIDE TIMER
+    ShaveOff: 'This line keeps subtracting one minute from the OverrideTime until it = 0. Then the unit will come
+    ' out of Override.
+    LastMinute = Minute
+    If OVRD_TIME > 0 then
+        OVRD_TIME = OVRD_TIME - 1
+    Endif
+    If OVRD_TIME = 0 then OVRD = 0
+    Goto TimeCheck
+'End Program

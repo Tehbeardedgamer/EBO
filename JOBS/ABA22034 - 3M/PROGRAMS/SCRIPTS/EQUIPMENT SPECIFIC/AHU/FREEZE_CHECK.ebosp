@@ -1,0 +1,18 @@
+'_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_
+' DECLARE VARIABLE INPUTS, OUTPUTS and PUBLICS
+    Numeric input MXA_TEMP, ALARM_TEMP_LOW
+    Numeric Output Freeze
+
+    Goto CHECK_FREEZE
+'_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_
+' CHECK FREEZE
+    CHECK_FREEZE:
+        If (MXA_TEMP < 38) or (ALARM_TEMP_LOW = on) then Freeze = on
+        
+        Freeze = off
+    
+    Goto WAIT_LINE
+'_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_
+' WAIT LINE
+    WAIT_LINE:
+        If TS>=30 then Goto CHECK_FREEZE

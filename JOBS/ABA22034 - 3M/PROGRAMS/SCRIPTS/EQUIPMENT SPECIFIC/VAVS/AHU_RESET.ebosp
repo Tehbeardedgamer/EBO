@@ -1,0 +1,22 @@
+'_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_
+' DECLARE VARIABLE INPUTS, OUTPUTS and PUBLICS
+    Numeric input SPACE_TEMP,OCCUPIED,UNOCC_COOLING_SP,UNOCC_HEATING_SP
+    Numeric Output OVRD_AHU
+
+    Goto isOCCUPIED
+'_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_
+' OCCUPIED MODE
+    isOCCUPIED:
+    If OCCUPIED = Off then goto UNOCC
+    OVRD_AHU = Off
+
+'_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_
+'UNOCCUPIED MODE
+    UNOCC:
+    If OCCUPIED = On then goto isOCCUPIED
+    IF (SPACE_TEMP < UNOCC_HEATING_SP) or (SPACE_TEMP > UNOCC_COOLING_SP) then
+    OVRD_AHU = On
+    else
+    OVRD_AHU = Off
+    endif
+
