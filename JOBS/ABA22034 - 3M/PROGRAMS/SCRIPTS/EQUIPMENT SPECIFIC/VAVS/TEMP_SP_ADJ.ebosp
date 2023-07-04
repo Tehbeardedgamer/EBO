@@ -1,7 +1,7 @@
 '_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_
 ' DECLARE VARIABLE INPUTS, OUTPUTS and PUBLICS 
     Numeric Input SPACE_SP, HEATING_DB, SPACE_SP_ADJ, OVRD, OCCUPIED, UNOCC_COOLING_SP, UNOCC_HEATING_SP
-    Numeric Output SPACE_SP_ADJUSTED, HEATING_SP, COOLING_SP_CTRL, HEATING_SP_CTRL
+    Numeric Output SPACE_SP_ADJUSTED, HEATING_SP, COOLING_SP_CMD, HEATING_SP_CMD
     
     Goto isOCCUPIED
 '_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_
@@ -10,12 +10,12 @@
     If (OCCUPIED = Off) and (OVRD = Off) then Goto UNOCC
     SPACE_SP_ADJUSTED = (SPACE_SP + SPACE_SP_ADJ)
     HEATING_SP = (SPACE_SP_ADJUSTED - HEATING_DB)
-    COOLING_SP_CTRL = SPACE_SP_ADJUSTED
-    HEATING_SP_CTRL = HEATING_SP
+    COOLING_SP_CMD = SPACE_SP_ADJUSTED
+    HEATING_SP_CMD = HEATING_SP
 '_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_
 'UNOCCUPIED
     UNOCC:  
     If (OCCUPIED = On) or (OVRD = On) then Goto isOCCUPIED
     SPACE_SP_ADJUSTED = (SPACE_SP + SPACE_SP_ADJ)
-    COOLING_SP_CTRL= UNOCC_COOLING_SP	
-    HEATING_SP_CTRL= UNOCC_HEATING_SP
+    COOLING_SP_CMD= UNOCC_COOLING_SP	
+    HEATING_SP_CMD= UNOCC_HEATING_SP
