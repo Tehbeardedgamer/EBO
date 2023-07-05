@@ -1,43 +1,39 @@
-Numeric Input EXA_TEMP,OA_TEMP,WHEEL_DP_STATUS,EXA_DAMPER_CMD_BYPASS,OA_DAMPER_CMD_BYPASS,SA_TEMP, WHEEL,OA_WHEEL_SA_TEMP,EXA_DAMPER_POS,EXA_DAMPER_POS_BYPASS,OCC_SCHEDULE
+Numeric Input EXA_TEMP,OA_TEMP,EXA_DAMPER_CMD_BYPASS,CHW_SA_TEMP, ERW_SS,ERW_SA_TEMP,OCC_SCHEDULE
 Numeric Output COOLING_MODE, ECONCOOLING_MODE, ECONOMIZER_MODE, HEATING_MODE,OCCUPIED_MODE,UNOCCUPIED_MODE
 
-'OCCUPIED_MODE
-Select Case True
-    Case OCC_SCHEDULE = on
-        OCCUPIED_MODE = on
-        UNOCCUPIED_mode = off
-    Case Else
-        UNOCCUPIED_mode = on
-        OCCUPIED_MODE = off
-EndSelect
+
+goto isOCCUPIED
+
+isOCCUPIED:
+If OCC_SCHEDULE = on Then OCCUPIED_MODE = on and UNOCCUPIED_MODE = off 
+else OCCUPIED_MODE = off and UNOCCUPIED_MODE = on
+
+Goto DETERMINE_MODE
+
+DETERMINE_MODE:
+
 'COOLING MODE
-Select Case True
-    Case OA_TEMP > EXA_TEMP
-        COOLING_MODE = on
-    Case Else
-        COOLING_MODE = off
-EndSelect
+
+If  OA_TEMP > (EXA_TEMP + 2) then COOLING_MODE = on
+    Else COOLING_MODE = off
+
 'ECONOMIZER COOLING MODE
-Select Case True
-    Case OA_TEMP < EXA_TEMP And OA_TEMP > SA_TEMP
-        ECONCOOLING_MODE = on
-    Case Else
-        ECONCOOLING_MODE = off
-EndSelect
+
+
+If OA_TEMP < EXA_TEMP And OA_TEMP > CHW_SA_TEMP  then ECONCOOLING_MODE = on
+    Else ECONCOOLING_MODE = off
+
 'ECONOMIZER MODE
-Select Case True
-    Case OA_TEMP < SA_TEMP
-        ECONOMIZER_MODE = on
-    Case Else
-        ECONOMIZER_MODE = off
-EndSelect
+
+If OA_TEMP < (CHW_SA_TEMP - 2) then ECONOMIZER_MODE = on and ERW_SS = On
+    Else ECONOMIZER_MODE = off
+
 'HEATING MODE
-Select Case True
-    Case Wheel = on And EXA_DAMPER_POS_BYPASS = off And OA_WHEEL_SA_TEMP < (SA_TEMP - 2)
-        HEATING_MODE = on
-    Case Else
-        HEATING_MODE = off
-EndSelect
 
+If  ERW_SS = on And EXA_DAMPER_CMD_BYPASS = off And ERW_SA_TEMP < (CHW_SA_TEMP - 2) Then HEATING_MODE = on
+    Else HEATING_MODE = off
 
+Goto WAIT_LOOP
+
+WAIT_LOOP:
 Wait 60
