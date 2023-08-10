@@ -235,3 +235,4 @@ WAIT_LOOP:
 
     Wait 60
     Goto CHECK_DEVICE_AVAIL
+
