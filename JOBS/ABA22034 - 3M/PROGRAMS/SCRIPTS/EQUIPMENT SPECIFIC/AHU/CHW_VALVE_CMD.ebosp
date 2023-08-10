@@ -1,0 +1,50 @@
+'_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_
+' DECLARE VARIABLE INPUTS, OUTPUTS and PUBLICS
+    Numeric OUTPUT CHW_VALVE_CMD
+    Numeric Input CHW_SA_TEMP_1, CHW_SA_TEMP_2,AHU01_STATUS, CHW_SA_TEMP_SP, FREEZE
+    Numeric CHW_TEMP_AVG, OldError, PK, IK, DK, I_Vlv_CHW
+
+    Function PID_CTRL
+    ' Chilled Water Valve control program.
+    ' Looping, AutoStart, CommandLine
+
+    Goto Initialize
+
+'_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_
+' INITALIZE
+    Initialize:
+    PK = 3
+    IK = 0.05
+    DK = 0
+    CHW_TEMP_AVG = AVG (CHW_SA_TEMP_1, CHW_SA_TEMP_2)
+
+'_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_
+' CONTROL LOOP
+    CONTROL_LOOP:
+    If FREEZE = On then Goto FREEZE_LINE
+    If (AHU01_STATUS = Off) then Goto CLOSE_VALVE
+    CHW_TEMP_AVG = AVG (CHW_SA_TEMP_1 CHW_SA_TEMP_2)
+    CHW_VALVE_CMD = PID_CTRL(1, CHW_TEMP_AVG, CHW_SA_TEMP_SP, I_Vlv_CHW, PK, IK, DK, OldError)
+    Goto WaitAbit
+
+'_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_
+' CLOSE VALUE
+    CLOSE_VALVE:
+    If (AHU01_STATUS = On) then Goto CONTROL_LOOP
+    If FREEZE = On then Goto FREEZE_LINE
+    CHW_TEMP_AVG = AVG (CHW_SA_TEMP_1, CHW_SA_TEMP_2)
+    CHW_VALVE_CMD = 0
+    I_Vlv_CHW = 0
+
+'_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_
+' FREEZE LINE
+    FREEZE_LINE:
+        If (FREEZE = Off) then Goto CLOSE_VALVE
+        CHW_TEMP_AVG = AVG (CHW_SA_TEMP_1, CHW_SA_TEMP_2)
+        CHW_VALVE_CMD = 100                    
+'_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_
+' WAIT
+    WaitAbit:
+    If TS >= 10 then Goto CONTROL_LOOP
+
+'End of Program 

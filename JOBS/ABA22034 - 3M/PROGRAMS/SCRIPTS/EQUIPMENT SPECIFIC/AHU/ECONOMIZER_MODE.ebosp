@@ -1,0 +1,20 @@
+'_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_
+' DECLARE VARIABLE INPUTS, OUTPUTS and PUBLICS
+    Numeric Input xOA_HUMID,xOA_TEMP
+    Numeric Output ECONOMIZER
+    Numeric tmr,ENTHALPY
+    Function ENTHALPY_FCT,Sectimer
+
+    Goto ECNONOMIZER_OFF
+'_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_
+' ECONOMIZER OFF
+    ECNONOMIZER_OFF:
+    ENTHALPY = ENTHALPY_FCT(xOA_TEMP,xOA_HUMID)
+    If Sectimer((ENTHALPY < 27 and xOA_TEMP < 65),1800,tmr) and (xOA_TEMP > 35) then goto ECONOMIZER_ON
+    ECONOMIZER = Off
+'_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_
+' ECONOMIZER ON
+    ECONOMIZER_ON:
+    ENTHALPY = ENTHALPY_FCT(xOA_TEMP,xOA_HUMID)
+    If (ENTHALPY > 27) or (xOA_TEMP < 35) or (xOA_HUMID > 90) then goto ECNONOMIZER_OFF
+    ECONOMIZER = On

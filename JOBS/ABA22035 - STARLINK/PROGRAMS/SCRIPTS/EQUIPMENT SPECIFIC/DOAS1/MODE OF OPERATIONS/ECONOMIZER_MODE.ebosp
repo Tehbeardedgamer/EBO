@@ -1,9 +1,9 @@
 'sequence ECONOMIZER MODE: THE ERW SHALL BE ON AND THE DAMPER SHALL MODULATE TO MAINTAIN T-3. IF ADDITIONAL COOLING IS REQUIRED, THE 2-WAY, MODULATING CHILLED WATER CONTROL VALVE CV-1 SHALL MODULATE TO MAINTAIN T-3 SETPOINT.
 
 ' Define the inputs and variables
-Numeric Input CHWC_SA_TEMP, CHWC_SA_TEMP_SP, COOLING_MODE
+Numeric Input CHW_SA_TEMP, CHW_SA_TEMP_SP, COOLING_MODE
 Numeric OldError, PK, IK, DK, I_Vlv_Damper, I_Vlv_CHW
-numeric Output OA_DAMPER_CMD_BYPASS, ERW_SS, CHWC_VALVE_CTRL, EXA_DAMPER_CMD_BYPASS
+numeric Output OA_DAMPER_CMD_BYPASS, ERW_SS, CHW_VALVE_CMD, EXA_DAMPER_CMD_BYPASS
 Function PID_CTRL
 
 ' Initialize the PID gains
@@ -20,12 +20,12 @@ Initialize:
     Goto ControlLoop
 
 ControlLoop:
-EXA_DAMPER_CMD_BYPASS = PID_CTRL(1, CHWC_SA_TEMP, CHWC_SA_TEMP_SP, I_Vlv_Damper, PK, IK, DK, OldError)
+EXA_DAMPER_CMD_BYPASS = PID_CTRL(1, CHW_SA_TEMP, CHW_SA_TEMP_SP, I_Vlv_Damper, PK, IK, DK, OldError)
 
   ' If additional cooling is required, the chilled water control valve should modulate to maintain the T-3 setpoint
-  If (CHWC_SA_TEMP > CHWC_SA_TEMP_SP) then CHWC_VALVE_CTRL = PID_CTRL(1,CHWC_SA_TEMP, CHWC_SA_TEMP_SP, I_Vlv_CHW, PK, IK, DK, OldError)
+  If (CHW_SA_TEMP > CHW_SA_TEMP_SP) then CHW_VALVE_CMD = PID_CTRL(1,CHW_SA_TEMP, CHW_SA_TEMP_SP, I_Vlv_CHW, PK, IK, DK, OldError)
 
-  Goto WaitAbit
+  Goto WAIT_LOOP
 
-WaitAbit:
-  If TS >= 5 then Goto EconomizerMode
+WAIT_LOOP:
+  If TS >= 10 then Goto EconomizerMode

@@ -1,0 +1,31 @@
+
+'_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_
+' DECLARE VARIABLE INPUTS, OUTPUTS and PUBLICS
+    'This program will control a demand ventilation system.
+    'The system will open the outside air dampers if the CO2 concentration is above a threshold.
+    'The system will close the outside air dampers if the CO2 concentration falls below a safe level.
+    Numeric Input  CO2_CURRENT,OA_FLOW_MIN,OA_FLOW_MAX
+    Numeric Output OA_FLOW_SP
+    Numeric CO2_MAX, CO2_SAFE,TMR
+    Function SEC_TIMER
+
+'_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_
+' INITIALIZE VARIABLES
+    CO2_MAX = 1100
+    CO2_SAFE = 900
+    Goto WATCHING
+'_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_
+' WATCHING CO2
+    WATCHING:
+    If (CO2_CURRENT > CO2_MAX) then goto STEP_UP
+    OA_FLOW_SP = OA_FLOW_MIN
+'_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_
+' CO2 MODE
+    CO2_MODE:
+    If (CO2_CURRENT > CO2_MAX) and (TM > 5) then goto STEP_UP
+    If SEC_TIMER((CO2_CURRENT <= CO2_SAFE),1200,TMR) then goto WATCHING
+'_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_
+' STEP UP
+    STEP_UP:
+    OA_FLOW_SP = Minimum((OA_FLOW_SP + 100),OA_FLOW_MAX)
+    Goto CO2_MODE

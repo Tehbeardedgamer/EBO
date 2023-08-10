@@ -1,0 +1,80 @@
+'_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_
+' DECLARE VARIABLE INPUTS, OUTPUTS and PUBLICS
+    Numeric Input AHU01_STATUS,ECONOMIZER,FREEZE,OA_FLOW_1,OA_FLOW_2,OA_FLOW_3,OA_FLOW_4, OA_FLOW_SP,MXA_TEMP_1,MXA_TEMP_2,MXA_SP
+    Numeric Output TOTAL_FLOW,OA_DAMPER_CMD,MXA_TEMP_AVG,RA_DAMPER_CMD
+    Numeric kp, ki, kd, bias, actn, lerr, intg, tmr, kp1, ki1, kd1, bias1, actn1, lerr1, intg1,tmr2
+    Function PID_FCT,Sectimer
+    'Outside Air Damper control program.
+    'Looping, AutoStart, CommandLine
+
+    
+
+    Goto INITALIZE
+'_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_
+' INITALZIE
+    INITALIZE:
+    kp = 0.0001 ' 0.001
+    ki = 1e-005
+    kd = 0
+    lerr and intg = 0
+    actn = 0
+    bias = 1
+    kp1 = 0.003
+    ki1 = 0.0005
+    kd1 = 0
+    lerr1 and intg1 = 0
+    actn1 = 1
+    bias1 = 1
+    Goto FAN_OFF
+'_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_
+' CONTROL LOOP
+    CONTROL_LOOP:
+    If (AHU01_STATUS = Off) then Goto FAN_OFF
+    If (ECONOMIZER = On) then Goto ECONOMIZER_MODE
+    If (FREEZE = On) then Goto FREEZE_MODE
+        TOTAL_FLOW= Sum(OA_FLOW_1,OA_FLOW_2,OA_FLOW_3,OA_FLOW_4)
+        OA_DAMPER_CMD = PID_FCT(TOTAL_FLOW, OA_FLOW_SP, kp, ki, kd, bias, actn, lerr, intg) * 100
+        RA_DAMPER_CMD = 100
+    If Sectimer((TOTAL_FLOW < OA_FLOW_SP),300,tmr) then goto RA_CTRL
+'_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_
+' RETURN AIR CONTROL
+	RA_CTRL:
+    If (AHU01_STATUS = Off) then Goto FAN_OFF
+    If (ECONOMIZER = On) then Goto ECONOMIZER_MODE
+    If (FREEZE = On) then Goto FREEZE_MODE
+        TOTAL_FLOW = Sum(OA_FLOW_1,OA_FLOW_2,OA_FLOW_3,OA_FLOW_4)
+        RA_DAMPER_CMD = Maximum(PID_FCT(TOTAL_FLOW, OA_FLOW_SP, kp, ki, kd, bias, actn, lerr, intg) * 100,50)
+        OA_DAMPER_CMD = 100
+    If Sectimer((TOTAL_FLOW > OA_FLOW_SP),300,tmr2) and (RA_DAMPER_CMD >= 98) then goto CONTROL_LOOP
+'_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_
+' FAN OFF
+    FAN_OFF:
+    If (AHU01_STATUS = On) then Goto STARTUP
+        OA_DAMPER_CMD = 0
+        RA_DAMPER_CMD = 100
+        lerr and intg = 0
+'_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_
+' STARTUP
+    STARTUP:
+    If (AHU01_STATUS = Off) then Goto FAN_OFF
+    If TS > 60 then Goto CONTROL_LOOP
+        OA_DAMPER_CMD= 100
+        RA_DAMPER_CMD = 100
+'_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_
+' ECONOMIZER MODE
+    ECONOMIZER_MODE:
+    If (ECONOMIZER = Off) then Goto CONTROL_LOOP
+    If (FREEZE = On) then Goto FREEZE_MODE
+        MXA_TEMP_AVG = Avg(MXA_TEMP_1,MXA_TEMP_2)
+        OA_DAMPER_CMD = PID_FCT(MXA_TEMP_AVG, MXA_SP, kp1, ki1, kd1, bias1, actn1, lerr1, intg1) * 100
+        RA_DAMPER_CMD = Maximum((100 - OA_DAMPER_CMD),50)
+'_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_
+' FREEZE MODE
+    FREEZE_MODE:
+    If (FREEZE = Off) then Goto CONTROL_LOOP
+        OA_DAMPER_CMD = 0
+        RA_DAMPER_CMD = 100
+        lerr and intg = 0
+
+
+'End of Program

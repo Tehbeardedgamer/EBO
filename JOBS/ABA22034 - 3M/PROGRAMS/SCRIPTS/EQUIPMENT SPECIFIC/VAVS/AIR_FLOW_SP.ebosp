@@ -1,0 +1,36 @@
+'_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_
+' DECLARE VARIABLE INPUTS, OUTPUTS and PUBLICS
+    Numeric Input COOLING_SP_CMD,HEATING_SP_CMD,SPACE_TEMP,SA_FLOW_MAX,SA_FLOW_MIN,SA_FLOW_HEAT_MAX
+    Numeric Output SA_FLOW_SP,HEAT_MODE
+    Numeric OldError, PK, IK, DK, Ivav,PCT_VAV,OldError1, PK1, IK1, DK1, Ivav1,PCT_VAV_1,RMTempSgnl
+    Function PID_CTRL
+    Goto Initialize
+'_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_
+' INITALIZE
+    Initialize:
+    PK = 3
+    IK = .05
+    DK = 0
+    PK1 = 3
+    IK1 = .05
+    DK1 = 0
+    Goto Cooling
+'_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_
+' COOLING
+    Cooling:
+    HEAT_MODE = Off
+    If (SPACE_TEMP < HEATING_SP_CMD) then Goto Heating
+    RMTempSgnl = PID_CTRL(1,SPACE_TEMP, COOLING_SP_CMD, Ivav, PK, IK, DK, OldError, 0,1,PCT_VAV)
+    SA_FLOW_SP = maximum(minimum(((((RMTempSgnl - 0.5) * 2) * (SA_FLOW_MAX - SA_FLOW_MIN)) + SA_FLOW_MIN), SA_FLOW_MAX), SA_FLOW_MIN)
+'_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_
+' HEATING
+    Heating:
+    HEAT_MODE = On
+    If (SPACE_TEMP > HEATING_SP_CMD) then Goto Cooling
+    RMTempSgnl = PID_CTRL(0,SPACE_TEMP, HEATING_SP_CMD, Ivav1, PK1, IK1, DK1, OldError1, 0,1,PCT_VAV_1)
+    SA_FLOW_SP = maximum(minimum(((((RMTempSgnl - 0.5) * 2) * (SA_FLOW_HEAT_MAX - SA_FLOW_MIN)) + SA_FLOW_MIN), SA_FLOW_HEAT_MAX), SA_FLOW_MIN)
+
+
+
+
+'EndProgram

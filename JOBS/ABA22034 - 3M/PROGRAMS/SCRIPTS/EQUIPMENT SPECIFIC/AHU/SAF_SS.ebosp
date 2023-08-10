@@ -1,0 +1,16 @@
+'_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_
+' DECLARE VARIABLE INPUTS, OUTPUTS and PUBLICS
+  Numeric Input OCCUPIED
+  Numeric Output SAF_SS
+
+  Goto FAN_OFF
+'_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_
+' FAN OFF
+  FAN_OFF:
+    If OCCUPIED = ON then goto FAN_ON
+    SAF_SS = Off
+'_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_
+' FAN ON
+  FAN_ON:
+    If OCCUPIED = OFF then Goto FAN_OFF
+    SAF_SS = On

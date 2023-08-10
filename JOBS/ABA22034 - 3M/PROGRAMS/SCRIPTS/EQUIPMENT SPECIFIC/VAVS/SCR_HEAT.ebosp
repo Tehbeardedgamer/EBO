@@ -1,0 +1,28 @@
+'_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_
+' DECLARE VARIABLE INPUTS, OUTPUTS and PUBLICS   
+    Numeric Input SPACE_TEMP,HEAT_MODE, HEATING_SP_CMD
+    Numeric Output SCR_HEAT_CMD
+    Numeric OldError, PK, IK, DK, IHtg, Pct_Vlv
+    Function PID_CTRL
+
+    Goto Initialize
+
+'_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_
+' INITALIZE
+    Initialize:
+    PK = .3
+    IK = .05
+    DK = 0
+    Goto HeatOff
+'_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_
+' HEAT ON
+    HeatOn:
+    If (HEAT_MODE = Off) then Goto HeatOff
+    SCR_HEAT_CMD = PID_CTRL(0,SPACE_TEMP, HEATING_SP_CMD, IHtg, PK, IK, DK, OldError, 100, Pct_Vlv)
+'_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_
+' HEAT OFF
+    HeatOff:
+    If (HEAT_MODE = On) then Goto HeatOn
+    SCR_HEAT_CMD = 0
+
+'End of Program

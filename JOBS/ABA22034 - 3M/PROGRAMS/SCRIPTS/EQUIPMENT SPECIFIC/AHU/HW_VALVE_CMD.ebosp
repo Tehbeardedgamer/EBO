@@ -1,0 +1,47 @@
+'_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_
+' DECLARE VARIABLE INPUTS, OUTPUTS and PUBLICS
+    ' Hot Water Valve control program.
+    ' Looping, AutoStart, CommandLine
+    Numeric Input AHU01_STATUS,FREEZE,HW_SA_TEMP_1,HW_SA_TEMP_2,HW_SA_TEMP_SP,OA_FLOW_MIN,OA_FLOW_TOTAL,MXA_TEMP
+    Numeric OldError, PK, IK, DK, I_Vlv_HW, HW_TEMP_AVG,HW_VALVE_CMD
+    Function PID_CTRL
+
+    Goto Initialize
+'_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_
+' INITIALIZE
+    Initialize:
+    PK= 3
+    IK = 0.05
+    DK = 0
+    I_Vlv_HW = 20
+    HW_TEMP_AVG = avg(HW_SA_TEMP_1,HW_SA_TEMP_2)
+        
+
+     Goto CLOSE_VALVE
+'_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_
+' CONTROL LOOP
+    CONTROL_LOOP:
+    If (AHU01_STATUS = Off)then Goto CLOSE_VALVE
+    If FREEZE = On then Goto FREEZE_LINE
+    HW_VALVE_CMD = PID_CTRL(0, HW_TEMP_AVG, HW_SA_TEMP_SP, I_Vlv_HW, PK, IK, DK, OldError)
+    Goto WAIT_LINE
+'_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_
+' CLOSE VALVE
+    CLOSE_VALVE:
+    If (AHU01_STATUS = On) and (MXA_TEMP <= 55) and (OA_FLOW_TOTAL >= OA_FLOW_MIN) then Goto CONTROL_LOOP
+    If FREEZE = On then Goto FREEZE_LINE
+    HW_VALVE_CMD = 0
+    
+
+'_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_
+' FREEZE LINE
+    FREEZE_LINE:
+    If (FREEZE = Off) then Goto CLOSE_VALVE
+    HW_VALVE_CMD = 100
+
+'_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_
+' DECLARE VARIABLE INPUTS, OUTPUTS and PUBLICS
+    WAIT_LINE:
+    If TS >= 10 then Goto CONTROL_LOOP
+
+'End of Program

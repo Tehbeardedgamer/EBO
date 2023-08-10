@@ -1,0 +1,18 @@
+'_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_
+' DECLARE VARIABLE INPUTS, OUTPUTS and PUBLICS
+    Numeric Input SAF_STATUS_1,SAF_STATUS_2
+    Numeric Output AHU01_STATUS
+
+
+
+'_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_
+' CHECK SPACE PRESSURE
+    CHECK_SPACE_PRESSURE:
+        If (SAF_STATUS_1 = On) or (SAF_STATUS_2 = on) Then AHU01_STATUS = On Else AHU01_STATUS = Off
+        Goto WAIT_LINE
+
+
+'_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_
+' WAIT LINE
+    WAIT_LINE:
+    If TS>30 Then Goto CHECK_SPACE_PRESSURE

@@ -7,8 +7,8 @@ DETERMINEMODE:
   'OCCUPIED_MODE
     Select Case True
         Case OCC_SCHEDULE = on
-            OCCUPIED_MODE = on
-        UNOCCUPIED_MODE = off
+             OCCUPIED_MODE = on
+             UNOCCUPIED_MODE = off
         Case Else
             UNOCCUPIED_MODE = on
             OCCUPIED_MODE = off
@@ -36,12 +36,12 @@ DETERMINEMODE:
             ECONOMIZER_MODE = off
     EndSelect
   'HEATING MODE
-  Select Case True
-      Case ERW = on And EXA_DAMPER_POS_BYPASS = off And OA_WHEEL_SA_TEMP < (SA_TEMP - 2)
-          HEATING_MODE = on
-      Case Else
-          HEATING_MODE = off
-  EndSelect
+    Select Case True
+        Case ERW = on And EXA_DAMPER_POS_BYPASS = off And OA_WHEEL_SA_TEMP < (SA_TEMP - 2)
+            HEATING_MODE = on
+        Case Else
+            HEATING_MODE = off
+    EndSelect
 
 
-  Wait 60
+    Wait 60
