@@ -13,7 +13,7 @@
     Numeric Input HEATING_CALL
     Numeric Public DEVICE_SEQ_1, DEVICE_SEQ_2, DEVICE_SEQ_3, DEVICE_SEQ_4, DEVICE_SEQ_5, DEVICE_SEQ_6, DEVICE_SEQ_7, DEVICE_SEQ_8, DEVICE_SEQ_9, DEVICE_SEQ_10, DEVICE_SEQ_11, DEVICE_SEQ_12
     Numeric Public DEVICES_AVAIL, MAX_ORDER
-    Numeric DEVICE_DOWN[12], DEVICE_FAIL[12], DEVICE_AVAIL[12], DEVICE_STATUS[12], DEVICE_RT[12], DEVICE_SEQ[12], SCORE[12], RUNTIME[12], LAST_ROTATION, FORCE_RESEQUENCE, PREVIOUS_DEVICES_AVAIL, i
+    Numeric DEVICE_DOWN[12], DEVICE_FAIL[12], DEVICE_AVAIL[12], DEVICE_STATUS[12], DEVICE_RT[12], DEVICE_SEQ[12], SCORE[12], RUNTIME[12],DEVICE_CHANGED, LAST_ROTATION, FORCE_RESEQUENCE, PREVIOUS_DEVICE_AVAIL[12], i
 
 
 
@@ -88,19 +88,20 @@ CHECK_DEVICE_AVAIL:
     ' The availability of a device is determined by whether it's down or has failed.
     '-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_
 
-    PREVIOUS_DEVICES_AVAIL = DEVICES_AVAIL
     DEVICES_AVAIL = 0
-
-
-    for i = 1 to 12
-        DEVICE_AVAIL[i] = 1 - (DEVICE_DOWN[i] + DEVICE_FAIL[i])
-    Next i
+    DEVICE_CHANGED = FALSE
 
     for i = 1 to 12
-        DEVICES_AVAIL = DEVICES_AVAIL + (DEVICE_AVAIL[i])
+        DEVICE_AVAIL[i] = maximum(1 - (DEVICE_DOWN[i] + DEVICE_FAIL[i]),0)
+        If DEVICE_AVAIL[i] <> PREVIOUS_DEVICE_AVAIL[i] Then
+            DEVICE_CHANGED = TRUE
+            EndIf
+        PREVIOUS_DEVICE_AVAIL[i] = DEVICE_AVAIL[i]
     Next i
 
-    If (PREVIOUS_DEVICES_AVAIL <> DEVICES_AVAIL) Then
+    DEVICES_AVAIL = sum(DEVICE_AVAIL)
+
+    If DEVICE_CHANGED Then
         GOTO CHECK_RESEQUENCE
     EndIf
 
@@ -140,19 +141,17 @@ SEQUENCE_RESET:
 
 
 SEQUENCE_SCORE:
-
     '-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_
     '--- SEQUENCE_SCORE section ---
     ' Determines a score for each device based on its availability, status, and (for the first four devices) the heating call.
     ' This score will be used to sequence the devices in the DEVICE_ORDER section.
     '-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_
 
-    For i = 1 to 4
-        SCORE[i] = (DEVICE_AVAIL[i] > 0) + ((DEVICE_STATUS[i]) * (DEVICE_AVAIL[i] > 0)) + (HEATING_CALL > 1)
-    Next i
-
-    For i = 5 to 12
+    For i = 1 to 12
         SCORE[i] = (DEVICE_AVAIL[i] > 0) + ((DEVICE_STATUS[i]) * (DEVICE_AVAIL[i] > 0))
+        If i <= 4 And DEVICE_STATUS[i] = 1 And DEVICE_AVAIL[i] = 1 And HEATING_CALL > 0 Then
+            SCORE[i] = SCORE[i] + 1
+        EndIf
     Next i
 
     GOTO DEVICE_ORDER
@@ -235,4 +234,6 @@ WAIT_LOOP:
 
     Wait 60
     Goto CHECK_DEVICE_AVAIL
+
+
 
