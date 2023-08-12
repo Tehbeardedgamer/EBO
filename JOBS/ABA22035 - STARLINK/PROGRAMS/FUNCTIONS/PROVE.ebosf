@@ -1,0 +1,20 @@
+' This function evaluates the state of multiple conditions, specifically ISO_VALVE,
+' FLOW_SWITCH, LOW_PRESS, and HIGH_PRESS. If all these conditions are met (i.e., all are set to 1),
+' then PROOF is set to 1. Otherwise, PROOF is set to 0.
+
+' Arguments to the function:
+Arg 1 ISO_VALVE     ' Represents the state of the ISO_VALVE, expected to be either 0 or 1
+Arg 2 FLOW_SWITCH   ' Represents the state of the FLOW_SWITCH, expected to be either 0 or 1
+Arg 3 LOW_PRESS     ' Represents the state of the LOW_PRESS, expected to be either 0 or 1
+Arg 4 HIGH_PRESS    ' Represents the state of the HIGH_PRESS, expected to be either 0 or 1
+
+Numeric PROOF       ' Represents the output of the function, showing if all conditions are met
+
+' Checking if all conditions are met
+If (ISO_VALVE = 1) & (FLOW_SWITCH = 1) & (LOW_PRESS = 1) & (HIGH_PRESS = 1) Then
+    PROOF = 1       ' All conditions are met, setting PROOF to 1
+Else
+    PROOF = 0       ' At least one condition is not met, setting PROOF to 0
+EndIf
+
+Return PROOF        ' Returning the result
