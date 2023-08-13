@@ -1,3 +1,8 @@
+'¯¯¯¯¯¯¯¯¯¯¯¯¯¯¯¯¯¯¯¯¯¯¯¯¯¯¯¯¯¯¯¯¯¯¯¯¯¯¯¯¯¯¯¯¯¯¯¯¯¯¯¯¯
+'AUTHOR SPENCER WENNERMARK 8/12/2023 ENTECH AUSTIN, TX
+'SPENCER.WENNERMARK@ENTECHSALES.COM 
+'_____________________________________________________
+
 '_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_
 ' DECLARE VARIABLE INPUTS, OUTPUTS and PUBLICS
     Numeric Input CHW_PUMP_DOWN, CHW_PUMP_STATUS, CHW_PUMP_LEAD, CHW_PUMP_SPEED_MIN,CHW_DIFF_PRESS_LOW, CHW_DIFF_PRESS_SP

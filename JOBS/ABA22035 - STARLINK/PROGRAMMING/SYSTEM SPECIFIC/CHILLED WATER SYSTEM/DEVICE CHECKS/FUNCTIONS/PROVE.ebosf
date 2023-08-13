@@ -1,3 +1,8 @@
+'¯¯¯¯¯¯¯¯¯¯¯¯¯¯¯¯¯¯¯¯¯¯¯¯¯¯¯¯¯¯¯¯¯¯¯¯¯¯¯¯¯¯¯¯¯¯¯¯¯¯¯¯¯
+'AUTHOR SPENCER WENNERMARK 8/12/2023 ENTECH AUSTIN, TX
+'SPENCER.WENNERMARK@ENTECHSALES.COM 
+'_____________________________________________________
+
 ' This function evaluates the state of multiple conditions, specifically ISO_VALVE,
 ' FLOW_SWITCH, LOW_PRESS, and HIGH_PRESS. If all these conditions are met (i.e., all are set to 1),
 ' then PROOF is set to 1. Otherwise, PROOF is set to 0.
