@@ -1,0 +1,50 @@
+
+---
+
+**DEVICE POINTS:**
+This section deals with the validation of various physical parameters of the chiller before it is initiated. 
+
+- **CALLS FUNCTION - PROVE(ISO_VALVE[i], FLOW_SWITCH[i], LOW_PRESS[i], HIGH_PRESS[i])**: 
+  - This function is named `PROVE` and it is designed to validate the status of multiple components of the chiller.
+  - The function takes four parameters:
+    1. `ISO_VALVE[i]`: Represents the position of the isolation valve. It might be open (allowing flow) or closed (preventing flow).
+    2. `FLOW_SWITCH[i]`: Indicates the status of the flow switch. It can detect if there's flow or no flow in the system.
+    3. `LOW_PRESS[i]`: Represents the reading of a low-pressure sensor or switch. It monitors if the pressure drops below a certain threshold.
+    4. `HIGH_PRESS[i]`: Represents the reading of a high-pressure sensor or switch. It checks if the pressure goes above a certain threshold.
+
+- **CHECKS VALVE POSITION, and status of FLOW_SWITCH, LOW_PRESS, HIGH_PRESS**:
+  - This is a description of what the `PROVE` function does. It verifies:
+    - The position of the isolation valve (whether it's open or closed).
+    - The status of the flow switch (flow or no flow).
+    - The status of the low-pressure sensor (whether the pressure is too low).
+    - The status of the high-pressure sensor (whether the pressure is too high).
+
+- **IF ALL PASS THEN DEVICE IS CONSIDERED READY TO START**:
+  - If all the above checks pass (i.e., the isolation valve is in the correct position, there's flow in the system, and the pressure is within acceptable limits), then the chiller is considered to be in a suitable condition for initiation.
+
+---
+
+**DEVICE MAINT:**
+This section deals with the maintenance aspect of the chiller.
+
+- **CHECKS DEVICE RUNTIME AGAINST REQUIRED MAINT RT INTERVAL**:
+  - Here, the system checks the total runtime of the device against a predefined maintenance interval. For example, if a chiller is supposed to undergo maintenance every 500 hours, this will check how many hours the chiller has run since its last maintenance.
+
+- **IF DEVICE RUNTIME < MAINT INTERVAL THEN DEVICE IS CONSIDERED READY TO START**:
+  - If the chiller's runtime is less than the set maintenance interval (using the previous example, if the chiller has run for less than 500 hours since its last maintenance), then it's considered ready for initiation. If it has run for 500 hours or more, it might require maintenance before being initiated.
+
+---
+
+**DEVICE READY:**
+This section synthesizes the information from the previous two sections.
+
+- **CHECKS BOTH DEVICE POINTS AND DEVICE MAINT STATUS**:
+  - Before initiating the chiller, the system checks both:
+    1. The physical parameters (via the `PROVE` function) to ensure the chiller is in a good state.
+    2. The maintenance status to ensure the chiller doesn't need immediate maintenance.
+
+- **IF BOTH PASS THEN DEVICE CAN START**:
+  - If both the physical parameters and the maintenance checks pass, the chiller is allowed to initiate. If either of them fails, the chiller should not be initiated.
+
+---
+
