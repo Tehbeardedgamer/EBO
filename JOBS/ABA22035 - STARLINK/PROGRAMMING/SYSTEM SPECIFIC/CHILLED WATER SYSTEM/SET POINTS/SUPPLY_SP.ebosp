@@ -4,14 +4,14 @@
 '_____________________________________________________
 
 	Numeric Input VALVE_POSITION'VALVE POSITION BOUND TO CHW_VALVE_POS FROM  CHECK_CHW_VALVE_POS PROGRAM OUTPUT
-	Numeric Output CHW_SETPOINT
+	Numeric Output CHW_SUPPLY_SP
 	Numeric TIMER
 	function Sectimer
 
 	Goto Initialize
 
 	Initialize:
-		CHW_SETPOINT = 45
+		CHW_SUPPLY_SP = 45
 			
 	Goto CTRL_LOOP
 'CONTROL LOOP
@@ -22,14 +22,14 @@
 'INCREASE CHILL WATER SP
 		INCREASE_CHW_SP:
 			'Routine to increase the chilled water supply setpoint until any valve reaches 90% open.
-			If (CHW_SETPOINT < 50) then CHW_SETPOINT = CHW_SETPOINT + 0.2
+			If (CHW_SUPPLY_SP < 50) then CHW_SUPPLY_SP = CHW_SUPPLY_SP + 0.2
 			Goto CTRL_LOOP
 'DECREASE CHILLED WATER SP
 		DECREASE_CHW_SP:
 			'Routine to decrease the chilled water supply setpoint in increments of 0.5°F every 15 minutes, if any valve stays 90% open continuously for 15 minutes.
 			'The decreasing continues until the position of all control valves reach not more than 85% open.
 			While VALVE_POSITION > 85
-				If (CHW_SETPOINT > 45) then CHW_SETPOINT = CHW_SETPOINT - 0.5
+				If (CHW_SUPPLY_SP > 45) then CHW_SUPPLY_SP = CHW_SUPPLY_SP - 0.5
 				WAIT 900
 			EndWhile
 

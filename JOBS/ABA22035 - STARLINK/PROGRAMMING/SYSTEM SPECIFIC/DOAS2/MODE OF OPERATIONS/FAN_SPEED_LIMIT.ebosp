@@ -1,0 +1,14 @@
+
+
+
+HI_LIMIT:
+    For i = 1 to 12:
+        If SAF_STATUS[i] != SAF_COMMAND[i]:
+            SAF_SPEED_HI_LIMIT[i] = "MAX"
+        Else:
+            SAF_SPEED_HI_LIMIT[i] = HI_LIMIT_SETPOINT
+
+        If EAF_STATUS[i] != EAF_COMMAND[i]:
+            EAF_SPEED_HI_LIMIT[i] = "MAX"
+        Else:
+            EAF_SPEED_HI_LIMIT[i] = HI_LIMIT_SETPOINT

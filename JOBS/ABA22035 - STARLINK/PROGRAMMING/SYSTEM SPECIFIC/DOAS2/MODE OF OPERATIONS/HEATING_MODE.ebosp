@@ -1,9 +1,9 @@
 'ECONOMIZER MODE: THE ERW SHALL BE ON AND THE DAMPER SHALL MODULATE TO MAINTAIN T-3. IF ADDITIONAL COOLING IS REQUIRED, THE 2-WAY, MODULATING CHILLED WATER CONTROL VALVE CV-1 SHALL MODULATE TO MAINTAIN T-3 SETPOINT.
 '_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_
 ' DECLARE VARIABLE INPUTS, OUTPUTS and PUBLICS
-  Numeric Input HWC_SA_TEMP, HWC_SA_TEMP_SP, HEATING_MODE
-  Numeric OldError, PK, IK, DK, I_Vlv_HWC
-  numeric Output ERW_SS, HWC_VALVE_CTRL
+  Numeric Input HW_SA_TEMP, HW_SA_TEMP_SP, HEATING_MODE
+  Numeric OldError, PK, IK, DK, I_Vlv_HW
+  numeric Output ERW_SS, HW_VALVE_CTRL
   Function PID_CTRL
 '_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_
 ' INITALIZE ANY REQUIRED VALUES and MAKE FIRST LINE CALL
@@ -22,7 +22,7 @@
 '_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_
 'CONTROL LOOP
   ControlLoop:
-    HWC_VALVE_CTRL = PID_CTRL(1, HWC_SA_TEMP, HWC_SA_TEMP_SP, I_Vlv_HWC, PK, IK, DK, OldError)
+    HW_VALVE_CTRL = PID_CTRL(1, HW_SA_TEMP, HW_SA_TEMP_SP, I_Vlv_HW, PK, IK, DK, OldError)
 
   Goto WaitAbit
 '_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_

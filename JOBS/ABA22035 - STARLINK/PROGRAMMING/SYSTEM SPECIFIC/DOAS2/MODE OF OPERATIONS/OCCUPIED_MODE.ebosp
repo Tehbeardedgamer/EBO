@@ -1,7 +1,7 @@
 '_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_
 'DECLARE ALL VARIABLE INPUTS, OUTPUTS and PUBLICS
   Numeric Public COOLING_SEASON, HEATING_SEASON, SAF_SS, EXA_SAF_SS, EXA_DAMPER_CMD, OA_DAMPER_CMD, ERW_SS, EXA_FAN_SPEED_CMD, SAF_SPEED_CMD, BLDG_PRESS, SPACE_TVOC_SP, EXA_FAN_SS
-  Numeric Input SPACE_TVOC, EXHAUST_FAN_OFFSET, EXA_FAN_STATUS_A, EXA_FAN_STATUS_B , EXA_FAN_STATUS_C ,EXA_FAN_STATUS_D, SAF_STATUS_A ,SAF_STATUS_B, SAF_STATUS_C, SAF_STATUS_D,BLDG_PRESS_SP,BLDG_PRESS_DB, EXA_DAMPER_POS, OCCUPIED
+  Numeric Input SPACE_TVOC, EAF_OFFSET, EXA_FAN_STATUS_A, EXA_FAN_STATUS_B , EXA_FAN_STATUS_C ,EXA_FAN_STATUS_D, SAF_STATUS_A ,SAF_STATUS_B, SAF_STATUS_C, SAF_STATUS_D,BLDG_PRESS_SP,BLDG_PRESS_DB, EXA_DAMPER_POS, OCCUPIED
   Numeric BLDG_PRESS_SEASON_SP, PRESSURE_TIME_UNDER , PRESSURE_TIME_OVER
 
 
@@ -13,7 +13,7 @@
   OccupiedMode:
   if OCCUPIED = 1 Then ERW_SS = on
     else goto WAITLOOP
-  if (ERW_SS = on) then goto ENABLE_EXA
+  if ERW_SS = on then goto ENABLE_EXA
 '_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_
 'ENABLE EXHAUST
   ENABLE_EXA:
@@ -36,7 +36,7 @@
 
 
   ENABLE_EXA_SPEED_CMD:
-  EXA_FAN_SPEED_CMD = (SAF_SPEED_CMD * EXHAUST_FAN_OFFSET)
+  EXA_FAN_SPEED_CMD = (SAF_SPEED_CMD * EAF_OFFSET)
 
   Goto ENABLE_PRESSURE_TRACKING
 
@@ -50,15 +50,18 @@
     If BLDG_PRESS > BLDG_PRESS_SEASON_SP + BLDG_PRESS_DB then
       If Time - PRESSURE_TIME_OVER >= 30 then
         EXA_FAN_SPEED_CMD = 100
-      Endif
-    Else
+        Else
         PRESSURE_TIME_OVER = Time
+      Endif
+    
     Endif
   '_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_
   'MANAGE FAN START STOP
     If EXA_FAN_SPEED_CMD = 0 and BLDG_PRESS < BLDG_PRESS_SEASON_SP - BLDG_PRESS_DB then
       If Time - PRESSURE_TIME_UNDER >= 30 then
         EXA_FAN_SS = Off
+        ERW_SS = Off
+        Else
       Endif
     Else
       PRESSURE_TIME_UNDER = Time
@@ -68,6 +71,9 @@
   goto WAITLOOP
 
 '_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_
+
+
+
 'WAIT
   WAITLOOP:
   if ts>20 then Goto OccupiedMode
