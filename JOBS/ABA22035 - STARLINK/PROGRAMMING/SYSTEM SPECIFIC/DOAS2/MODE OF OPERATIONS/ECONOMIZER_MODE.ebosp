@@ -2,8 +2,8 @@
 '_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_
 ' DECLARE VARIABLE INPUTS, OUTPUTS and PUBLICS
   Numeric Input CHW_SA_TEMP, CHW_SA_TEMP_SP, ECONOMIZER_MODE
-  Numeric OldError, PK, IK, DK, I_Vlv_Damper, I_Vlv_CHW
-  Numeric Output OA_DAMPER_CMD_BYPASS, ERW_SS, CHW_VALVE_CTRL, EXA_DAMPER_CMD_BYPASS
+  Numeric OldError, PK, IK, DK, I_DAMPER_CMD, I_Vlv_CHW
+  Numeric Output OA_DAMPER_CMD_BYPASS, ERW_SS, CHW_VALVE_CMD, EXA_DAMPER_CMD_BYPASS
   Function PID_CTRL
 '_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_
 ' INITALIZE ANY REQUIRED VALUES and MAKE FIRST LINE CALL
@@ -11,22 +11,28 @@
    PK = 3
     IK = 0.05
     DK = 0
-
+    I_DAMPER_CMD = 50
   Goto EconomizerMode
 '_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_
 'ECONOMIZER MODE
   EconomizerMode:
-    If (ECONOMIZER_MODE = On) then ERW_SS = On & OA_DAMPER_CMD_BYPASS = 0
- Goto ControlLoop
+ If ECONOMIZER_MODE = on then Continue
+ 
+ ELSE Goto WAIT_LOOP
+
+  ERW_SS = On 
+  OA_DAMPER_CMD_BYPASS = 0
+  
+ Goto ControlLoop 
 '_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_
 'CONTROL LOOP
   ControlLoop:
-    EXA_DAMPER_CMD_BYPASS = PID_CTRL(1, CHW_SA_TEMP, CHW_SA_TEMP_SP, I_Vlv_Damper, PK, IK, DK, OldError)
+    EXA_DAMPER_CMD_BYPASS = PID_CTRL(1, CHW_SA_TEMP, CHW_SA_TEMP_SP, I_DAMPER_CMD, PK, IK, DK, OldError)
 
-    If (CHW_SA_TEMP > CHW_SA_TEMP_SP) then CHW_VALVE_CTRL = PID_CTRL(1,CHW_SA_TEMP, CHW_SA_TEMP_SP, I_Vlv_CHW, PK, IK, DK, OldError)
+    If (CHW_SA_TEMP > CHW_SA_TEMP_SP) then CHW_VALVE_CMD = PID_CTRL(1,CHW_SA_TEMP, CHW_SA_TEMP_SP, I_Vlv_CHW, PK, IK, DK, OldError)
 
-  Goto WaitAbit
+  Goto WAIT_LOOP
 '_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_
 'WAIT
-  WaitAbit:
+  WAIT_LOOP:
   If TS >= 5 then Goto EconomizerMode

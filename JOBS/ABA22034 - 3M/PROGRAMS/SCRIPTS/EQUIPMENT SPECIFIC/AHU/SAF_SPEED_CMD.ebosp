@@ -1,7 +1,7 @@
 '_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_
 ' DECLARE VARIABLE INPUTS, OUTPUTS and PUBLICS
-    Numeric Input SA_DUCT_PRESSURE,FAN_SPEED_MIN,SA_DUCT_PRESSURE_SP,AHU01_STATUS
-    Numeric Output SA_FAN_CMD
+    Numeric Input SA_DUCT_PRESSURE,SAF_SPEED_MIN,SA_DUCT_PRESSURE_SP,AHU01_STATUS
+    Numeric Output SAF_SPEED_CMD
     Numeric OldError, PK, IK, DK, I_AHU_VFD, Pct_VFD
     Function PidControl
 
@@ -19,13 +19,13 @@
 ' CONTROL LOOP
     CONTROL_LOOP:
         If (AHU01_STATUS = Off) then Goto FAN_OFF
-        SA_FAN_CMD = PidControl(0, SA_DUCT_PRESSURE, SA_DUCT_PRESSURE_SP, I_AHU_VFD, PK, IK, DK, OldError, FAN_SPEED_MIN, 100, Pct_VFD)
+        SAF_SPEED_CMD = PidControl(0, SA_DUCT_PRESSURE, SA_DUCT_PRESSURE_SP, I_AHU_VFD, PK, IK, DK, OldError, SAF_SPEED_MIN, 100, Pct_VFD)
         Goto WAIT_LINE
 '_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_
 ' FAN OFF
     FAN_OFF:
         If (AHU01_STATUS = On) then Goto CONTROL_LOOP
-        SA_FAN_CMD = 0
+        SAF_SPEED_CMD = 0
         I_AHU_VFD = 0
 '_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_
 ' WAIT LINE
@@ -34,3 +34,6 @@
 
 
 'End of program
+
+
+  

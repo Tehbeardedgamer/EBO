@@ -74,3 +74,62 @@ OF EXHAUST FANS.
 
 
 NEED TO RESET Time on the BUILDING PRESSURE ABOVE AND BELOW
+
+
+
+FEEDBACK -
+
+
+# Let des know about any 
+
+
+Based on the provided sequence for the Air Handler Unit (AHU 1A-1L and 2A-2D) here is a list of some things that come to mind. 
+
+Mode Determination:
+The sequence does describe how to operate in cooling, heating, and dehumidification modes when the AHU is in "Occupied Mode." However, there is no clear description of how the system determines which mode (cooling, heating, dehumidification) to be in. Typically, a sequence would include conditions such as "if the zone temperature is above setpoint and the humidity is below setpoint, enter cooling mode."
+ */ TEST AND BALANCE 
+
+Supply Fan Control:
+The sequence mentions that the AHU should be enabled in both cooling and heating modes, but there's no specific directive on when and how to start the supply fans or how to control their speed. This is a significant oversight as the operation of supply fans is crucial for the AHU's functioning.
+
+Supply Fan Variable Flow:
+It’s mentioned that the AHU has "TWO (2) VARIABLE FLOW DRAW-THRU SUPPLY FANS," but there's no sequence that explains how to vary the flow or under what conditions to adjust the fan speed.
+ 
+ */ TEST AND BALANCE 
+
+Unoccupied Mode:
+The sequence describes the "Occupied Mode," but there's no mention of what should happen in "Unoccupied Mode." Typically, an AHU would have different operations for when the space is not occupied to save energy.
+
+*/ SHUT EVERYTHING DOWN
+
+Reset Strategies:
+Often, AHU sequences will include reset strategies for supply air temperature or static pressure based on conditions like zone demands. These are missing here.
+*/
+
+Filter Status:
+While the AHU has MERV 8 and MERV 14 filters, there's no mention of how to monitor filter status or any alarms related to filter status.
+
+*/ TEST AND BALANCE will give SP
+
+Start-Up and Shutdown Sequences:
+It would be beneficial to have a clear startup and shutdown sequence for the AHU to ensure equipment longevity and avoid unnecessary wear and tear.
+*/
+
+Fans off befoer dampers closed, and FAns on before HW valve open
+
+*/ TEST AND BALANCE
+
+Setpoints:
+There is mention of setpoints (like 55°F for chilled water coil leaving temperature), but it's not clear if these are fixed or if they can be adjusted through the Building Automation System (BAS).
+
+Differential Pressures:
+It would be helpful to include sequences or alarms related to differential pressures across coils or filters to ensure they are operating efficiently and aren't clogged or restricted.
+
+While the sequence provides a foundational framework for the AHU's operation, it lacks specifics in several key areas that are crucial for an efficient and effective operation.
+
+I can program exactly what the sequences ask for but  AS the sequences for the ARU's 1A-1L and 2A-2D are a copy and paste  as they are written  it's simply only half way done. If I am to come up with my own sequences and controls for these points as they would be considered standard practice it will add significantly more time to their programming for the development and implementation which I assume have not been billed out or accounted for.
+
+```
+
+
+*/ 

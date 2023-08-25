@@ -11,23 +11,26 @@
     PK = 3
     IK = 0.05
     DK = 0
+    I_Vlv_CHW = 50
 
   Goto CoolingMode
 '_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_
 'COOLING MODE
   CoolingMode:
+  If COOLING_MODE = on then Continue
+    else Goto WAIT_LOOP
 
-    ERW_SS = On
-    If (COOLING_MODE = On) then Goto ControlLoop
+  ERW_SS = On
+  Goto CONTROL_LOOP
 
-  Goto WaitAbit
+  
 '_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_
 'CONTRL LOOP
-  ControlLoop:
+  CONTROL_LOOP:
     CHWC_VALVE_CTRL = PID_CTRL(1, CHWC_SA_TEMP, CHWC_SA_TEMP_SP, I_Vlv_CHW, PK, IK, DK, OldError)
 
-  Goto WaitAbit
+  Goto WAIT_LOOP
 '_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_
 'WAIT
-  WaitAbit:
+  WAIT_LOOP:
     If TS >= 5 then Goto CoolingMode
