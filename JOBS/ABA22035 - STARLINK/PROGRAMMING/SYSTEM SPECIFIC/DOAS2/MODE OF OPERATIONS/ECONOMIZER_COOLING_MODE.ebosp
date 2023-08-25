@@ -1,41 +1,43 @@
 'ECONOMIZER COOLING MODE: THE ERW SHALL BE OFF, THE CLG VALVE CV-1 SHALL MODULATE TO MAINTAIN T-3 SETPOINT. IF THE ENTHALPY IS GREATER THAN 26 BTU/LB, AS CALCULATED WITH T-0 AND H-0, THEN THE WHEEL SHALL BE ENABLED.
 '_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_
 ' DECLARE VARIABLE INPUTS, OUTPUTS and PUBLICS
-  Numeric Input CHWC_SA_TEMP,CHWC_SA_TEMP_SP, OA_TEMP, OA_HUMID, ECON_COOLING_MODE
-  Numeric OldError, PK, IK, DK, I_Vlv_CMD, ENTHALPY
-  Numeric Output ERW_SS, CHWC_VALVE_CMD,OA_DAMPER_CMD_BYPASS, EXA_DAMPER_CMD_BYPASS
-  Function PID_CTRL, ENTHALPY_FCT
+Numeric Input CHWC_SA_TEMP, CHWC_SA_TEMP_SP, OA_TEMP, OA_HUMID, ECON_COOLING_MODE
+Numeric OldError, PK, IK, DK, I_Vlv_CMD, ENTHALPY
+Numeric Output ERW_SS, CHWC_VALVE_CMD, OA_DAMPER_CMD_BYPASS, EXA_DAMPER_CMD_BYPASS
+Function PID_CTRL, ENTHALPY_FCT
 '_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_
 ' INITALIZE ANY REQUIRED VALUES and MAKE FIRST LINE CALL
-  Initialize:
-  PK = 3
-  IK = 0.05
-  DK = 0
-  I_Vlv_CMD = 50
+Initialize:
+PK = 3
+IK = 0.05
+DK = 0
+I_Vlv_CMD = 50
 
-  Goto EconomizerCoolingMode
+Goto EconomizerCoolingMode
 '_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_
 'ECONOMIZER COOLING MODE
-  EconomizerCoolingMode:
-  If ECON_COOLING_MODE = on then Continue
-
-  Else Goto WAIT_LOOP
-
-  OA_DAMPER_CMD_BYPASS = 100 
+EconomizerCoolingMode:
+If ECON_COOLING_MODE = on then
+  OA_DAMPER_CMD_BYPASS = 100
   EXA_DAMPER_CMD_BYPASS = 100
+  Goto CONTROL_LOOP
+Else
+  Goto WAIT_LOOP
+Endif
 
-   Goto CONTROL_LOOP
 '_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_
 'CONTROL LOOP
-  CONTROL_LOOP:
-    CHWC_VALVE_CMD = PID_CTRL(1, CHWC_SA_TEMP, CHWC_SA_TEMP_SP, I_Vlv_CMD, PK, IK, DK, OldError)
-    ENTHALPY = ENTHALPY_FCT(OA_TEMP,OA_HUMID)
+CONTROL_LOOP:
+CHWC_VALVE_CMD = PID_CTRL(1, CHWC_SA_TEMP, CHWC_SA_TEMP_SP, I_Vlv_CMD, PK, IK, DK, OldError)
+ENTHALPY = ENTHALPY_FCT(OA_TEMP, OA_HUMID)
 
-      If (ENTHALPY > 26) then ERW_SS = On
-        else ERW_SS = Off
-
-    Goto WAIT_LOOP
+If (ENTHALPY > 26) then
+  ERW_SS = On
+else
+  ERW_SS = Off
+Endif
+Goto WAIT_LOOP
 '_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_
 'WAIT
- WAIT_LOOP:
-  If TS >= 5 then Goto EconomizerCoolingMode
+WAIT_LOOP:
+If TS >= 5 then Goto EconomizerCoolingMode

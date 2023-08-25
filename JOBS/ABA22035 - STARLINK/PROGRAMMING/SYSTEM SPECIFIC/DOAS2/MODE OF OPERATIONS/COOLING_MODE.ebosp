@@ -1,36 +1,37 @@
 'SEQUENCE - COOLING MODE: THE ERW SHALL BE ON AND THE 2-WAY, MODULATING CHILLED WATER CONTROL VALVE CV-1 SHALL MODULATE TO MAINTAIN UNITS DISCHARGE AIR TEMPERATURE T-3 SETPOINT OF 55°F
 '_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_
 ' DECLARE VARIABLE INPUTS, OUTPUTS and PUBLICS
-  Numeric Input CHWC_SA_TEMP, COOLING_MODE, CHWC_SA_TEMP_SP
-  Numeric CHWC_VALVE_CTRL, OldError, PK, IK, DK, I_Vlv_CHW
-  numeric Output ERW_SS
-  Function PID_CTRL
+Numeric Input CHWC_SA_TEMP, COOLING_MODE, CHWC_SA_TEMP_SP
+Numeric CHWC_VALVE_CTRL, OldError, PK, IK, DK, I_Vlv_CHW
+numeric Output ERW_SS
+Function PID_CTRL
 '_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_
 ' INITALIZE ANY REQUIRED VALUES and MAKE FIRST LINE CALL
-  Initialize:
-    PK = 3
-    IK = 0.05
-    DK = 0
-    I_Vlv_CHW = 50
+Initialize:
+PK = 3
+IK = 0.05
+DK = 0
+I_Vlv_CHW = 50
 
-  Goto CoolingMode
+Goto CoolingMode
 '_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_
 'COOLING MODE
-  CoolingMode:
-  If COOLING_MODE = on then Continue
-    else Goto WAIT_LOOP
-
+CoolingMode:
+If COOLING_MODE = on then
   ERW_SS = On
   Goto CONTROL_LOOP
-
-  
-'_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_
-'CONTRL LOOP
-  CONTROL_LOOP:
-    CHWC_VALVE_CTRL = PID_CTRL(1, CHWC_SA_TEMP, CHWC_SA_TEMP_SP, I_Vlv_CHW, PK, IK, DK, OldError)
-
+else
   Goto WAIT_LOOP
+Endif
+
+
+'_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_
+'CONTROL LOOP
+CONTROL_LOOP:
+CHWC_VALVE_CTRL = PID_CTRL(1, CHWC_SA_TEMP, CHWC_SA_TEMP_SP, I_Vlv_CHW, PK, IK, DK, OldError)
+
+Goto WAIT_LOOP
 '_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_
 'WAIT
-  WAIT_LOOP:
-    If TS >= 5 then Goto CoolingMode
+WAIT_LOOP:
+If TS >= 5 then Goto CoolingMode

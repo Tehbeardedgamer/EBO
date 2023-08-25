@@ -5,7 +5,7 @@ Goto ALARM_MONITOR
 
 ALARM_MONITOR:
 ' Check the temperature downstream of the heating coil
-  If HWC_SA_TEMP <= FREEZESTAT_TEMP_SP then Goto FreezeProtection
+  If HWC_SA_TEMP <= FREEZESTAT_TEMP_SP or ALARM_LOW_TEMP = 1  then Goto FreezeProtection
 
 ' If the temperature is normal, continue normal operation
   Goto WAITLOOP
