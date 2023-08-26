@@ -21,4 +21,4 @@ FreezeProtection:
   Goto FreezeProtection
 
 WAITLOOP:
-if  ts>30 then goto ALARM_MONITOR
+if  ts > 30 then goto ALARM_MONITOR
