@@ -3,7 +3,7 @@
   'NUMERIC PUBLIC
   NUMERIC INPUT MAX_VENT_OVRD_A,MAX_VENT_OVRD_B,MAX_VENT_OVRD_C,MAX_VENT_OVRD_D
   NUMERIC OUTPUT MAX_VENT_OVRD_2ABC,MAX_VENT_OVRD_2D
-  NUMERIC
+  
   'FUNCTION
 goto WATCHING
 '_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_
