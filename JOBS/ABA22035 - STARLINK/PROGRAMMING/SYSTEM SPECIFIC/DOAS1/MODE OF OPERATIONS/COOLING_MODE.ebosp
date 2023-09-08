@@ -2,30 +2,28 @@
 
 'Define the inputs and variables
 Numeric Input CHWC_SA_TEMP, COOLING_MODE, CHWC_SA_TEMP_SP
-Numeric CHWC_VALVE_CTRL, OldError, PK, IK, DK, I_Vlv_CHW
-numeric Output ERW_SS
+Numeric  OldError, PK, IK, DK, I_Vlv_CHW
+numeric Output CHWC_VALVE_CMD
 Function PID_CTRL
-
+goto Initialize
 'Initialize the PID gains
 Initialize:
   PK = 3
   IK = 0.05
   DK = 0
 
-' Cooling Mode
-CoolingMode:
- '  The ERW should be on
-  ERW_SS = On
+goto WATCHING
 
-  ' The chilled water control valve should modulate to maintain the setpoint temperature
-  If (COOLING_MODE = On) then Goto ControlLoop
+WATCHING:
+IF COOLING_MODE = ON then Goto COOLING else goto WAIT_LOOP
 
-ControlLoop:
-  CHWC_VALVE_CTRL = PID_CTRL(1, CHWC_SA_TEMP, CHWC_SA_TEMP_SP, I_Vlv_CHW, PK, IK, DK, OldError)
-  Goto WaitAbit
+COOLING:
+   ' The chilled water control valve should modulate to maintain the setpoint temperature
+  CHWC_VALVE_CMD = PID_CTRL(0, CHWC_SA_TEMP, CHWC_SA_TEMP_SP, I_Vlv_CHW, PK, IK, DK, OldError)
+  Goto WAIT_LOOP
 
-WaitAbit:
-  If TS >= 5 then Goto CoolingMode
+WAIT_LOOP:
+  If TS >= 5 then Goto COOLING
 
 
 

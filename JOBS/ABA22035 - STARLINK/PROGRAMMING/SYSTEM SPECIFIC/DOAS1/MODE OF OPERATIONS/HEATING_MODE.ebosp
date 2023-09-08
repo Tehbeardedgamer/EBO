@@ -14,15 +14,13 @@ Initialize:
 
 ' Economizer Mode
 HEATINGMODE:
-  ' The ERW should be on
-  ' The damper should modulate to maintain the T-3 setpoint
-  If (HEATING_MODE = On) then ERW_SS = On 
-  Goto ControlLoop
+  IF HEATING_MODE = on then Goto CONTROL_LOOP else goto WAIT_LOOP
+   
+CONTROL_LOOP:
+  ERW_SS = On 
+  HWC_VALVE_CTRL = PID_CTRL(1, HWC_SA_TEMP, HWC_SA_TEMP_SP, I_Vlv_HWC, PK, IK, DK, OldError)
 
-ControlLoop:
-HWC_VALVE_CTRL = PID_CTRL(1, HWC_SA_TEMP, HWC_SA_TEMP_SP, I_Vlv_HWC, PK, IK, DK, OldError)
+  Goto WAIT_LOOP
 
-  Goto WaitAbit
-
-WaitAbit:
+WAIT_LOOP:
   If TS >= 5 then Goto HEATINGMODE

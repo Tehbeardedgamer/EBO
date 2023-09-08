@@ -1,31 +1,38 @@
 'sequence ECONOMIZER MODE: THE ERW SHALL BE ON AND THE DAMPER SHALL MODULATE TO MAINTAIN T-3. IF ADDITIONAL COOLING IS REQUIRED, THE 2-WAY, MODULATING CHILLED WATER CONTROL VALVE CV-1 SHALL MODULATE TO MAINTAIN T-3 SETPOINT.
 
 ' Define the inputs and variables
-Numeric Input CHW_SA_TEMP, CHW_SA_TEMP_SP, COOLING_MODE
-Numeric OldError, PK, IK, DK, I_Vlv_Damper, I_Vlv_CHW
-numeric Output OA_DAMPER_CMD_BYPASS, ERW_SS, CHW_VALVE_CMD, EXA_DAMPER_CMD_BYPASS
+Numeric Input CHW_SA_TEMP, CHW_SA_TEMP_SP, WAIT_TIME,ECONOMIZER_MODE
+Numeric Output OA_DAMPER_CMD_BYPASS, CHW_VALVE_CMD, EXA_DAMPER_CMD_BYPASS
+Numeric  PK_1, IK_1, DK_1, PK_2, IK_2, DK_2, OldError_1, OldError_2, I_Vlv_Damper, I_Vlv_CHW
 Function PID_CTRL
 
+goto Initialize
 ' Initialize the PID gains
 Initialize:
-  PK = 3
-  IK = 0.05
-  DK = 0
-
+  PK_1 = 3
+  IK_1 = 0.05
+  DK_1 = 0
+  PK_2 = 3
+  IK_2 = 0.05
+  DK_2 = 0
+  
+goto ECONOMIZER
 ' Economizer Mode
-  EconomizerMode:
-    ' The ERW should be on
+  ECONOMIZER:
+    IF ECONOMIZER_MODE = OFF then Goto WAIT_LOOP else goto CONTROL_LOOP' The ERW should be on
       ' The damper should modulate to maintain the T-3 setpoint
-    If (COOLING_MODE = On) then ERW_SS = On & OA_DAMPER_CMD_BYPASS = 0
-    Goto ControlLoop
+ CONTROL_LOOP:
+  OA_DAMPER_CMD_BYPASS = 0
+  IF ECONOMIZER_MODE = OFF then Goto WAIT_LOOP
+  EXA_DAMPER_CMD_BYPASS = PID_CTRL(0, CHW_SA_TEMP, CHW_SA_TEMP_SP, I_Vlv_Damper, PK_1, IK_1, DK_1, OldError_1)
+  IF EXA_DAMPER_CMD_BYPASS = 0 and CHW_SA_TEMP > CHW_SA_TEMP_SP and (ts > WAIT_TIME)then goto ADDITIONAL_COOLING
 
-ControlLoop:
-EXA_DAMPER_CMD_BYPASS = PID_CTRL(1, CHW_SA_TEMP, CHW_SA_TEMP_SP, I_Vlv_Damper, PK, IK, DK, OldError)
 
-  ' If additional cooling is required, the chilled water control valve should modulate to maintain the T-3 setpoint
-  If (CHW_SA_TEMP > CHW_SA_TEMP_SP) then CHW_VALVE_CMD = PID_CTRL(1,CHW_SA_TEMP, CHW_SA_TEMP_SP, I_Vlv_CHW, PK, IK, DK, OldError)
-
-  Goto WAIT_LOOP
+ADDITIONAL_COOLING:
+  CHW_VALVE_CMD = PID_CTRL(0,CHW_SA_TEMP, CHW_SA_TEMP_SP, I_Vlv_CHW, PK_2, IK_2, DK_2, OldError_2)
+  IF ECONOMIZER_MODE = OFF then Goto WAIT_LOOP
+  
+  
 
 WAIT_LOOP:
-  If TS >= 10 then Goto EconomizerMode
+  If TS >= 5 then Goto ECONOMIZER

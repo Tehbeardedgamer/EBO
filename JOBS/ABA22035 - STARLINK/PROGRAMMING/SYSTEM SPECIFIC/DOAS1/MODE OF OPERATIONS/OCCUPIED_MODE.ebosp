@@ -1,62 +1,37 @@
-Numeric Public COOLING_SEASON, HEATING_SEASON, SAF_SS, EXA_SAF_SS, EXA_DAMPER_CMD, SAF_DAMPER_CMD, ERW_SS, EXA_FAN_SPEED_CTRL, SAF_SPEED_CTRL, BLDG_PRESS, SPACE_TVOC_SP, EXA_FAN_SS
-Numeric Input SPACE_TVOC, EXHAUST_FAN_OFFSET, EXA_FAN_STATUS_A, EXA_FAN_STATUS_B , EXA_FAN_STATUS_C ,EXA_FAN_STATUS_D, SAF_STATUS_A ,SAF_STATUS_B, SAF_STATUS_C, SAF_STATUS_D,BLDG_PRESS_SP,BLDG_PRESS_DB
-Numeric BLDG_PRESS_SEASON_SP, PRESSURE_TIME_UNDER , PRESSURE_TIME_OVER
+Numeric Public SAF_SS, EXA_FAN_SS, EXA_DAMPER_CMD, OA_DAMPER_CMD, ERW_SS, EXA_FAN_SPEED_CMD, SAF_SPEED_CMD
+Numeric Input EXHAUST_FAN_OFFSET, EXA_FAN_STATUS_A, EXA_FAN_STATUS_B , EXA_FAN_STATUS_C ,EXA_FAN_STATUS_D, SAF_STATUS_A ,SAF_STATUS_B, SAF_STATUS_C, SAF_STATUS_D,OA_DAMPER_STATUS,EXA_DAMPER_STATUS,OCCUPANCY,COOLING_MODE,ECONOMIZER_MODE,CHWC_VALVE_STATUS
+NUMERIC OUTPUT CHWC_VALVE_CMD
+Numeric MIN_SPEED
 
 
 Goto OccupiedMode
 
 OccupiedMode:
-' Enable ERW at 100% speed
-  ERW_SS = on
+IF OCCUPANCY = 1 then ERW_SS = on goto ENABLE_DAMPER 
+goto WAIT_LOOP 
 
-  if (ERW_SS = on) then goto ENABLE_EXA
+ENABLE_DAMPER: 
+  EXA_DAMPER_CMD = 100 
+  IF EXA_DAMPER_STATUS = 100 then goto ENABLE_EXA_FAN
 
- ' Enable DOAS-2 exhaust fans and open interlocked D-2
- ENABLE_EXA:
-  EXA_SAF_SS = 1
-  EXA_DAMPER_CMD = 100
-
-  if ( EXA_FAN_STATUS_A = 1 &  EXA_FAN_STATUS_B = 1 &  EXA_FAN_STATUS_C = 1 &  EXA_FAN_STATUS_D = 1)  Then goto ENABLE_SAF
-
+  ENABLE_EXA_FAN:
+  EXA_FAN_SS = 1
+  EXA_FAN_SPEED_CMD = MIN_SPEED
+  if ( EXA_FAN_STATUS_A = 1 &  EXA_FAN_STATUS_B = 1 &  EXA_FAN_STATUS_C = 1 &  EXA_FAN_STATUS_D = 1) then
+  OA_DAMPER_CMD = 100
+  endif
+  IF OA_DAMPER_STATUS = 100 then goto ENABLE_SA_FAN
 ' Enable DOAS-2 supply fans and open interlocked D-1
-ENABLE_SAF:
+  ENABLE_SA_FAN:
+  IF COOLING_MODE = 1 or ECONOMIZER_MODE = 1 then CHWC_VALVE_CMD = 100
+  IF CHWC_VALVE_STATUS = 100 then continue
   SAF_SS = 1
-  SAF_DAMPER_CMD = 100
-  if (SAF_STATUS_A = 1 &  SAF_STATUS_B = 1  &  SAF_STATUS_C= 1 &  SAF_STATUS_D = 1)  Then goto ENABLE_TVOC
+  SAF_SPEED_CMD = MIN_SPEED
+  if (SAF_STATUS_A = 1 &  SAF_STATUS_B = 1  &  SAF_STATUS_C= 1 &  SAF_STATUS_D = 1)
 
-' Modulate DOAS-2 supply fans speed to maintain a TVOC setpoint of 400 PPB
-ENABLE_TVOC:
-   
-  SAF_SPEED_CTRL = Minimum((SPACE_TVOC / (SPACE_TVOC_SP / 100)),100)
-  goto ENABLE_EXA_SPEED_CTRL
-  
-  
-' DOAS-2 exhaust fan to CFM track the supply fan to maintain positive pressure in the factory space
-  ENABLE_EXA_SPEED_CTRL:
-  EXA_FAN_SPEED_CTRL = (SAF_SPEED_CTRL * EXHAUST_FAN_OFFSET)
 
-  Goto ENABLE_PRESSURE_TRACKING
 
-ENABLE_PRESSURE_TRACKING:
- If COOLING_SEASON = On then BLDG_PRESS_SEASON_SP = BLDG_PRESS_SP + 0.02
- If HEATING_SEASON = On then BLDG_PRESS_SEASON_SP = BLDG_PRESS_SP
 
-  ' If the building pressure is above the setpoint deadband for 30 minutes, increase the exhaust fan speed to 100%
-  If BLDG_PRESS > BLDG_PRESS_SEASON_SP + BLDG_PRESS_DB then
-    If Time - PRESSURE_TIME_OVER >= 30 then
-      EXA_FAN_SPEED_CTRL = 100
-    Endif
-  Else
-    PRESSURE_TIME_OVER = Time
-  Endif
+  WAIT_LOOP:
 
-  ' If the exhaust fan is at minimum speed and the building pressure is below the setpoint deadband for 30 minutes, turn off the exhaust fan
-  If EXA_FAN_SPEED_CTRL = 0 and BLDG_PRESS < BLDG_PRESS_SEASON_SP - BLDG_PRESS_DB then
-    If Time - PRESSURE_TIME_UNDER >= 30 then
-      EXA_FAN_SS = Off
-    Endif
-  Else
-    PRESSURE_TIME_UNDER = Time
-  Endif
-
-  Goto OccupiedMode
+  if ts > 10 then goto OccupiedMode

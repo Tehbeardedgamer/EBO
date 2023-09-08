@@ -1,6 +1,6 @@
-Numeric Input SPACE_TEMP, SPACE_TEMP_SP,OCCUPANCY,COOLING_SP,SA_FLOW_MAX,SA_FLOW_MIN
+Numeric Input SPACE_TEMP, SPACE_TEMP_SP, OCCUPANCY, COOLING_SP, SA_FLOW_MAX, SA_FLOW_MIN
 Numeric Output SA_FLOW_SP
-Numeric OldError, PK, IK, DK, Ivav, PCT_OVAV,ZONE_TEMP
+Numeric OldError, PK, IK, DK, Ivav, PCT_OVAV, ZONE_TEMP
 Function PID_CTRL
 
 Goto Initialize
@@ -8,12 +8,14 @@ Initialize:
   PK = 3
   IK = .05
   DK = 0
-    Goto Cooling
+  Goto Cooling
 
 Cooling:
-If OCCUPANCY = 0 and (SPACE_TEMP <= (SPACE_TEMP_SP + 2)) Then SA_FLOW_SP = 0 
+  If OCCUPANCY = 0 and (SPACE_TEMP <= (SPACE_TEMP_SP + 2)) Then SA_FLOW_SP = 0
 
-If OCCUPANCY = 1 and (SPACE_TEMP < SPACE_TEMP_SP - 2) or (SPACE_TEMP > SPACE_TEMP_SP + 2) Then SA_FLOW_SP = 0
+  If OCCUPANCY = 1 and (SPACE_TEMP < SPACE_TEMP_SP - 2) or (SPACE_TEMP > SPACE_TEMP_SP + 2) Then SA_FLOW_SP = 0
  
-ZONE_TEMP = PID_CTRL(1,SPACE_TEMP, COOLING_SP, Ivav, PK, IK, DK, OldError, 0,1, PCT_OVAV)
-SA_FLOW_SP = maximum(minimum(((((ZONE_TEMP - 0.5) * 2) * (SA_FLOW_MAX - SA_FLOW_MIN)) + SA_FLOW_MIN), SA_FLOW_MAX), SA_FLOW_MIN)
+  ZONE_TEMP = PID_CTRL(1, SPACE_TEMP, COOLING_SP, Ivav, PK, IK, DK, OldError, 0, 1, PCT_OVAV)
+  SA_FLOW_SP = maximum(minimum(((((ZONE_TEMP - 0.5) * 2) * (SA_FLOW_MAX - SA_FLOW_MIN)) + SA_FLOW_MIN), SA_FLOW_MAX), SA_FLOW_MIN)
+
+ 

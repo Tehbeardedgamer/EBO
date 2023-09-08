@@ -29,9 +29,17 @@ Initialize:
     goto CONTROL_LOOP
 
 CONTROL_LOOP:
+Select Case OCCUPANCY
+Case 1
+GOTO OCCUPIED
 
+Case 0
+EndSelect
+GOTO UNOCCUPIED
+
+OCCUPIED:
     WHILE OCCUPANCY = 1
-        WHILE SPACE_TEMP < OCC_TEMP_SP
+        If SPACE_TEMP < OCC_TEMP_SP then
             HW_VALVE_CMD = PID_CTRL(1, SPACE_TEMP, OCC_TEMP_SP, I_Vlv_HW, PK_1, IK_1, DK_1, OLDERR_1)
             CHW_VALVE_CMD = 0
             SAF_SS = 1
@@ -41,35 +49,35 @@ CONTROL_LOOP:
                 SCR_CMD = PID_CTRL(1, SPACE_TEMP, OCC_TEMP_SP, I_SCR, PK_4, IK_4, DK_4, OLDERR_4)
             endif
 
-        EndWhile
+        EndIf
 
-        WHILE SPACE_TEMP > OCC_TEMP_SP
+        If SPACE_TEMP > OCC_TEMP_SP then
             CHW_VALVE_CMD = PID_CTRL(1, SPACE_TEMP, OCC_TEMP_SP, I_Vlv_CHW, PK_2, IK_2, DK_2, OLDERR_2)
             HW_VALVE_CMD = 0
             SAF_SS = 1
             SCR_SS = off
 
-        EndWhile
+        EndIf
 
-        WHILE SPACE_HUMIDITY > SPACE_HUMIDITY_SP
+        If SPACE_HUMIDITY > SPACE_HUMIDITY_SP Then
             HW_VALVE_CMD = PID_CTRL(1, SPACE_TEMP, OCC_TEMP_SP, I_Vlv_HW, PK_3, IK_3, DK_3, OLDERR_3)
             CHW_VALVE_CMD = 100
             SAF_SS = 1
             SCR_SS = off
-        EndWhile
+        EndIf
 
         SAF_SS = 0
 
     ENDWHILE
-
-
+GOTO CONTROL_LOOP
+UNOCCUPIED:
 
     WHILE OCCUPANCY = 0
         HW_VALVE_CMD = 0
         CHW_VALVE_CMD = 0
     
     
-        WHILE SPACE_TEMP < UNOCC_TEMP_SP
+        IF SPACE_TEMP < UNOCC_TEMP_SP then
             HW_VALVE_CMD = PID_CTRL(1, SPACE_TEMP, UNOCC_TEMP_SP, I_Vlv_HW, PK_1, IK_1, DK_1, OLDERR_1)
     
             If (TS > 1800) AND (HW_VALVE_CMD >= 100) then
@@ -77,18 +85,20 @@ CONTROL_LOOP:
                 SCR_CMD = PID_CTRL(1, SPACE_TEMP, UNOCC_TEMP_SP, I_SCR, PK_4, IK_4, DK_4, OLDERR_4)
             endif
 
-        EndWhile
+        EndIf
 
-        WHILE SPACE_TEMP > UNOCC_TEMP_SP
+        If SPACE_TEMP > UNOCC_TEMP_SP then
             CHW_VALVE_CMD = PID_CTRL(1, SPACE_TEMP, UNOCC_TEMP_SP, I_Vlv_CHW, PK_2, IK_2, DK_2, OLDERR_2)
             SCR_SS = off
-        EndWhile
+        endif
 
-        WHILE SPACE_HUMIDITY > SPACE_HUMIDITY_SP
+        if SPACE_HUMIDITY > SPACE_HUMIDITY_SP then
             HW_VALVE_CMD = PID_CTRL(1, SPACE_TEMP, UNOCC_TEMP_SP, I_Vlv_HW, PK_3, IK_3, DK_3, OLDERR_3)
             CHW_VALVE_CMD = 100
             SCR_SS = off
-        EndWhile
+        EndIf
 
     ENDWHILE
+GOTO CONTROL_LOOP
 
+END

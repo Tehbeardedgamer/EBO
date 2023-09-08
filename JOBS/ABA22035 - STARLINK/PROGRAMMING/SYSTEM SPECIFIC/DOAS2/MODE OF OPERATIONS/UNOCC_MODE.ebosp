@@ -1,6 +1,6 @@
 '_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_
 ' DECLARE ALL VARIABLES INPUTS, OUTPUTS and PUBLICS
-  numeric public EXA_FAN_SS, SAF_SS, EXA_DAMPER_CMD, OA_DAMPER_CMD, CHWC_VALVE_CMD, HWC_VALVE_CMD, ERW_SS
+  numeric OUTPUT EXA_FAN_SS, SAF_SS, EXA_DAMPER_CMD, OA_DAMPER_CMD, CHWC_VALVE_CMD, HWC_VALVE_CMD, ERW_SS
   numeric input UNOCCUPIED_MODE
 '_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_
 ' INITALIZE ANY VALUES and ISSUE FIRST LINE CALL
@@ -17,3 +17,4 @@
 	HWC_VALVE_CMD = 0
 	ERW_SS = 0
 	endif
+	

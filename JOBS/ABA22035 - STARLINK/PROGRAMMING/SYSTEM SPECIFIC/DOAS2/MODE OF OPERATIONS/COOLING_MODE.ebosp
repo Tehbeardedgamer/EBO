@@ -35,3 +35,5 @@ Goto WAIT_LOOP
 'WAIT
 WAIT_LOOP:
 If TS >= 5 then Goto CoolingMode
+
+'MAKE VALUES FOR SA_TEMP of 55

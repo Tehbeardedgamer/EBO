@@ -10,4 +10,4 @@ FROST_MONITOR:
   Goto WAITLOOP
 
 WAITLOOP:
-if  ts>10 then goto FROST_MONITOR
+if  ts > 10 then goto FROST_MONITOR
