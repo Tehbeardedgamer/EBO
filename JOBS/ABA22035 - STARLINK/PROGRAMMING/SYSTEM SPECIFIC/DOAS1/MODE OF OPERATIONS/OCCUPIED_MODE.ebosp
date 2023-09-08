@@ -29,9 +29,6 @@ ENABLE_DAMPER:
   SAF_SPEED_CMD = MIN_SPEED
   if (SAF_STATUS_A = 1 &  SAF_STATUS_B = 1  &  SAF_STATUS_C= 1 &  SAF_STATUS_D = 1)
 
-
-
-
   WAIT_LOOP:
 
   if ts > 10 then goto OccupiedMode
