@@ -3,7 +3,7 @@
 ' Define the inputs and variables
 Numeric Input HWC_SA_TEMP, HWC_SA_TEMP_SP, HEATING_MODE
 Numeric OldError, PK, IK, DK, I_Vlv_HWC
-numeric Output ERW_SS, HWC_VALVE_CTRL
+numeric Output HWC_VALVE_CTRL
 Function PID_CTRL
 
 ' Initialize the PID gains
@@ -17,8 +17,7 @@ HEATINGMODE:
   IF HEATING_MODE = on then Goto CONTROL_LOOP else goto WAIT_LOOP
    
 CONTROL_LOOP:
-  ERW_SS = On 
-  HWC_VALVE_CTRL = PID_CTRL(1, HWC_SA_TEMP, HWC_SA_TEMP_SP, I_Vlv_HWC, PK, IK, DK, OldError)
+   HWC_VALVE_CTRL = PID_CTRL(1, HWC_SA_TEMP, HWC_SA_TEMP_SP, I_Vlv_HWC, PK, IK, DK, OldError)
 
   Goto WAIT_LOOP
 
