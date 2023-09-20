@@ -216,3 +216,76 @@ TYPICAL ROOM OVAV's
     SETPOINT SHALL BE RESET BETWEEN MINIMUM AND MAXIMUM SETPOINT OF 0.5" WC AND 1.50 ” WC.
 
         -There are no DUCT STATIC PRESSURE SENSORS to monitor. Additionally nothing is being controlled to static pressure.
+
+
+
+
+
+
+
+
+The sequence provided outlines the operation of a Dedicated Outside Air System (DOAS) in various modes and under different conditions. Analyzing the sequence for issues related to communication between the DOAS and the OVAV units, the following concerns and potential issues arise:
+
+Lost Communication or Non existant Communication:
+
+Under item 2.C, if communication is lost between the network control panel and the outside air system controller, the DOAS is placed into the occupied mode until communication is restored.
+Issue: This could lead to unnecessary energy usage if the building or area is actually unoccupied.
+Issue: If the OVAVs or VAVs have different requirements (e.g., reduced demand), the DOAS might over-ventilate or under-ventilate the spaces.
+
+Occupancy Mode Based on Schedule:
+Item 2.D states that the system will switch between occupied and unoccupied modes based on a user-adjustable schedule.
+Issue: If the OVAVs or VAVs need ventilation outside of regular business hours and the DOAS cannot communicate this need due to a communication failure, the DOAS might not provide adequate ventilation.
+
+OVAV Call for Cooling in Unoccupied Mode:
+Item 9.E indicates that if there is an OVAV call for cooling during the unoccupied mode, the DOAS will be placed in occupied mode.
+Issue: If the DOAS cannot communicate with the OVAVs, it might not be able to detect this call for cooling, potentially compromising indoor air quality or comfort.
+
+While there is a manual override available on the OVAV units' controls, the sequence suggests that the DOAS operation, especially its transition between occupied and unoccupied modes, depends on communication with the OVAVs.
+Issue: If there's a communication disruption between the DOAS and the OVAVs, even if a manual override is activated on the OVAVs (for example, to increase airflow in a particular space), the DOAS might not recognize or respond to this override command. 
+As a result, the DOAS will not adjust its operation to meet the increased demand from the OVAVs, leading to potential discomfort, inadequate ventilation, or both in the overridden space.
+
+Supply Fan Control with Reference to OVAV Sequences:
+Item 6.C mentions that one should refer to the OVAV sequences for the duct static pressure reset requests.
+Issue: If there's a communication failure between DOAS and OVAVs, the DOAS may not receive or be able to adjust based on duct static pressure reset requests from the OVAVs. This could lead to inadequate or excessive airflow in the spaces served by the OVAVs. 
+Additionally this would reinforce the use of olderror adjustments from the PID loop causing the system to be less efficient and create an unstable control loop.
+
+Graphics Indicating VAV Position:
+Item 2.E mentions that the graphics will indicate the VAV with the greatest open position for troubleshooting.
+Issue: If communication is lost or non existant between the DOAS and the VAVs, troubleshooting and pinpointing issues based on VAV positions would be challenging.
+
+
+CHILLED WATER SYSTEM 
+
+CHILLED WATER SETPOINT
+
+CHILLED WATER SUPPLY SETPOINT SHALL BE 45°F (ADJ.). THIS SHALL BE THE DEFAULT CHILLED WATER 
+SETPOINT IN THE CHILLERS. CHILLED WATER SUPPLY TEMPERATURE SETPOINT RESET
+
+A.  DDC CONTROLLER WILL RESET CHILLED WATER SYSTEM SUPPLY TEMPERATURE SETPOINT IN RESPONSE TO 
+CONTROL VALVE OPEN POSITION.
+B.  EVERY TEMPERATURE CONTROL VALVE IN CHILLED WATER SYSTEM WILL BE MONITORED BY DDC CONTROLLER AND 
+USED IN CHILLED WATER SYSTEM SUPPLY TEMPERATURE SETPOINT RESET ALGORITHM INCLUDING TEMPERATURE 
+VALVES SERVING EACH DOAS AND ARU.
+C.  DDC CONTROLLER WILL INCREASE CHILLED WATER SYSTEM SUPPLY TEMPERATURE SETPOINT IN 0.2 °F (ADJ) 
+INCREMENTS OVER 15 MINUTE (ADJ) INTERVALS UNTIL POSITION OF ANY CONTROL VALVE IN CHILLED WATER 
+SYSTEM REACHES 90 % (ADJ) OPEN, TO A MAXIMUM OF 50°F (ADJ.).
+D.  IF POSITION OF ANY CONTROL VALVE REACHES 90 % (ADJ) OPEN POSITION FOR A CONTINUOUS 15 MINUTES 
+(ADJ), DDC CONTROLLER WILL DECREASE CHILLED WATER SYSTEM ATURE SETPOINT IN 0.5 DEGREE F (ADJ) 
+INCREMENTS OVER 15 MINUTE (ADJ) TIME INTERVALS UNTIL POSITION OF ALL CONTROL VALVES REACH NOT MORE
+N 85% (ADJ) OPEN
+
+
+CHILLER STAGING
+
+3. HEAT RECOVERY CHILLER
+
+IF THE HOT WATER SYSTEM IS CALLING FOR HEATING, THEN HEAT RECOVERY CHILLER (HRC-1A/B) SHALL BE THE FIRST STAGE OF COOLING. IF THERE IS NOT A CALL FOR HOT WATER HEATING THEN THE FIRST STAGE OF COOLING SHALL BE THE LEAD CHILLER (CH-1A THUR H).
+
+HEAT RECOVERY CHILLER (HRC-1A/B) [HOT WATER SYSTEM PUMP (P-6)] SHALL BE STARTED AND MODULATE TO 
+MAINTAIN MINIMUIM FLOW PRIOR TO STARTING THE CHILLER. FLOW SHALL MAINTAIN DIFFERENTIAL PRESSURE 
+SETPOINT ACROSS THE CHILLER. COORDINATE SETPOINT WITH TAB CONTRACTOR AND CHILLER MANUFACTURER.
+HEAT RECOVERY CHILLER (HRC-1A/B) CHILLED WATER PUMP (P-7) SHALL START AND MAINTAIN MINIMUM FLOW 
+PRIOR TO STARTING THE CHILLER. FLOW SHALL MAINTAIN DIFFERENTIAL PRESSURE SETPOINT ACROSS THE 
+CHILLER. COORDINATE SETPOINT WITH TAB CONTRACTOR AND CHILLER MANUFACTURER.
+T WATER SUPPLY TEMPERATURE SETPOINT AT (T-10) TEMPERATURE SENSOR FROM THE HOT WATER SYSTEM WATER 
+CONTROL SEQUENCES FOR ADDITIONAL INFORMATION).
