@@ -1,0 +1,219 @@
+'¯¯¯¯¯¯¯¯¯¯¯¯¯¯¯¯¯¯¯¯¯¯¯¯¯¯¯¯¯¯¯¯¯¯¯¯¯¯¯¯¯¯¯¯¯¯¯¯¯¯¯¯¯
+'AUTHOR SPENCER WENNERMARK 8/12/2023 ENTECH AUSTIN, TX
+'SPENCER.WENNERMARK@ENTECHSALES.COM
+'_____________________________________________________
+
+'-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_
+'--- HEADER COMMENTS ---
+' This script manages and sequences CHILLERs based on various criteria such as their status, failure rate,
+' current runtime, and heating call. It regularly checks for changes in CHILLER availability and adjusts the
+' sequencing accordingly.
+'-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_
+
+'VARIABLES
+Numeric Input CHILLER_DOWN_A, CHILLER_DOWN_B, CHILLER_DOWN_C, CHILLER_DOWN_D, CHILLER_DOWN_E, CHILLER_DOWN_F, CHILLER_DOWN_G, CHILLER_DOWN_H
+Numeric Input CHILLER_FAIL_A, CHILLER_FAIL_B, CHILLER_FAIL_C, CHILLER_FAIL_D, CHILLER_FAIL_E, CHILLER_FAIL_F, CHILLER_FAIL_G, CHILLER_FAIL_H
+Numeric Input CHILLER_STATUS_A, CHILLER_STATUS_B, CHILLER_STATUS_C, CHILLER_STATUS_D, CHILLER_STATUS_E, CHILLER_STATUS_F, CHILLER_STATUS_G, CHILLER_STATUS_H
+Numeric Input CHILLER_RT_A, CHILLER_RT_B, CHILLER_RT_C, CHILLER_RT_D, CHILLER_RT_E, CHILLER_RT_F, CHILLER_RT_G, CHILLER_RT_H,
+Numeric Output CHILLER_1, CHILLER_2, CHILLER_3, CHILLER_4, CHILLER_5, CHILLER_6, CHILLER_7, CHILLER_8
+Numeric CHILLER_DOWN[8], CHILLER_FAIL[8], CHILLER_AVAIL[8], CHILLER_STATUS[8], CHILLER_RT[8], CHILLER_SEQ[8], SCORE[8], RUNTIME[8], PREVIOUS_CHILLER_AVAIL[8]
+Numeric MAX_ORDER, i, CHILLERS_AVAIL, CHILLER_CHANGED, LAST_ROTATION, FORCE_RESEQUENCE,
+
+
+INITALIZE:
+    '-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_
+    '--- INITIALIZE section: Populating arrays from individual variables ---
+    ' Initialize the arrays using values from individual CHILLER variables.
+    ' This allows for a more streamlined handling in subsequent sections.
+    '-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_
+
+    CHILLER_DOWN[1] = CHILLER_DOWN_A
+    CHILLER_DOWN[2] = CHILLER_DOWN_B
+    CHILLER_DOWN[3] = CHILLER_DOWN_C
+    CHILLER_DOWN[4] = CHILLER_DOWN_D
+    CHILLER_DOWN[5] = CHILLER_DOWN_E
+    CHILLER_DOWN[6] = CHILLER_DOWN_F
+    CHILLER_DOWN[7] = CHILLER_DOWN_G
+    CHILLER_DOWN[8] = CHILLER_DOWN_H
+  
+    CHILLER_FAIL[1] = CHILLER_FAIL_A
+    CHILLER_FAIL[2] = CHILLER_FAIL_B
+    CHILLER_FAIL[3] = CHILLER_FAIL_C
+    CHILLER_FAIL[4] = CHILLER_FAIL_D
+    CHILLER_FAIL[5] = CHILLER_FAIL_E
+    CHILLER_FAIL[6] = CHILLER_FAIL_F
+    CHILLER_FAIL[7] = CHILLER_FAIL_G
+    CHILLER_FAIL[8] = CHILLER_FAIL_H
+
+    CHILLER_STATUS[1] = CHILLER_STATUS_A
+    CHILLER_STATUS[2] = CHILLER_STATUS_B
+    CHILLER_STATUS[3] = CHILLER_STATUS_C
+    CHILLER_STATUS[4] = CHILLER_STATUS_D
+    CHILLER_STATUS[5] = CHILLER_STATUS_E
+    CHILLER_STATUS[6] = CHILLER_STATUS_F
+    CHILLER_STATUS[7] = CHILLER_STATUS_G
+    CHILLER_STATUS[8] = CHILLER_STATUS_H
+
+    CHILLER_RT[1] = CHILLER_RT_A
+    CHILLER_RT[2] = CHILLER_RT_B
+    CHILLER_RT[3] = CHILLER_RT_C
+    CHILLER_RT[4] = CHILLER_RT_D
+    CHILLER_RT[5] = CHILLER_RT_E
+    CHILLER_RT[6] = CHILLER_RT_F
+    CHILLER_RT[7] = CHILLER_RT_G
+    CHILLER_RT[8] = CHILLER_RT_H
+ 
+
+    GOTO CHECK_CHILLER_AVAIL
+
+
+CHECK_CHILLER_AVAIL:
+
+    '-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_
+    '--- CHECK_CHILLER_AVAIL section ---
+    ' This section calculates how many CHILLERs are currently available.
+    ' The availability of a CHILLER is determined by whether it's down or has failed.
+    '-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_
+
+    CHILLERS_AVAIL = 0
+    CHILLER_CHANGED = FALSE
+
+    for i = 1 to 8
+        CHILLER_AVAIL[i] = maximum(1 - (CHILLER_DOWN[i] + CHILLER_FAIL[i]), 0)
+        If CHILLER_AVAIL[i] <> PREVIOUS_CHILLER_AVAIL[i] Then
+            CHILLER_CHANGED = TRUE
+        EndIf
+        PREVIOUS_CHILLER_AVAIL[i] = CHILLER_AVAIL[i]
+    Next i
+
+    CHILLERS_AVAIL = sum(CHILLER_AVAIL)
+
+    If CHILLER_CHANGED Then
+        GOTO CHECK_RESEQUENCE
+    EndIf
+
+    GOTO WAIT_LOOP
+
+CHECK_RESEQUENCE:
+
+    '-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_
+    '--- CHECK_RESEQUENCE section ---
+    ' Checks whether CHILLERs need to be resequenced.
+    ' This could be either because of a change in availability or if a forced resequence has been triggered.
+    '-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_
+
+    If ((FORCE_RESEQUENCE = On)&((Date - 3600) > LAST_ROTATION)) Then
+        LAST_ROTATION = Date
+
+        Goto RUNTIME_RESEQUENCE
+
+    EndIf
+
+    GOTO SEQUENCE_RESET
+
+SEQUENCE_RESET:
+
+    '-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_
+    '--- SEQUENCE_RESET section ---
+    ' Resets the sequencing of CHILLERs which are not available.
+    '-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_
+
+    for i = 1 to 8
+
+        If (CHILLER_AVAIL[i] = 0) & (CHILLER_SEQ[i] > 0) then CHILLER_SEQ[i] = 0
+
+    Next i
+
+    GOTO SEQUENCE_SCORE
+
+
+SEQUENCE_SCORE:
+    '-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_
+    '--- SEQUENCE_SCORE section ---
+    ' Determines a score for each CHILLER based on its availability, status, and (for the first four CHILLERs) the heating call.
+    ' This score will be used to sequence the CHILLERs in the CHILLER_ORDER section.
+    '-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_
+
+    For i = 1 to 8
+        SCORE[i] = (CHILLER_AVAIL[i] > 0) + ((CHILLER_STATUS[i]) * (CHILLER_AVAIL[i] > 0))
+        If i <= 8 And CHILLER_STATUS[i] = 1 And CHILLER_AVAIL[i] = 1 Then SCORE[i] = SCORE[i]
+    Next i
+
+    GOTO CHILLER_ORDER
+ 
+CHILLER_ORDER:
+
+    '-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_
+    '--- CHILLER_ORDER section ---
+    ' Determines the order/sequence of CHILLERs based on their scores.
+    ' CHILLERs with higher scores will be given preference.
+    '-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_
+
+    For i = 1 to 8
+        CHILLER_SEQ[i] = 0
+    Next i
+
+    For i = 1 to minimum(CHILLERS_AVAIL, 8)
+        MAX_ORDER = maxitem(SCORE)
+        CHILLER_SEQ[MAX_ORDER] = i
+        SCORE[MAX_ORDER] = 0
+    Next i
+
+    GOTO SET_SEQUENCE
+   
+RUNTIME_RESEQUENCE:
+
+    '-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_
+    '--- RUNTIME_RESEQUENCE section ---
+    ' Determines the order/sequence of CHILLERs based on their runtime.
+    ' CHILLERs with longer runtimes are given lower sequence numbers, meaning they should run later.
+    ' This helps in distributing the runtime across CHILLERs and prolonging their lifespan.
+    '-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_
+
+    For i = 1 to 8
+        RUNTIME[i] = maximum(CHILLER_RT[i], 0.01) * (CHILLER_AVAIL[i] > 0)
+    Next i
+
+    For i = 1 to 8
+        CHILLER_SEQ[i] = 0
+    Next i
+
+    For i = 1 to minimum(CHILLERS_AVAIL, 8)
+        MAX_ORDER = maxitem(RUNTIME)
+        CHILLER_SEQ[MAX_ORDER] = ((CHILLERS_AVAIL + 1) - i)
+        RUNTIME[MAX_ORDER] = 0
+    Next i
+
+    FORCE_RESEQUENCE = Off
+    GOTO SET_SEQUENCE
+
+SET_SEQUENCE:
+    '-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_
+    '--- SET_SEQUENCE section ---
+    ' Transfers the calculated sequences for CHILLERs to public variables.
+    ' This allows the sequences to be accessed by other scripts or programs.
+    '-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_
+
+    CHILLER_1 = CHILLER_SEQ[1]
+    CHILLER_2 = CHILLER_SEQ[2]
+    CHILLER_3 = CHILLER_SEQ[3]
+    CHILLER_4 = CHILLER_SEQ[4]
+    CHILLER_5 = CHILLER_SEQ[5]
+    CHILLER_6 = CHILLER_SEQ[6]
+    CHILLER_7 = CHILLER_SEQ[7]
+    CHILLER_8 = CHILLER_SEQ[8]
+    GOTO WAIT_LOOP
+
+WAIT_LOOP:
+
+    '-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_
+    '--- WAIT_LOOP section ---
+    ' A simple waiting loop.
+    ' The script will pause here for a set duration (60 seconds) before checking the CHILLER availability again.
+    '-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_
+
+    Wait 60
+    Goto INITALIZE
+
+
+
