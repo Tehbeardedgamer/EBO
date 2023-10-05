@@ -1,30 +1,49 @@
-'PIDLoop Function ( Short Version ) - PRODUCES SIGNAL FROM 0 TO 1 REPRESENTING 0-100% CAPACITY
+'_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_
+' UPDATES JULY 2023 SWENNERMARK@ENCTECHSALES.COM 
+    'If Arguments 9, 10 and 11 are passed, the function returns the CONVERTED value instead of a percentage value, and sets Arg[11] to the percentage value
+        'Arg[9]  = Zero Percent Position
+        'Arg[10] = Hundred Percent Position
+        'Arg[11] = Percent Numeric
 
-Arg 1 controlledVariable            ' controlled variable (sensor)
-Arg 2 setPoint                      ' setpoint
-Arg 3 kP                            ' proportional gain - constant
-Arg 4 kI                            ' integral gain - constant
-Arg 5 kD                            ' derivative gain - constant
-Arg 6 bias                          ' initial output value when no error exists
-Arg 7 directionAction               ' directional relationship of controlledVariable and output capacity (1=DA 0=RA)
-Arg 8 initialError                  ' error from previous scan - stored in calling program
-Arg 9 integralValue                 ' integral value - stored in calling program
-Arg 10 lastTimeCalled               ' last time the function was called - datetime variable
+    ' Pidout = PIDControl(0, Temp, Stpt, I.Vlv, Pk, Ik, Dk, OldError) sets the Pidout to a value between 0-100 percent
+        ' NO ADDITIONAL ARGS PASSED
 
-Numeric actualError	   		        ' difference between setPoint and controlledVariable
-Numeric diffCurrentLastTimeCalled 	' difference between current time and lastTimeCalled
-Numeric outputValue       		      ' output capacity (0-1) - returned to calling program
+    ' Pidout = PIDControl(0, Temp, Stpt, I.Vlv, Pk, Ik, Dk, OldError, 0.1, 12.85, Pct.Vlv)  - sets the Pidout to a value between 0.1-12.85 (0.1=0% and 12.85=100%), and sets Pct.Vlv to a value between 0-100 percent
+        ' WITH ARGS 9. 10, 11 PASSED
 
-If passed(10) then
-  diffCurrentLastTimeCalled = maximum((Time - lastTimeCalled), Scan)
-  lastTimeCalled = Time
+    ' Pidout = PIDControl(0, Temp, Stpt, I.Vlv, Pk, Ik, Dk, OldError, 12.85, 0.1, Pct.Vlv) - sets the Pidout to a value between 0.1-12.85 (12.85=0% and 01.=100%), and sets Pct.Vlv to a value between 0-100 percent
+        ' WITH ARGS 9. 10, 11 PASSED
+
+'_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_
+' DEFINE REQUIRED ARGUMENTS
+Arg 1 ReverseActing
+Arg 2 ProcessVariable
+Arg 3 Setpoint
+Arg 4 Integral
+Arg 5 ProportionalK
+Arg 6 IntegralK
+Arg 7 DerivativeK
+Arg 8 OldError
+
+Numeric ThisError, Derivative, Pidout
+If ReverseActing = 1 then ThisError = ProcessVariable - Setpoint
+Else ThisError = Setpoint - ProcessVariable
+
+' Calculate the rate of change of the error for the derivative term
+Derivative = ThisError - OldError
+
+' Update the integral term with the current error and prevent windup by limiting between 0 and 100
+Integral = maximum(minimum(Integral + ThisError * IntegralK, 100), 0)
+
+' Update the OldError for the next iteration
+OldError = ThisError
+
+' Calculate the PID Pidout
+Pidout = Integral + ThisError * ProportionalK + Derivative * DerivativeK
+
+If passed(9) & passed(10) & passed(11) then
+    Arg[11] = maximum(minimum(Pidout, 100), 0)
+    Return (Arg[11] * ((Arg[10] - Arg[9]) / 100)) + Arg[9]
 Else
-  diffCurrentLastTimeCalled = Scan
+    Return maximum(minimum(Pidout, 100), 0)
 Endif
-
-actualError = ((controlledVariable - setPoint) * (directionAction = 1)) + ((setPoint - controlledVariable) * (directionAction = 0))
-outputValue = maximum(minimum(((kP * actualError) + (kI * integralValue) + (kD * ((actualError - initialError) / diffCurrentLastTimeCalled)) + bias), 1), 0)
-integralValue = integralValue + (actualError * diffCurrentLastTimeCalled * (((outputValue < 1) or (actualError < 0)) and ((outputValue > 0) or (actualError > 0))))
-initialError = actualError
-
-Return outputValue
