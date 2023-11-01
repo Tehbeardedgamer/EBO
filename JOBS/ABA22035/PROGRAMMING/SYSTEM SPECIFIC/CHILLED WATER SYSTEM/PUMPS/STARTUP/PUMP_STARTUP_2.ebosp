@@ -10,7 +10,6 @@ IF (PUMP_STATUS_2 = On)  THEN GOTO PUMP_ON ELSE GOTO PUMP_OFF
 
 PUMP_OFF:
   IF (STAGE = 1) & (PUMP_DOWN_2 = Off)  THEN ' IF P2 is down for maint then i need to ensure pump A takes over until p2 is back up
-    
     PUMP_SPEED_CMD_2 = 35
     GOTO PUMP_START
   EndIF
