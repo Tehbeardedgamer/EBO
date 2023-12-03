@@ -1,37 +1,41 @@
-'¯¯¯¯¯¯¯¯¯¯¯¯¯¯¯¯¯¯¯¯¯¯¯¯¯¯¯¯¯¯¯¯¯¯¯¯¯¯¯¯¯¯¯¯¯¯¯¯¯¯¯¯¯
-'AUTHOR SPENCER WENNERMARK 8/12/2023 ENTECH AUSTIN, TX
-'SPENCER.WENNERMARK@ENTECHSALES.COM 
-'_____________________________________________________
+NUMERIC INPUT CHW_VALVE_POS' VARIABLES THAT ARE IMPORTED TO THIS PROGRAM
+NUMERIC SP_INCREMENT, SP_DECREMENT ,MAX_SP, MIN_SP' LOCAL VARIABLES USED IN THIS PROGRAM
+NUMERIC OUTPUT CHW_SUPPLY_SP 'VARIABLES THAT ARE EXPORTED FROM THIS PROGRAM
 
-	Numeric Input VALVE_POSITION'VALVE POSITION BOUND TO CHW_VALVE_POS FROM  CHECK_CHW_VALVE_POS PROGRAM OUTPUT
-	Numeric Output CHW_SUPPLY_SP
-	Numeric TIMER
-	function Sectimer
+GOTO Initialize
 
-	Goto Initialize
+Initialize:
+'' Initialize variables
+CHW_SUPPLY_SP = 45.0; '' Default setpoint in °F
+MAX_SP = 50.0; '' Maximum setpoint in °F
+MIN_SP = 45.0; '' Minimum setpoint in °F
+SP_INCREMENT = 0.2; '' Setpoint increment in °F
+SP_DECREMENT = 0.5; '' Setpoint decrement in °F
 
-	Initialize:
-		CHW_SUPPLY_SP = 45
-			
-	Goto CTRL_LOOP
-'CONTROL LOOP
-	CTRL_LOOP:
-	WAIT 900
-			If VALVE_POSITION <90 then goto INCREASE_CHW_SP
-			If Sectimer((VALVE_POSITION >=90),900,TIMER) Then Goto DECREASE_CHW_SP
-'INCREASE CHILL WATER SP
-		INCREASE_CHW_SP:
-			'Routine to increase the chilled water supply setpoint until any valve reaches 90% open.
-			If (CHW_SUPPLY_SP < 50) then CHW_SUPPLY_SP = CHW_SUPPLY_SP + 0.2
-			Goto CTRL_LOOP
-'DECREASE CHILLED WATER SP
-		DECREASE_CHW_SP:
-			'Routine to decrease the chilled water supply setpoint in increments of 0.5°F every 15 minutes, if any valve stays 90% open continuously for 15 minutes.
-			'The decreasing continues until the position of all control valves reach not more than 85% open.
-			While VALVE_POSITION > 85
-				If (CHW_SUPPLY_SP > 45) then CHW_SUPPLY_SP = CHW_SUPPLY_SP - 0.5
-				WAIT 900
-			EndWhile
 
-			Goto CTRL_LOOP
+GOTO MAIN
 
+MAIN:
+'' Monitor control valve positions and adjust setpoint
+WAIT 15
+IF TS > 900 & (CHW_VALVE_POS >= 90.0) THEN GOTO LIMIT_SP
+IF (CHW_VALVE_POS < 90.0) THEN GOTO INCREASE_SP
+IF (CHW_VALVE_POS > 85.0) THEN GOTO DECREASE_SP
+
+INCREASE_SP:
+CHW_SUPPLY_SP = minimum(CHW_SUPPLY_SP + SP_INCREMENT, MAX_SP)
+GOTO WAITLOOP
+    
+DECREASE_SP:
+CHW_SUPPLY_SP = maximum(CHW_SUPPLY_SP - SP_DECREMENT, MIN_SP)
+GOTO WAITLOOP
+
+LIMIT_SP: 'ONCE VALVEPOSITION HAS BEEN AT 90 FOR 15 MINUTES, DECREASE SETPOINT BY 0.5 UNTIL VALVEPOSITION IS LESS THAN 85
+WHILE CHW_VALVE_POS > 85
+    WAIT 15
+    CHW_SUPPLY_SP = maximum(CHW_SUPPLY_SP - SP_DECREMENT, MIN_SP)
+ENDWHILE
+GOTO WAITLOOP
+
+WAITLOOP:
+IF TS > 10 THEN GOTO MAIN
