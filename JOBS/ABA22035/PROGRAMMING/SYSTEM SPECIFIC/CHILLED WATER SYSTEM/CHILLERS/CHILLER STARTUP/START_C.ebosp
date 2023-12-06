@@ -1,0 +1,79 @@
+' Initialize numeric inputs and outputs
+NUMERIC INPUT CHILLER_C, ISO_STATUS_C, STATUS_C, FAULT_C, FLOW_SWITCH_C
+NUMERIC INPUT CHILLERS_REQ
+NUMERIC OUTPUT ISO_CMD_C, CHILLER_SS, FAILED_C
+NUMERIC FAIL_RETRIES
+
+GOTO Initialize
+
+Initialize:
+  ' Initialize all outputs to OFF
+  ISO_CMD_C = OFF
+  CHILLER_SS = OFF
+  FAILED_C = OFF
+  FAIL_RETRIES = 0
+  ' Go to wait loop after initialization
+  GOTO WAIT_LOOP
+
+  ' Check if the chiller is required based on CHILLERS_REQ and CHILLER_C values
+CHECK_REQUIRED:
+  ' If the required number of chillers is greater than or equal to CHILLER_C, start the chiller
+  ' Else, turn the chiller off
+  IF (CHILLERS_REQ >= CHILLER_C) & (CHILLER_C > 0) THEN GOTO START_CHILLER ELSE GOTO CHILLER_OFF
+
+START_CHILLER:
+  ' Loop to handle chiller startup process
+  ' Conditions: Required chillers >= CHILLER_C, CHILLER_C > 0, No faults detected
+  WHILE (CHILLERS_REQ >= CHILLER_C) & (CHILLER_C > 0) & (FAULT_C = 0)
+    ' Send ON command to isolation command
+    ISO_CMD_C = ON
+    ' Wait for 1 minute before checking isolation status
+    WAIT 1
+    ' Check if isolation status is ON and flow switch is active, then set CHILLER_SS to ON
+    IF (ISO_STATUS_C = ON) & (FLOW_SWITCH_C = 1) THEN CHILLER_SS = ON
+    ' If chiller status is ON and STATUS_C is 1, chiller is running
+    IF CHILLER_SS = ON & STATUS_C = 1 THEN GOTO CHILLER_RUNNING
+    ' If TS > 300 and STATUS_C is 0, chiller failed to start
+    IF TS > 300 & STATUS_C = 0 THEN GOTO CHILLER_FAILED
+  ENDWHILE
+
+  ' Go to CHILLER_OFF label if conditions to keep chiller on are not met
+  GOTO CHILLER_OFF
+
+CHILLER_RUNNING:
+  ' Check if chiller needs to be turned off based on various conditions
+  IF (CHILLERS_REQ < CHILLER_C) or (CHILLER_C = 0) or (FAULT_C = 1) or (STATUS_C = 0) THEN GOTO CHILLER_OFF
+  ' Reset FAIL_RETRIES if chiller is running for 300 seconds
+  IF (TS > 300) THEN FAIL_RETRIES = 0
+
+CHILLER_FAILED:
+  ' Handle chiller failure scenario
+  IF FAILED_C = 0 THEN GOTO CHILLER_OFF
+  IF FAIL_RETRIES < 3 THEN FAIL_RETRIES = FAIL_RETRIES + 1 and FAILED_C = OFF
+  IF FAIL_RETRIES >= 3 THEN
+    FAILED_C = ON
+    CHILLER_SS = OFF
+    ISO_CMD_C = OFF
+  ENDIF
+
+  ' Go to wait loop after handling chiller failure
+  GOTO WAIT_LOOP
+
+CHILLER_OFF:
+  ' Turn off chiller and isolation command
+  CHILLER_SS = OFF
+  ISO_CMD_C = OFF
+  ' Go to wait loop after turning chiller off
+  GOTO WAIT_LOOP
+
+CHILLER_DOWN:
+  ' Reset fail retries and check conditions for chiller down
+  FAIL_RETRIES = 0
+  IF TS > 43200 then FAILED_C = 0
+  IF FAILED_C = 0 and FAULT_C = 0 THEN GOTO CHILLER_OFF
+
+WAIT_LOOP:
+  ' Wait loop to handle chiller down or failure scenarios
+  IF FAILED_C = 1 or FAULT_C = 1 THEN GOTO CHILLER_DOWN
+  ' Goto check required loop after waiting for 30 seconds
+  IF TS > 30 THEN GOTO CHECK_REQUIRED

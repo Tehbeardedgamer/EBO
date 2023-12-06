@@ -69,7 +69,7 @@ CHILLER_OFF:
 CHILLER_DOWN:
   ' Reset fail retries and check conditions for chiller down
   FAIL_RETRIES = 0
-  IF TS > 3600 then FAILED_E = 0
+  IF TS > 43200 then FAILED_E = 0
   IF FAILED_E = 0 and FAULT_E = 0 THEN GOTO CHILLER_OFF
 
 WAIT_LOOP:
