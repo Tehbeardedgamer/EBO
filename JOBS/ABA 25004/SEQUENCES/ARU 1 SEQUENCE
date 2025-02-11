@@ -1,0 +1,117 @@
+## AIR ROTATION UNITS (ARU-1) CONTROLS SEQUENCE
+
+---
+
+### 1. ARU Overview
+
+Each ARU-1 unit includes:
+
+1. **Three (3) Variable Flow Draw-Through Supply Fans**  
+2. **Chilled Water Coil**  
+3. **Hot Water Coil**  
+4. **MERV 13 Filter**
+
+---
+
+### 2. General Air Rotation Unit
+
+1. **DDC Controller**  
+   - The system operates under a dedicated DDC controller.
+
+2. **Loss of Communication**  
+   - If communication is lost between the network control panel and the ARU controller, the ARU defaults to **occupied mode** until communication is restored.
+
+3. **Hot/Chilled Water Valves**  
+   - The hot water and chilled water valves shall never be open simultaneously unless explicitly stated in this sequence.
+
+4. **Pressure-Independent Valves**  
+   - All valves have flow feedback to the BAS (Belimo Energy Valve or equal).
+
+5. **Continuity of Operation After Power Interruption**  
+   - Equipment and controls connected to normal and backup power automatically resume their prior operating state after power is restored.  
+   - No manual operator intervention is required.
+
+6. **ARU Equipment Override**  
+   - The operator can override equipment locally at the motor controller.  
+   - The motor controller features a Hand-Off-Auto (HOA) switch (or similar), enabling remote automatic or local control.
+
+7. **Equipment Runtime Calculation**  
+   1. Runtime begins on start command with confirmed “on” status; it ends on stop command with confirmed “off” status.  
+   2. Hours are aggregated daily, weekly, monthly, yearly, and since installation.  
+   3. The DDC controller compares operating hours against maintenance intervals (set by the operator) and warns when intervals are approaching.
+
+---
+
+### 3. Occupied Mode
+
+The ARU operates in **cooling**, **heating**, or **dehumidification** depending on requirements.
+
+#### 3.1 Cooling Mode
+
+- The ARU is enabled, and the 2-way, modulating chilled water control valve (CV-1) modulates to maintain 55 °F leaving the chilled water coil (T-3).  
+- The supply fan runs at **constant volume** to maintain airflow/throw throughout the space.  
+- The hot water valve remains closed.
+
+#### 3.2 Heating Mode
+
+- The ARU is enabled, and the hot water valve modulates to maintain zone temperature setpoint (ZN-T) with a maximum discharge air temperature (DAT) of 80 °F (adjustable).  
+- The supply fan runs at constant volume.  
+- The chilled water valve remains closed.
+
+#### 3.3 Dehumidification Mode
+
+- If space humidity exceeds its setpoint, the chilled water valve modulates to maintain 53 °F leaving the coil.  
+- The hot water valve modulates to maintain the zone temperature setpoint (ZN-T).  
+- The supply fan runs at constant volume.  
+
+---
+
+### 4. Safeties
+
+1. **Smoke Shutdown**  
+   - Smoke detectors in supply and return ducts shut off supply (and exhaust, if applicable) fans via hardwired safety when smoke is detected.  
+   - An audio/visual alarm is triggered.  
+   - After correction, the system resets and returns to normal.  
+   - Coordinate with the fire alarm system.
+
+2. **Loss of Power**  
+   - On power loss, chilled and hot water valves fail **closed**.
+
+---
+
+### 5. Alarms
+
+#### 5.1 Level 1 Alarm
+
+- **Smoke Detector Alarm**
+
+#### 5.2 Level 2 Alarms
+
+1. **High Humidity Alarm**  
+   - Space humidity ≥ 70% above setpoint for 30 minutes (adjustable).  
+2. **High Temperature Alarm (Space)**  
+   - Space temperature 10 °F above setpoint for 60 minutes.  
+3. **Condensate Overflow Alarm**  
+   - Condensate overflow switch is activated. The unit continues to operate regardless of alarm status.  
+4. **Damper/Fan Status Mismatch**  
+   - Damper or supply fan status does not match command.
+
+#### 5.3 Level 3 Alarms
+
+1. **Controller (CGM-6) Failure Alarm**  
+2. **Fan Status Mismatch**  
+   - Fan status does not match command.  
+3. **High Temperature Alarm (Space)**  
+   - Space temperature 5 °F above setpoint for 30 minutes.  
+4. **High Humidity Alarm**  
+   - Space humidity ≥ 65% above setpoint for 15 minutes (adjustable).  
+5. **Valve Status Mismatch**  
+   - CV-1 or RC-1 does not match command.  
+6. **Simultaneous Heating/Cooling**  
+   - **Cooling Mode**: If T-4 is 5 °F more than T-3.  
+   - **Heating Mode**: If T-2 is 5 °F less than ZN-T.
+
+#### 5.4 Level 4 Alarms
+
+1. **Air Rotation Unit Runtime Maintenance Alarm**  
+   - Per the manufacturer’s recommendations.

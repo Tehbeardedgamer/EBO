@@ -1,0 +1,370 @@
+
+## CHILLED WATER SYSTEM CONTROL SEQUENCE
+
+
+### 1. Chilled Water System Overview
+
+The chilled water system consists of the following major equipment:
+
+1. **Sixteen (16) 450-Ton Air-Cooled Chillers (CH-1 through CH-16)**  
+2. **Seven (7) Primary Full-Load Variable Flow Chilled Water Pumps (P-1A through P-1G)**  
+   - Each primary pump is sized to handle the flow production of three (3) chillers.  
+3. **Six (6) Secondary Full-Load Variable Flow Chilled Water Distribution Pumps (P-2A through P-2F)**  
+   - These six (6) secondary pumps are divided into two groups of three (3) pumps each: one group for the north chilled water loop and one group for the south chilled water loop.  
+   - Each group of three (3) pumps is sized at 50% / 50% / 50%.  
+4. **Four (4) Dedicated Heat Recovery Chiller Modules (HRC-1A through HRC-1D)**  
+5. **One (1) Heat Recovery Chiller Pump (P-7)**  
+
+---
+
+### 2. General
+
+1. **Chiller Controller Optimization**  
+   - Each chiller (CH-1 through CH-16) will have its own local controller for compressor staging optimization.  
+   - A master controller shall optimize the staging of the entire chilled water system.  
+   - If a chiller fails, the chiller controllers shall automatically enable a redundant chiller module.
+
+2. **Loss of Network Communication Signal**  
+   - All systems work in standalone mode if communication is lost.
+
+3. **Chiller BACnet MS/TP Communication**  
+   - The BAS shall have the capability to command setpoints and perform monitoring via a BACnet MS/TP interface port on each chiller.  
+   - Coordinate all BACnet points to be mapped with the Owner.
+
+4. **BACnet IP Communication**  
+   - Coordinate all BACnet IP communication wiring between the chiller controllers and the chiller manufacturer.  
+   - Provide all hardware necessary to communicate via BACnet protocol (hardware and software identifiers for interface points, values, and units).
+
+5. **Chilled Water Valves**  
+   - All chilled water valves serving each DOAS, RTU, and ARU are pressure-independent control valves with flow feedback to the BAS (e.g., Belimo Energy Valve or equal).
+
+6. **Chiller Start Conditions**  
+   - A chiller shall not be allowed to start unless:  
+     1. Proof that the chiller isolation valve is open.  
+     2. All safety controls (chilled water flow switch, compressor low-pressure flow switch, and compressor high-pressure control switch) are satisfied.  
+
+---
+
+### 3. Loss of Normal Power
+
+1. **Emergency Power Coverage**  
+   - The chilled water system controller, chiller controllers, and two (2) chilled water secondary pumps (one on each loop) will be on emergency power.  
+   - This maintains chilled water circulation to prevent freezing of DOAS and RTU coils.  
+   - Loss of power shall be indicated by an ATS dry contact.  
+   - The BAS shall command on the chilled water pumps on emergency power (if not already running) to circulate water.
+
+2. **Dual Power Input**  
+   - Provide all central plant controllers with dual power input:  
+     1. Normal/Emergency power  
+     2. UPS power (provided by the electrical contractor)  
+   - Coordinate with the electrical contractor.
+
+3. **Command Off During Loss of Power**  
+   - During loss of power, all other pumps, RTUs, etc., shall be commanded off (if they still have power) unless specifically called out in their associated sequence.  
+   - All chillers and pumps not on backup generator shall be commanded off.
+
+---
+
+### 4. Continuity of Operation After Electric Power Interruption
+
+- Equipment and associated factory controls, field-installed controls, and electrical equipment connected to the building’s normal and backup power systems shall automatically return to the operating state that existed immediately before the loss of normal power, without manual intervention, when power is restored (either through the backup power source or normal power if restored before backup power comes online).
+
+---
+
+### 5. Equipment Override
+
+1. **Local Override at Equipment Motor Controller**  
+   - The operator will have the ability to override equipment locally at the equipment motor controller.  
+   - The motor controller will have a Hand-Off-Auto (HOA) switch or similar style switch for remote automatic control or local control.
+
+2. **Maintenance Override Off**  
+   - The operator will have the ability to override equipment locally.  
+   - The chiller controller will be notified of the on/off status and enable/disable a redundant chiller as needed.
+
+---
+
+### 6. Equipment Runtime Calculation
+
+1. **Runtime Calculation**  
+   - Runtime calculation initiates on a start command and confirmed equipment “on” status.  
+   - Runtime is calculated in hours and totalized daily, weekly, monthly, yearly, and since installation.  
+   - Calculation is interrupted on stop command and confirmed equipment “off” status.
+
+2. **Maintenance Warning**  
+   - The DDC controller monitors operating hours against operator-input maintenance intervals (hours).  
+   - A warning is signaled when operating hours approach the maintenance interval.
+
+---
+
+### 7. Chilled Water Setpoint
+
+- **Default Supply Setpoint**: 45°F (adjustable).  
+- This is the default chilled water setpoint in the chillers.
+
+---
+
+### 8. Chiller Staging
+
+> **Note**: Some chillers will be installed at a future date. The programming shall assume all 16 chillers are present, but any future chillers remain disabled until their corresponding points are available.
+
+#### 8.1 Base Load Operation
+
+1. **Minimum Load**  
+   - Each individual chiller’s minimum load is 112.5 tons (25% of capacity).
+
+2. **Staging to Meet Setpoint**  
+   - CH-1 through CH-16 chillers operate as required to meet the chilled water supply (CWS) temperature setpoint.
+
+3. **Lead/Lag Operation**  
+   - Chillers operate in lead/lag mode.  
+   - The lead chiller rotates on a weekly basis, based on runtime.
+
+#### 8.2 Heat Recovery Chiller
+
+1. **Priority for Hot Water Demand**  
+   - When there is a hot water demand (per hot water system control sequences on Sheet M7.4), the heat recovery chillers (HRC-1A through HRC-1D) serve as the first stage of cooling.  
+   - If there is no call for hot water, the first stage of cooling shall be the lead chiller (CH-1 through CH-16).
+
+2. **HRC Start Sequence**  
+   - The 2-way control valve for the heat recovery chiller (HRC-1A through HRC-1D) shall open.  
+   - Hot water system pump (P-6) shall start and modulate to maintain minimum flow before starting the HRC. Flow shall maintain differential pressure setpoint across the chiller (coordinate setpoint with TAB contractor and chiller manufacturer).
+
+3. **HRC Chilled Water Pump**  
+   - The chilled water pump (P-7) for HRC-1A through HRC-1D shall start and maintain minimum flow before starting the chiller.  
+   - Flow shall maintain differential pressure setpoint across the chiller (DPS-4A). Coordinate setpoint with TAB contractor and chiller manufacturer.
+
+4. **Chiller Control**  
+   - Start HRC (HRC-1A through HRC-1D) and control to maintain hot water supply temperature setpoint at T-11 (from the hot water system).  
+   - Refer to hot water control sequences for additional information.
+
+#### 8.3 Chiller Staging Controller (Provided by Chiller Manufacturer if Required)
+
+When there is a call for cooling, the following stages occur:
+
+1. **Stage 1: Minimum Cooling Load**  
+   - **Open Lead Chiller Control Valve** (CH-1 through CH-16). Chiller staging order is from least runtime hours to most, updated weekly.  
+   - **Start Chilled Water Primary Pumps (P-1A through P-1G)** according to the primary pumping system control sequence.  
+   - **Confirm Chiller Minimum Flow** is exceeded.  
+   - **Activate the Lead Chiller** once it is at minimum flow rate, and maintain the active chilled water supply temperature setpoint.
+
+2. **Stage 2: Lag Chiller**  
+   - Occurs when the lead chiller exceeds 70% (adjustable) load.  
+   - **Open Lag Chiller Control Valve** (CH-1 through CH-16).  
+   - **Stage Up the Chilled Water Primary Pumps (P-1A through P-1G)** according to the primary pumping system control sequence.  
+   - **Confirm the Lag Chiller Minimum Flow** is exceeded.  
+   - **Activate the Lag Chiller** once it is at minimum flow rate, and maintain the active chilled water supply temperature setpoint.
+
+3. **Stage 3: Nth Lag Chiller**  
+   - Occurs when operating chillers exceed 70% (adjustable) load.  
+   - **Open Nth Lag Chiller Control Valve** (CH-1 through CH-16).  
+   - **Stage Up the Chilled Water Primary Pumps (P-1A through P-1G)** according to the primary pumping system control sequence.  
+   - **Confirm the Nth Lag Chiller Minimum Flow** is exceeded.  
+   - **Activate the Nth Lag Chiller** once it is at minimum flow rate, and maintain the active chilled water supply temperature setpoint.
+
+#### 8.4 Staging Down
+
+- If all operating chillers (CH-1 through CH-16) are at 25% (adjustable) load or less **and** the chilled water setpoint is satisfied, then one of the operating chillers shall be disabled and the chilled water primary pumps shall stage down according to the primary pumping system control sequence.  
+- This shall continue until only the lead chiller remains in operation (if the load is sufficiently low).
+
+#### 8.5 Chiller Fault
+
+1. **Fault Priority**  
+   - Any chiller reporting a fault via the BAS interface is set as last-in-line lag chiller, and an alarm is sent to the BAS.
+
+2. **Next-In-Line Staging**  
+   - If the chilled water supply temperature remains above setpoint for 15 minutes (adjustable), the next-in-line lag chiller stages up regardless of chiller loading.  
+   - Once the chilled water supply temperature reaches setpoint, chiller staging reverts to normal (per the sequences above).
+
+---
+
+### 9. Chilled Water Primary Pumping System Control Sequence
+
+1. **Lead/Lag/Standby Operation**  
+   - The seven primary pumps (P-1A through P-1G) shall operate on a lead/lag/standby basis.  
+   - Lead/lag operation rotates on a weekly (adjustable) schedule based on runtime.  
+   - The order of staged pumps is from least runtime hours to most.
+
+2. **Pump Demand**  
+   - The lead/lag/standby pumps must be capable of operating to match the number of chillers in operation.
+
+3. **Status Monitoring**  
+   - Each pump’s status is monitored from the VFD controller.  
+   - If a pump’s status is not proven, that pump is deactivated, and an audio-visual alarm is generated at the BAS.  
+   - If chilled water flow fails after the chiller is operating, the next-in-line lag chilled water pump activates.  
+   - Once the cause of the alarm is resolved, the faulted pump is manually reset via the GUI, and the backup pump deactivates.  
+   - Provide a 30-second time delay to prevent false alarms.
+
+4. **Pump Speed Control (Three Speed Settings)**  
+   - In coordination with the TAB contractor, each primary pump will have three preset speeds corresponding to design flow for:  
+     - One (1) chiller (low speed)  
+     - Two (2) chillers (medium speed)  
+     - Three (3) chillers (high speed)  
+
+5. **Pump Activation Logic**  
+   - The primary pump lead controller continuously surveys how many chiller control valves are open.  
+   - The number and speed of operating primary pumps match the quantity of chillers that have open control valves.  
+   - **As chillers stage up**:  
+     1. The lead pump increases speed until it reaches high speed.  
+     2. When another chiller is staged on, a lag pump is enabled at low speed.  
+     3. As more chillers continue to stage up, the lag pump(s) increase speed accordingly.  
+   - **As chillers stage down**:  
+     - The pumps stage down in the reverse order of the staging up sequence.
+
+---
+
+### 10. Chilled Water Secondary Pumping System Control Sequence
+
+1. **Groups of Three**  
+   - The secondary pumps (P-2A/B/C) form one group and (P-2D/E/F) form another, each operating on a lead/lag/lag/standby basis.  
+   - Lead/lag operation rotates within each group weekly (adjustable).
+
+2. **Differential Pressure Control**  
+   - Each group of secondary pumps is controlled by two differential pressure sensors to maintain the required differential pressure setpoint.  
+   - P-2A/B/C control to DPS-1A/B.  
+   - P-2D/E/F control to DPS-1C/D.
+
+3. **Flow Stability**  
+   - Flow stability and rate of change are critical for safe chiller operation.  
+   - Tune control loops to avoid rapid swings that might cause a chiller alarm.
+
+4. **Status Monitoring**  
+   - Each pump’s status is monitored from its VFD controller.  
+   - If a pump’s status is not proven, that pump is deactivated and an audio-visual alarm is generated.  
+   - If chilled water flow fails after the chiller is operating, the next-in-line lag pump activates.  
+   - Once the cause is resolved, the faulted pump is manually reset, and the backup pump deactivates (with a 30-second time delay to prevent false alarms).
+
+5. **Optimized Differential Pressure Setpoint**  
+   - The TCC, TAB contractor, and commissioning agent shall coordinate the required DP setpoint, initially 8 psi (adjustable).  
+   - Final setpoint is documented in the TCC record documents.
+
+6. **Priority of Control Loops**  
+   - Prioritize pump speed responsiveness over AHU valve control loops.  
+   - AHU valve loops should be the slowest control loops.
+
+7. **Direct Sensor Wiring**  
+   - DPS-1A/B and DPS-1C/D are wired directly to the respective pump lead controller (no intermediate communication bus mapping).
+
+8. **Constant DP Maintenance**  
+   - P-2A/B/C ramp up/down to maintain a constant DP at DPS-1A or DPS-1B.  
+   - P-2D/E/F ramp up/down to maintain a constant DP at DPS-1C or DPS-1D.
+
+9. **Lead Pump Speed Increase**  
+   - The lead pump continuously monitors the lead DP sensor.  
+   - If pressure is below the setpoint, speed increases.
+
+10. **Lag Pump Enabling**  
+   - If the lead pump rises above 90% speed for 10 minutes, the lag pump is enabled. The lag pump ramps up, and the lead pump ramps down to meet the DP setpoint.  
+   - If both pumps run at 35% or less for 10 minutes and DP setpoint is satisfied, the lag pump shuts off, and the lead pump increases speed to maintain DP.
+
+11. **Second Lag Pump**  
+   - If lead and lag pumps both exceed 90% for 10 minutes, the second lag pump is enabled.  
+   - The second lag pump ramps up, and the lead/lag pumps ramp down to maintain DP setpoint.  
+   - If all three pumps are operating at 50% (adjustable) or less for 10 minutes and DP is satisfied, the second lag pump shuts off, and the remaining pumps increase speed to maintain DP.
+
+12. **End-of-Main Bypass**  
+   - Each pump group has two end-of-main bypass valves (one above mezzanine, one below mezzanine).  
+   - When a single secondary pump in a group is operating at minimum speed, both bypass valves for that group open and modulate in tandem to maintain system DP.  
+   - If system DP exceeds setpoint by 4 psi (adjustable), both bypass valves fully open. When DP returns to setpoint, they revert to normal operation.
+
+---
+
+### 11. Chiller/Pump Maintenance Mode Control Sequence
+
+1. **Maintenance Mode**  
+   - Each chiller (CH-4 through CH-16) or pump (P-1A through P-2F) can enter maintenance mode, during which it is deactivated and removed from its operating group.
+
+2. **Remaining Equipment Operation**  
+   - Other chillers/pumps in the group continue to operate per their normal sequences.
+
+3. **Returning to Normal**  
+   - Upon exiting maintenance mode, the chiller/pump is placed back into normal operation.
+
+---
+
+### 12. Chilled Water Closed Loop Make-Up Water
+
+1. **Flow Meter Alarm and Emergency Shutdown**  
+   - On the make-up water line, provide a line-sized, two-position, normally open valve.  
+   - This valve shall close if make-up water flows at 24 GPM (adjustable) for over 2 minutes while the system switch is in the normal operating position.
+
+2. **Local Audible and Visual Alarm**  
+   - An audible alarm mounted on the control panel (near the make-up network) shall sound, and an indicator light provides a visual indication of a problem.  
+   - A momentary push-button on the panel silences/acknowledges the alarm and resets the system for normal operation after repairs.
+
+3. **BAS Interface**  
+   - Provide a button on the BAS GUI that disables the alarm during normal fill operations.
+
+---
+
+### 13. Safeties
+
+1. **Major Leak Detection**  
+   - If the chilled water return pressure sensor in the main mechanical room drops 10 psi (adjustable) below system static pressure, this indicates a major leak.  
+   - The chilled water system shall shut down, and a Level 1 Alarm is generated.
+
+---
+
+### 14. Chilled Water Alarms
+
+- The BAS shall be capable of emailing/texting alarm notifications.
+
+#### 14.1 Level 1 Alarm
+
+1. **Chilled Water System Leak Shutdown**  
+   - System shuts down due to a major leak, as indicated above.
+
+#### 14.2 Level 2 Alarms
+
+1. **Continuous Make-Up Water Flow**  
+   - Flow meter F-MW1 shows 12 GPM (adjustable) for 2 minutes, suggesting a potential leak.  
+   - Flow meter must be capable of measuring down to 1 GPM.
+
+2. **High Temperature Alarm**  
+   - Chiller supply water temperature T-1 is 5°F or more above setpoint for 20 minutes (adjustable).
+
+3. **Pump Status Mismatch**  
+   - Pump status does not match command for all chilled water distribution pumps, signaling both primary and redundant pumps have failed.
+
+#### 14.3 Level 3 Alarms
+
+1. **Chiller Alarm**  
+   - Applies to all chillers (CH-1 through CH-16).
+
+2. **Pump Status Mismatch (Single Pump)**  
+   - Pump status does not match command for a single chilled water distribution pump, indicating failure of the lead or lag pump.
+
+3. **High Temperature Alarm**  
+   - Chiller supply water temperature T-2A/B is 3°F above setpoint for 15 minutes.
+
+4. **High System Delta T**  
+   - System delta temperature is above 16°F (adjustable) using T-1 minus T-4.
+
+5. **Valve Status Mismatch**  
+   - Chiller valve does not match command after 5 minutes (adjustable).
+
+6. **Chiller Low Flow Alarm**  
+   - F-1 is less than the minimum chiller flow for 15 minutes for chiller CH-1 (and similarly for others, if equipped).
+
+7. **Pressure Differential High Alarm**  
+   - DP is 2 psi (adjustable) above setpoint for 20 minutes.
+
+8. **Pressure Differential Low Alarm**  
+   - DP is 2 psi (adjustable) below setpoint for 20 minutes.
+
+9. **Pump VFD Hardware Alarm**  
+   - A hardware alarm is triggered from the pump VFD.
+
+#### 14.4 Level 4 Alarms
+
+1. **Chiller Runtime Maintenance Alarm**  
+   - Per the chiller manufacturer’s recommended intervals.
+
+2. **Pump Runtime Maintenance Alarm**  
+   - Per the pump manufacturer’s recommended intervals.
+
+3. **Loss of BACnet Communication**  
+   - Loss of communication to pump VFDs or chiller control panels.
+
+---
+
+**End of Reformatted Sequence**

@@ -1,0 +1,129 @@
+## ROOF TOP UNIT (RTU-2A THROUGH N) CONTROLS SEQUENCE
+
+---
+
+### 1. RTU Overview
+
+Each rooftop unit (RTU-2A through N) consists of:
+
+1. **Four (4) Variable Flow Draw-Through Supply Fans (SFs)** with VFD  
+2. **Hot Water Reheat Coil**  
+3. **Chilled Water Coil**  
+4. **MERV 8 Intake Pre-Filters**, followed by **MERV 14 Intake Filters**  
+5. **Face Damper (D-1)** and **Bypass Damper (D-2)**
+
+---
+
+### 2. General Rooftop Air Handling Unit
+
+1. **DDC Controller**  
+   - The system operates under the control of a dedicated DDC controller.  
+   - The unit controller and VFD shall be housed within the unit.
+
+2. **Application**  
+   - The RTU provides space conditioning and dehumidification to the high-bay space.
+
+3. **Loss of Communication**  
+   - If communication is lost between the network control panel and the RTU system controller, the RTU defaults to **occupied mode** until communication is restored.
+
+4. **Hot/Chilled Water Valves**  
+   - The hot water and chilled water valves shall never be open at the same time **unless** explicitly specified in this sequence.
+
+5. **Pressure-Independent Control Valves**  
+   - All control valves include flow feedback to the BAS (Belimo Energy Valve or equal).
+
+6. **Continuity of Operation After Power Interruption**  
+   - Equipment and controls on both normal and backup power return automatically to their previous operating state after power is restored.  
+   - No manual operator intervention is required.
+
+7. **RTU Equipment Override**  
+   - The operator can locally override the equipment at the motor controller.  
+   - The motor controller has a HOA switch (or similar) providing remote automatic or local control.
+
+8. **Equipment Runtime Calculation**  
+   1. Starts upon a start command and confirmed “on” status; ends on a stop command and confirmed “off” status.  
+   2. Runtimes are accumulated daily, weekly, monthly, yearly, and since installation.  
+   3. The DDC controller compares operating hours to user-entered maintenance intervals and warns when nearing those intervals.
+
+---
+
+### 3. Occupied Mode
+
+Under occupied mode, the RTU can operate in **cooling**, **heating**, or **dehumidification** as required.
+
+#### 3.1 Cooling Mode
+
+- The RTU enables the supply fan at constant volume.  
+- The 2-way, modulating chilled water control valve (CV-1) modulates to maintain a 55 °F leaving chilled water coil temperature (T-2).  
+- The face and bypass damper modulates to maintain the zone temperature setpoint (ZN-T) while preserving enough throw to condition the entire space.  
+- The hot water valve remains closed.
+
+#### 3.2 Heating Mode
+
+- The RTU enables, and the hot water valve modulates to maintain ZN-T setpoint, with a maximum discharge air temperature (DAT) of 80 °F (adjustable).  
+- The face/bypass damper is closed to the bypass position and fully open to the chilled water coil (i.e., no air passing through the chilled water coil), and the chilled water valve remains closed.
+
+#### 3.3 Dehumidification Mode
+
+- If space humidity exceeds setpoint, the 2-way, modulating chilled water valve (CV-1) modulates to maintain 53 °F leaving the chilled water coil.  
+- The face and bypass damper is fully open to the chilled water coil.  
+- The hot water valve modulates to maintain the zone temperature setpoint (ZN-T).  
+- **Override condition**: If the hot water valve reaches 100% open for 15 minutes (adjustable) yet still cannot maintain the space temperature setpoint, the face/bypass damper is released to modulate (along with the still-100%-open hot water valve) until ZN-T is reached.
+
+---
+
+### 4. Safeties
+
+1. **Freeze Protection**  
+   - If any temperature sensor in the unit measures 38 °F (adjustable) or lower, the fans shut off via hardwired safety, dampers D-1 and D-2 fully open, and an audio/visual alarm activates.  
+   - The freeze-protection alarm must be **manually reset** after the issue is corrected, at which point the system returns to normal operation.
+
+2. **Loss of Power**  
+   - On power loss, the chilled water coil control valves fail **closed**; the hot water coil control valves fail **open**.
+
+3. **Smoke Shutdown**  
+   - Smoke detectors in the supply and return ducts shut off supply and exhaust fans via hardwired safety if smoke is detected, triggering an audio/visual alarm.  
+   - After correction, the system is reset and returns to normal operation.  
+   - Coordinate with the fire alarm system.
+
+4. **Cabinet Temperature (Off Mode)**  
+   - Hot water valve (HV-1) modulates to maintain 55 °F at T-2 when the RTU is off.
+
+---
+
+### 5. Alarms
+
+#### 5.1 Level 1 Alarm
+
+- **Smoke Detector Alarms**
+
+#### 5.2 Level 2 Alarms
+
+1. **High Humidity Alarm**  
+   - Any space humidity at 70% or more above setpoint for 30 minutes (adjustable).  
+2. **High Temperature Alarm (Space)**  
+   - Space temperature is 10 °F above setpoint for 60 minutes.  
+3. **Damper Status Mismatch**  
+   - Damper status does not match command.  
+4. **Supply Fan Status Mismatch**  
+   - Supply fan status does not match command.
+
+#### 5.3 Level 3 Alarms
+
+1. **Controller Failure Alarm**  
+2. **High Temperature Alarm (Supply)**  
+   - Supply temperature is 5 °F above setpoint for 30 minutes.  
+3. **Low Temperature Alarm (Supply)**  
+   - Supply temperature is 5 °F below setpoint for 30 minutes.  
+4. **Valve Status Mismatch**  
+   - CV-1 or HV-1 does not match command.  
+5. **Simultaneous Heating/Cooling**  
+   - In cooling mode: If T-3 is 5 °F higher than T-2  
+   - In heating mode: If T-2 is 5 °F lower than ZN-T
+
+#### 5.4 Level 4 Alarms
+
+1. **RTU-1 Runtime Maintenance Alarm**  
+   - Per manufacturer’s recommendations.
+
+---

@@ -1,0 +1,297 @@
+## HOT WATER SYSTEM CONTROL SEQUENCE
+
+---
+
+### 1. Heat Rejection Loop Overview
+
+The heat rejection loop consists of the following major equipment:
+
+1. **Three (3) 4000 MBH Condensing Boilers** (B-1, B-2, B-3) at 33%/33%/33%  
+2. **Three (3) Dedicated Boiler Pumps** (P-4A, P-4B, P-4C) at 33%/33%/33%  
+3. **Three (3) Variable Flow Hot Water Distribution Pumps** (P-5A, P-5B, P-5C) at 50%/50%/50%  
+4. **Four (4) Dedicated Heat Recovery Chillers** (HRC-1A through HRC-1D)  
+5. **One (1) Heat Recovery Chiller Hot Water Pump** (P-6)
+
+---
+
+### 2. Dedicated BACnet DDC Controller
+
+- The system shall operate under the control of a dedicated BACnet DDC controller.
+
+---
+
+### 3. Continuity of Operation After Electric Power Interruption
+
+- Equipment and associated factory controls, field-installed controls, and electrical equipment on normal and backup power automatically return to their prior operating state once power is restored (through backup power or normal power if restored before backup is online).  
+- No manual intervention is required.
+
+---
+
+### 4. Equipment Override
+
+1. **Local Override at Motor Controller**  
+   - The operator can override equipment locally using the motor controller (HOA switch or similar).  
+   - This switch provides for remote automatic control or local control.
+
+2. **Maintenance Override Off**  
+   - The operator can override equipment locally to turn it off.  
+   - The chiller controller will be notified and can enable/disable a redundant chiller if needed.
+
+---
+
+### 5. Equipment Runtime Calculation
+
+1. **Runtime Tracking**  
+   - Runtime calculation starts when a start command is issued and equipment “on” status is confirmed.  
+   - Runtime is totaled daily, weekly, monthly, yearly, and since installation.  
+   - When a stop command is issued and “off” status is confirmed, runtime calculation stops.
+
+2. **Maintenance Interval Monitoring**  
+   - The DDC controller monitors operating hours against operator-input maintenance intervals (hours).  
+   - A warning is signaled when equipment hours approach the maintenance interval.
+
+---
+
+### 6. Boiler Controller
+
+1. **Boiler Sequencing via BACnet**  
+   - Each boiler is provided with a BACnet controller. The boiler control panel sequences and stages the boilers.  
+   - Monitor boiler status and operating conditions through the device’s BACnet communications interface.  
+   - Provide a link to the boiler BACnet points from the hot water system graphic and coordinate with the Owner.
+
+2. **Leader/Member Boiler Communication**  
+   - Wiring between the leader boiler controller and member boiler controllers is provided and coordinated with the boiler manufacturer.
+
+3. **BAS Hardwire Integration**  
+   - The BAS hardwires enable/disable signals to the leader boiler controller.  
+   - The BAS hardwires alarm contacts from each boiler for monitoring.
+
+4. **Header Temperature Sensor**  
+   - The header temperature sensor is wired to the leader boiler controller.
+
+5. **Boiler Staging and Setpoint**  
+   - Factory-provided boiler controls stage the boilers to maintain the hot water supply (HWS) setpoint.  
+   - Boilers (B-1, B-2, B-3) and their pumps (P-4A/B/C) are wired accordingly.
+
+---
+
+### 7. Loss of Normal Power
+
+1. **Emergency Power Coverage**  
+   - The BAS and one (1) hot water distribution pump will be on emergency power to maintain hot water circulation (to prevent freezing of DOAS and MUA coils).  
+   - Loss of power is indicated by an ATS dry contact.  
+   - The BAS will command on the hot water pump on emergency power (if not already on) to circulate water.
+
+2. **Dual Power Input**  
+   - Provide central plant controllers with two power inputs: (1) normal/emergency power, (2) UPS power provided by the electrical contractor.  
+   - Coordinate with the electrical contractor.
+
+---
+
+### 8. Hot Water Loop Sequence
+
+#### 8.1 Normal Operation
+
+1. If the hot water return temperature at **T-13** is **less** than the process water return temperature at **T-7** (refer to process water controls schematic):  
+   - Modulate **V-5** to maintain the hot water setpoint at **T-12**.  
+   - Boilers and boiler pumps shall be off.
+
+2. If the hot water return temperature at **T-13** is **greater** than the process water return temperature at **T-7**:  
+   - The process water loop cannot provide any heat to the hot water loop.  
+   - **V-5** shall close to the process loop.
+
+#### 8.2 Heat Recovery Chiller Mode
+
+1. If the process water system alone cannot maintain setpoint **and** there is chilled water demand per the chilled water system control sequences (refer to M7.1), the heat recovery chiller (HRC-1A through HRC-1D) becomes the second stage of heating.
+
+2. **Heat Recovery Chiller Pump (P-6) Start**  
+   - Start P-6 and modulate to maintain minimum flow prior to starting the chiller.  
+   - Flow shall maintain a differential pressure setpoint across the chiller (coordinate with TAB contractor and chiller manufacturer).
+
+3. **HRC Chilled Water Pump (P-6)**  
+   - Ensure it maintains minimum flow prior to starting the chiller.  
+   - Flow shall meet differential pressure setpoint across the chiller (coordinate with TAB contractor and chiller manufacturer).
+
+4. **Chiller Activation**  
+   - Start HRC-1A through HRC-1D and control to maintain the hot water supply temperature setpoint at **T-12**.
+
+#### 8.3 Boiler Mode
+
+1. If the process water system and/or the heat recovery chillers cannot maintain the setpoint and there is a call for heating, enable the boilers to maintain the hot water setpoint at **T-12**.
+
+2. **Boiler Pump Enable**  
+   - Factory boiler controls enable the dedicated hot water pump (P-4A/B/C).  
+   - Boiler pump operation is verified via a current sensor.  
+   - If flow is not proven, generate an alarm.
+
+3. **Boiler Sequencing**  
+   - All boiler sequencing and staging is through the factory boiler controller to maintain HWS temperature **T-B1/B2/B3**.
+
+---
+
+### 9. Hot Water Primary Pumping System Control Sequence
+
+1. **Lead/Lag/Standby Pumps**  
+   - Pumps P-5A/B/C operate on a lead/lag/standby basis.  
+   - Lead/lag rotates weekly (adjustable), staging from least runtime hours to most.
+
+2. **Differential Pressure Control**  
+   - Lead/lag/standby pumps respond to DPS-3A and DPS-3B sensors to maintain the required DP setpoint.
+
+3. **Flow Stability**  
+   - Flow stability and smooth rate of change are critical to avoid chiller alarms.  
+   - Control loops must be tuned to avoid erratic swings.
+
+4. **Pump Status Monitoring**  
+   - Monitor pump status from the VFD controller.  
+   - If status is not proven, deactivate the pump and generate an audio-visual BAS alarm.  
+   - If water flow fails after a chiller is operating, the backup hot water pump activates.  
+   - Once the cause of the alarm is resolved, manually reset the lead pump via the BAS GUI.  
+   - A 30-second delay prevents false alarms.
+
+5. **Optimized DP Setpoint**  
+   - The TCC, TAB contractor, and commissioning agent initially set the DP to 8 psi (adjustable) to achieve required flow.  
+   - Final setpoint is documented in the TCC record documents.
+
+6. **Control Loop Priorities**  
+   - 1st: Bypass valve responsiveness  
+   - 2nd: Pump speed responsiveness  
+   - 3rd: AHU valve control loops (slowest)
+
+7. **Pump Speed Control**  
+   - Differential pressure sensors DPS-3A/B/C measure loop DP and are wired directly to the **chilled water pump primary controller** (per the original text).  
+   - The pump speed ramps up/down to maintain constant DP at DPS-3A, 3B, 3C, or 3D.
+
+8. **Lead Pump DP Survey**  
+   - The lead pump continuously checks the lead DP sensor.  
+   - If the sensor reads below setpoint, the lead pump speed increases.
+
+9. **Lag Pump Enable**  
+   - If the lead pump exceeds 90% speed for 10 minutes, the lag pump is enabled.  
+   - The lag pump ramps up, and the lead pump ramps down to match speeds and meet DP setpoint.
+
+10. **Lag Pump Shut-Off**  
+    - If both pumps run at 50% (adjustable) or less for 10 minutes **and** the DP setpoint is satisfied, the lead pump increases speed and the lag pump shuts off.
+
+11. **End-of-Main Bypasses**  
+    - Four total end-of-main bypasses are provided: two above the mezzanine and two below.  
+    - If a single hot water distribution pump (P-5A/B/C) is at minimum speed, or **all** hot water distribution pumps are off while any boiler pump (P-4A/B/C) or HRC pump (P-6) is operating, **all** associated bypass valves open and modulate in tandem to maintain system DP.  
+    - If system DP exceeds setpoint by 4 psi (adjustable), all bypass valves fully open until DP returns to setpoint.
+
+---
+
+### 10. Boiler/Pump Maintenance Mode Control Sequence
+
+1. **Maintenance Mode**  
+   - Each boiler (B-1 through B-3) or pump (P-4A through P-5C) can enter maintenance mode.  
+   - The selected boiler/pump is deactivated and removed from its operating group.
+
+2. **Remaining Equipment**  
+   - Other boilers/pumps continue operating per their normal sequences.
+
+3. **Returning to Normal**  
+   - After maintenance mode is disabled, the boiler/pump is returned to normal operation.
+
+---
+
+### 11. Hot Water Closed Loop Make-Up Water
+
+1. **Flow Meter Alarm and Emergency Shutdown**  
+   - A line-sized, two-position, normally open valve on the make-up water line closes if flow remains at 24 GPM for 2 minutes while the system switch is in normal operating position.
+
+2. **Local Audible/Visual Alarm**  
+   - A control panel alarm (near the make-up network) will sound, and an indicator light will show a fault.  
+   - A momentary push button silences/acknowledges the alarm and resets the system after repairs.
+
+3. **BAS Interface**  
+   - Provide a button on the BAS GUI to disable this alarm during normal fill operations.
+
+---
+
+### 12. Boiler Maintenance Cycle
+
+1. **Periodic Operation**  
+   - Each boiler operates on an adjustable time schedule to confirm functionality after long idle periods.
+
+2. **Monthly Runtime Survey**  
+   - The BAS tracks boiler runtime.  
+   - Each month (adjustable), the BAS checks each boiler’s monthly runtime.
+
+3. **Short Cycle Test**  
+   - If a boiler’s monthly runtime is below 10 minutes (adjustable) at the time of survey:  
+     1. The BAS sends the boiler a hot water setpoint of 100°F (adjustable).  
+     2. The boiler and its associated primary pump energize to maintain this setpoint for 10 minutes (adjustable).  
+     3. After 10 minutes, the boiler setpoint is released, and the system resumes normal operation.  
+   - This setpoint adjustment is restricted to boiler control only and does not affect other hot water source equipment (e.g., it does not call additional heat recovery chillers).
+
+---
+
+### 13. Safeties
+
+1. **Major Leak Detection**  
+   - If the hot water return pressure sensor in the main mechanical room is 10 psi (adjustable) below system static pressure, the hot water system shuts down, and a Level 1 Alarm is generated.
+
+2. **Boiler Emergency Shut-Off Buttons**  
+   - Two emergency shut-off buttons are located by mechanical room exits (per ASME Code paragraph HG-634, Article 6, Section 4).  
+   - Each switch is covered and labeled “Boiler Emergency Shut Down.”  
+   - Activating the switch shuts down the gas trains to the boilers.  
+   - Push buttons are red mushroom-type to avoid confusion with light switches.
+
+3. **Carbon Monoxide (CO) Monitoring**  
+   - The boiler room is monitored for CO.  
+   - If CO levels exceed 50 ppm for 8 hours (OSHA standard), an audible alarm is triggered.  
+   - The alarm signal adheres to NFPA 72-18.4.3.
+
+---
+
+### 14. Heat Rejection Loop Alarms
+
+#### 14.1 Level 1 Alarm
+
+1. **Hot Water System Leak Shutdown**  
+2. **CO Level Above 25 ppm (Adjustable)**
+
+#### 14.2 Level 2 Alarms
+
+1. **Make-Up Water Flow Meter (F-FM3)**  
+   - Flow at 12 GPM (adjustable) for 2 minutes indicates a possible piping leak on the load side.  
+
+2. **Low Temperature Alarm**  
+   - Hot water temperature T-12 is 5°F or more below setpoint for 20 minutes (adjustable).
+
+3. **Pump Status Mismatch**  
+   - Status does not equal command for **all** hot water distribution pumps, indicating failure of both primary and redundant pumps.
+
+#### 14.3 Level 3 Alarms
+
+1. **Boiler Alarm**  
+   - Typical for all boilers.
+
+2. **Pump Status Mismatch (Single Pump)**  
+   - Failure of a lead or lag hot water distribution pump when status does not equal command.
+
+3. **Low Temperature Alarm (Slight Deviation)**  
+   - T-12 is 3°F below setpoint for 15 minutes (adjustable).
+
+4. **Valve Status Mismatch**  
+   - Boiler isolation valve does not match command for 15 minutes.
+
+5. **Pressure Differential High Alarm**  
+   - DP is 2 psi (adjustable) above setpoint for 20 minutes.
+
+6. **Pressure Differential Low Alarm**  
+   - DP is 2 psi (adjustable) below setpoint for 20 minutes.
+
+7. **Pump VFD Hardware Alarm**  
+   - Any hardware fault from the pump VFD.
+
+#### 14.4 Level 4 Alarms
+
+1. **Boiler Runtime Maintenance Alarm**  
+   - Per manufacturer recommendations.
+
+2. **Pump Runtime Maintenance Alarm**  
+   - Per manufacturer recommendations.
+
+3. **Loss of BACnet Communication**  
+   - Loss of BACnet communication to pump VFDs or boiler control panels.

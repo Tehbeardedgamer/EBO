@@ -1,0 +1,48 @@
+## PRODUCTION IDF COOLING UNIT SEQUENCE
+
+---
+
+### 1. Overview
+
+- This sequence applies to a factory-controlled direct expansion (DX) unit that maintains space temperature in the IDF (Intermediate Distribution Frame) area.
+
+---
+
+### 2. General Operation
+
+1. **Factory-Provided DX Unit Controls**  
+   - The DX unit operates under factory-provided controls to maintain the space temperature setpoint.
+
+2. **BACnet Integration**  
+   - The AC/CU (air-cooled condenser and indoor unit) status and conditions are monitored via the unit’s communications interface port.  
+   - Coordinate unit protocol for gateway BACnet MSTP communication.  
+   - Provide a link from the zone graphics to the BACnet points (refer to M-700 for points list).
+
+3. **Condensate Pump Monitoring**  
+   - The AC unit includes a condensate pump.  
+   - The BAS monitors the condensate pump status and command signals derived from the float or switch.
+
+4. **Condensate Overflow Protection**  
+   - The AC unit is equipped with a condensate overflow switch.  
+   - If this switch activates, the unit deactivates, and an alarm is sent to the BAS.  
+   - Coordinate the overflow switch placement with the overflow drainage of the drain pan.  
+   - The overflow switch should not activate unless the overflow drain has clogged. The intent is to allow the drain pan overflow to handle condensate if the condensate pump fails.
+
+---
+
+### 3. Alarms
+
+#### 3.1 Level 1 Alarm
+
+- **Condensate Overflow Switch Active**  
+
+#### 3.2 Level 2 Alarms
+
+1. **High Temperature Alarm**  
+   - Space temperature is 10 °F above setpoint for 30 minutes (adjustable).  
+2. **Condensate Pump Status Mismatch**  
+   - Condensate pump status does not match command.
+
+---
+
+**End of Reformatted Sequence**

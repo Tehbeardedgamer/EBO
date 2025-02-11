@@ -1,0 +1,23 @@
+## HEAT TRACE MONITORING SEQUENCE
+
+### 1. General Operation
+
+1. **Enable/Disable Command**  
+   - The BAS sends enable/disable signals and a pipe surface temperature setpoint (adjustable) to the heat trace controller.  
+2. **Status Monitoring**  
+   - Heat trace status is monitored by the BAS.  
+3. **Pipe Surface Temperature**  
+   - Pipe surface temperature is monitored by the BAS.  
+4. **Wiring**  
+   - The Temperature Controls Contractor provides all control wiring between the panel and equipment per manufacturer’s recommendations.
+
+### 2. Alarms
+
+#### 2.1 Level 1 Alarms
+
+1. **High Limit (Adjustable)**  
+2. **Low Limit (Adjustable)**  
+3. **Status Mismatch**  
+   - Status does not equal command.
+
+---

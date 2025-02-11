@@ -1,0 +1,38 @@
+## CABINET HEATERS CONTROLS SEQUENCE
+
+---
+
+### 1. Overview
+
+Each cabinet heater includes:
+- A wall-mounted room thermostat/temperature sensor providing input to the BAS.  
+- A fully programmable unitary controller that runs the required control sequence.
+
+---
+
+### 2. General Operation
+
+1. **2-Way Modulating Control Valve (Hot Water Coil)**  
+   - Each cabinet heater uses a 2-way modulating control valve on the hot water coil.  
+   - Provide a separate output so that water flow closes off 2 minutes (adjustable) before the fan shuts off.
+
+2. **Occupied/Unoccupied Heating Logic**  
+   - When the zone temperature setpoint is met, the fan is off, and the hot water control valve is fully closed.  
+   - When the zone temperature is below setpoint, the fan energizes at minimum speed, and the hot water valve modulates to maintain setpoint.  
+   - **Fan speed override**: If the hot water valve reaches 100% for 15 minutes (adjustable) and cannot maintain setpoint, the fan is released to modulate speed until the zone temperature is reached.
+
+3. **Setpoint Limit Adjustment**  
+   - Each cabinet heater has a graphics page with user-adjustable setpoint limits between 68 °F (adjustable) and 72 °F (adjustable).
+
+---
+
+### 3. Alarms
+
+#### 3.1 Level 2 Alarm
+
+1. **Low Temperature Alarm**  
+   - Space temperature is 4 °F below setpoint for 30 minutes (adjustable).
+
+---
+
+**End of Reformatted Sequence**

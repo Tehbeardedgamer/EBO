@@ -1,0 +1,46 @@
+## COOLING ONLY FAN COIL UNITS CONTROLS SEQUENCE
+
+---
+
+### 1. Overview
+
+Each cooling-only fan coil unit (FCU) includes:
+- A wall-mounted room thermostat/temperature sensor that provides input to the BAS.  
+- A fully programmable unitary controller that executes the required control sequence.
+
+---
+
+### 2. General Operation
+
+1. **2-Way Modulating Control Valve**  
+   - Each FCU has a 2-way modulating control valve on the chilled water coil.  
+   - The BAS provides a separate output to ensure the valve closes off water flow 2 minutes (adjustable) before the fan shuts off.
+
+2. **Occupied/Unoccupied Fan Logic**  
+   - When the zone temperature setpoint is satisfied, the fan is off, and the chilled water valve is fully closed.  
+   - When the zone temperature is above setpoint, the fan energizes and modulates speed to maintain the space temperature setpoint. The chilled water valve modulates to maintain a discharge temperature setpoint of 55 °F (adjustable).
+
+3. **Setpoint Limit Adjustment**  
+   - Each fan coil’s graphics page provides user-adjustable setpoint limits ranging from 70 °F (adjustable) to 76 °F (adjustable).
+
+4. **Condensate Overflow Switch**  
+   - A condensate overflow switch is hardwired to each fan coil. If activated, the unit de-energizes, and the chilled water valve fully closes.
+
+---
+
+### 3. Alarms
+
+#### 3.1 Level 1 Alarm
+
+- **Condensate Overflow Switch Active**  
+
+#### 3.2 Level 2 Alarms
+
+1. **High Temperature Alarm**  
+   - Space temperature is 10 °F above setpoint for 30 minutes (adjustable).  
+2. **Condensate Pump Status Mismatch**  
+   - Condensate pump status does not equal command.
+
+---
+
+**End of Reformatted Sequence**

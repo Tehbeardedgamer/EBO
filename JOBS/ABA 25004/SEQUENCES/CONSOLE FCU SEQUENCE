@@ -1,0 +1,32 @@
+## CONSOLE FAN COIL UNIT SEQUENCE (ELEVATOR MACHINE ROOMS)
+
+### 1. Overview
+
+- Each console fan coil serving an elevator machine room has a fully programmable unitary controller to meet the required sequence.
+
+### 2. General Operation
+
+1. **Wall-Mounted Thermostat**  
+   - Provides temperature input to the fan coil controller.
+
+2. **2-Way Modulating Chilled Water Valve**  
+   - A separate BAS output ensures the valve closes off chilled water flow 2 minutes (adjustable) before the fan shuts off.
+
+3. **Cooling Demand**  
+   - Upon a call for cooling, the fan energizes, and the chilled water valve modulates to maintain the room temperature setpoint.
+
+### 3. Alarms
+
+#### 3.1 Level 2 Alarms
+
+1. **High Temperature Alarm**  
+   - Space temperature is 10°F above setpoint for 30 minutes (adjustable).  
+2. **Dirty Filter Maintenance Alarm** (Quantity: 1)  
+   - Initial differential pressure setpoint is 1.0" w.c.
+
+#### 3.2 Level 3 Alarms
+
+1. **Valve Status Mismatch**  
+   - Valve status does not equal command.  
+2. **Fan Status Mismatch**  
+   - Fan status does not equal command.

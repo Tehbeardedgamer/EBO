@@ -1,0 +1,27 @@
+## MDF COOLING UNIT SEQUENCE
+
+### 1. Overview
+
+- The MDF cooling unit is a factory-controlled DX unit designed to maintain a specified space temperature setpoint.
+
+### 2. General Operation
+
+1. **Factory-Provided DX Controls**  
+   - The DX unit operates under factory-provided controls to maintain the MDF space temperature setpoint.
+
+2. **BACnet Integration**  
+   - The in-row cooling unit’s status and operating conditions are monitored through its communications interface port.  
+   - The contractor and manufacturers shall coordinate the unit protocol for gateway BACnet MSTP communication.  
+   - Provide a link to the BACnet points from the zone graphics (refer to M-700 for points list).
+
+### 3. Alarms
+
+#### 3.1 Level 1 Alarm
+
+1. **High Temperature Alarm**  
+   - Space temperature is 5°F above setpoint for 30 minutes (adjustable).  
+2. **Dirty Filter Maintenance Alarm** (Quantity: 1)  
+   - Initial differential pressure setpoint is 1.0" w.c.  
+
+---
+

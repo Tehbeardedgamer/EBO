@@ -1,0 +1,19 @@
+## ELEVATOR SUMP PUMP SEQUENCE
+
+### 1. General Operation
+
+1. **Sump Pump Monitoring**  
+   - The BAS monitors the sump pump operation.  
+2. **Level Controls**  
+   - Level controls are monitored by the BAS.  
+3. **Wiring**  
+   - The Temperature Controls Contractor provides all control wiring between the panel and equipment, per the manufacturer’s recommendations.
+
+### 2. Alarms
+
+1. **Oil Sensor Status**  
+   - An alarm is generated if the oil sensor indicates an abnormal condition.  
+2. **High Limit (Adjustable)**  
+   - An alarm is generated if the high-level switch is activated.
+
+---

@@ -1,0 +1,295 @@
+## DEDICATED OUTSIDE AIR HANDLING UNITS (DOAS-2A THROUGH D)
+*Outside Air Conditions*
+**COOLING MODE** 
+| T-0 > T-5 (EA) + 2°F AND h > 26 (ADJ) at T-0, H-0 |                            
+ When the exhaust air is colder than the outside air or outside air enthalpy is greater than 26 BTU/lb (ADJ), the wheel is on and will provide pre-cooling of the outside air. The +2°F is a dead-band to transition between "economizer cooling" and cooling mode. OA/EA bypass dampers D-4 and D-5 shall be closed.
+
+**ECONOMIZER COOLING MODE**
+| T-0 > T-4 (OA) **and** T-0 < T-5 (EA) **and** h < 26 (ADJ) at T-0, H-0 |
+When outside air is cooler than the exhaust air but warmer than the DAT setpoint and outside air enthalpy is less than 26 BTU/lb (ADJ), the ERW is off (since it cannot pre-cool the air). OA/EA bypass dampers D-4 and D-5 shall be open.
+
+**ECONOMIZER MODE** 
+| T-0 < T-4 (OA) - 2°F |
+When the outside air is colder than the discharge air temperature setpoint by 2°F, then the wheel will be enabled. The 2°F serves as a dead-band to transition between "economizer cooling" and "economizer mode." The wheel is on to preheat, and the exhaust damper modulates to maintain a DAT setpoint of 55°F. This allows exhaust air to bypass the wheel and controls the amount of heat recovered. OA bypass damper D-4 shall be closed.
+
+**HEATING MODE** 
+| T-1 (OA) < T-4 (OA) setpoint - 2°F **and** the exhaust bypass damper is closed |
+If the wheel is on and the exhaust bypass damper is closed, and air leaving the wheel is 2°F below the DAT setpoint, then the heating valve will modulate to provide additional heating.
+
+---
+
+### 1. DOAS Units Overview
+
+Each DOAS unit (DOAS-2A through D) includes:
+
+1. **Three (3) Variable Flow Draw-Through Supply Fans (SFS)** with VFDs  
+2. **Three (3) Variable Flow Exhaust Fans (EFS)** with VFDs  
+3. **Enthalpy Energy Recovery Wheel (ERW)**  
+4. **Hot Water Heating Coil**  
+5. **Chilled Water Coil**  
+6. **MERV 8 Intake Pre-Filters**, followed by **MERV 14 Intake Filters**  
+7. **Intake Damper (D-1)** and **Exhaust Damper (D-3)**  
+8. **Recirculation Damper (D-2)**  
+9. **Exhaust Bypass Damper (D-5)** and **Outside Air Bypass Damper (D-4)**  
+10. **MERV 8 Exhaust Filters**
+
+---
+
+### 2. General
+
+1. **Dedicated DDC Controller**  
+   - Each DOAS operates under a dedicated DDC controller. The unit controller and VFD are housed within the unit.
+
+2. **Ventilation for Open Factory Space**  
+   - These DOAS units provide ventilation air to the open factory space.
+
+3. **Loss of Communication**  
+   - If communication between the network control panel and the outside air system controller is lost, the outside air system defaults to **occupied mode** until communication is restored.
+
+4. **Occupied/Unoccupied Scheduling**  
+   - The system transitions between occupied and unoccupied modes based on a user-adjustable schedule at the user interface.  
+   - DOAS units run only during regular business hours (occupied mode) and are **off** when the building is unoccupied, unless there is a call from the OVAV systems serving the spaces.  
+   - Refer to OVAV sequences for additional details.
+
+5. **Control Valves**  
+   - All control valves are pressure independent with flow feedback to the BAS (Belimo Energy Valve or equal).
+
+---
+
+### 3. Supply Fan Control
+
+1. **Supply Fan Enable and Proof**  
+   - The supply fan array (SFS) starts, and operation is proven via a current sensor on each fan.
+
+2. **Constant Volume Control**  
+   - The supply fan array is controlled to maintain a **constant volume** of airflow, ensuring proper air throw at the system discharge plenum.
+
+---
+
+### 4. Exhaust Fan Control
+
+1. **Tracking the Supply Fan**  
+   - The exhaust fan modulates speed to maintain exhaust air CFM (AFMS-EA) at 90% (adjustable) of the outside air CFM (AFMS-OA), thus keeping the building at a **slight positive pressure**.  
+   - Exhaust air damper D-3 interlocks to open whenever the exhaust fan array operates (coordinate timing with actuator stroke).
+
+2. **Offset Adjustment**  
+   - The BAS monitors building pressure and door closure conditions to set the final offset so that the mezzanine is neutral to slightly positive.  
+   - All doors should be closed during this adjustment.
+
+3. **Additional Exhaust Fans in Factory Space**  
+   - The BAS monitors the number of other exhaust fans in the open factory space.  
+   - As additional fans energize, the DOAS exhaust airflow offset is incrementally decreased toward a minimum fan speed.  
+   - Refer to future bid packages for quantity and size of those exhaust fans. The programming for this sequence is included in the current bid package.
+
+4. **Building Pressure Limits**  
+   - The BAS measures building pressure to provide high/low limits for exhaust fan operation.  
+   - Building pressure setpoints are:  
+     - +0.02 in. w.c. for cooling season  
+     - 0.00 in. w.c. (or slightly negative) for heating season  
+   - Both are adjustable.
+
+   **a. High Pressure Condition**  
+   - If building pressure rises above the setpoint deadband for 30 minutes (adjustable), the exhaust fan speeds up to maintain 110% (adjustable) of the outside air CFM (AFMS-OA).  
+   - Once building pressure is below setpoint for 30 minutes (adjustable), the fan returns to its normal sequence.
+
+   **b. Low Pressure Condition**  
+   - If the exhaust fan is at minimum speed and building pressure remains below setpoint deadband for 30 minutes (adjustable), the exhaust fan de-energizes, the ERW is turned off and put in bypass mode, and the supply fan continues per its previous sequence.
+
+---
+
+### 5. Fan Speed High-Limit
+
+- The BAS sets a speed high limit at each supply and exhaust fan VFD.  
+- If fan status does not match command for **one or more fans**, that fan group’s VFD speed high limit is released to allow **all** individual fans in that group to run at maximum capacity.  
+  - A supply fan failure only releases the high limit for supply fans.  
+  - An exhaust fan failure only releases the high limit for exhaust fans.  
+- The high limit setpoint corresponds to unit design airflow with all fans operating.  
+- Coordinate final high limit setpoints with the Test and Balance (TAB) contractor.
+
+---
+
+### 6. Occupied Mode
+
+When switched to **occupied mode**, the system starts **in sequence**. The unit does **not** start if **any** component fails to prove operation:
+
+1. **Exhaust Fans**  
+   - Exhaust fans enable, and interlocked damper D-3 opens (coordinate timing with actuator stroke time).
+
+2. **Supply Fans**  
+   - Supply fans enable, and recirculation damper D-2 initially opens (coordinate timing with actuator stroke time).
+
+3. **Exhaust Fan Tracking**  
+   - The exhaust fan tracks the supply fan airflow at the field-determined offset.
+
+4. **Pre-Cooling**  
+   - If in cooling mode, chilled water valve CV-1 opens 100% **prior** to starting the supply fan to maintain the discharge air temperature setpoint T-3.
+
+#### 6.1 Occupied Modes of Operation
+
+The DOAS unit operates in one of several sub-modes based on outside air temperature or zone conditions:
+
+---
+
+#### A. Cooling Mode
+
+1. **ERW**  
+   - Enabled.
+
+2. **Bypass Dampers**  
+   - D-4 and D-5 are closed.
+
+3. **Outside Air Damper (D-1)**  
+   - Modulates to maintain a zone TVOC setpoint of 400 ppb (adjustable).
+
+4. **Recirculation Damper (D-2)**  
+   - Modulates inversely proportional to D-1:  
+     - When D-1 is fully open, D-2 is fully closed.  
+     - When D-1 is at minimum, D-2 is fully open.  
+     - Damper position varies linearly between these extremes (coordinate with TAB and commissioning agent).
+
+5. **Chilled Water Valve (CV-1)**  
+   - 2-way modulating valve that maintains a discharge air temperature (T-3) setpoint of 55°F (adjustable).
+
+---
+
+#### B. Economizer Cooling
+
+1. **ERW**  
+   - Off.
+
+2. **Bypass Dampers**  
+   - D-4 and D-5 are open.
+
+3. **Outside Air Damper (D-1) & Recirc Damper (D-2)**  
+   - Modulate proportionally to maintain the worst-case of zone TVOC or zone temperature setpoint.
+
+4. **Chilled Water Valve (CV-1)**  
+   - Normally off in this mode.  
+   - However, if D-1 is fully open and zone temperature is still above setpoint, CV-1 modulates to maintain zone temperature.  
+   - If zone humidity (ZN-H) > 60%, CV-1 modulates to maintain 55°F (adj.) discharge air temperature.
+
+---
+
+#### C. Economizer (With ERW Enabled)
+
+1. **ERW**  
+   - Enabled.
+
+2. **Bypass Dampers**  
+   - D-4 (outside air bypass) is closed.  
+   - D-5 (exhaust bypass) modulates to maintain zone temperature setpoint.
+
+3. **Outside Air Damper (D-1) & Recirc Damper (D-2)**  
+   - Modulate proportionally to maintain the worst-case of zone TVOC or zone temperature setpoint.
+
+4. **Chilled Water Valve (CV-1)**  
+   - Normally off.  
+   - If D-1 is fully open and zone temperature is still above setpoint, CV-1 modulates to maintain zone temperature.  
+   - If ZN-H > 60%:  
+     1. D-5 modulates to maintain 55°F (adjustable) discharge air temperature (T-3).  
+     2. D-1 and D-2 modulate proportionally to the worst-case of zone TVOC or T-3 setpoint.  
+     3. CV-1 modulates to maintain 55°F (adjustable) discharge temperature.
+
+---
+
+#### D. Heating
+
+1. **ERW**  
+   - Enabled.
+
+2. **Bypass Dampers**  
+   - D-4 and D-5 are closed.
+
+3. **Outside Air Damper (D-1) & Recirc Damper (D-2)**  
+   - Modulate proportionally to maintain the worst-case of zone TVOC or zone temperature setpoint.
+
+4. **Hot Water Valve (HV-1)**  
+   - Normally off.  
+   - If D-1 is at minimum and zone temperature is below setpoint, HV-1 modulates to maintain zone temperature.
+
+---
+
+### 7. Unoccupied Mode
+
+1. **Fans Off**  
+   - Supply and exhaust fans are off; dampers D-1 and D-3 are closed.
+
+2. **ERW**  
+   - Off.
+
+3. **Chilled Water Valve**  
+   - Closed.
+
+4. **Hot Water Valve**  
+   - Closed.
+
+---
+
+### 8. Safeties
+
+1. **Freeze Protection**  
+   - A freezestat switch is installed downstream of the heating coil.  
+   - If any downstream sensor of the HW coil detects 38°F (adjustable) or lower, the supply and exhaust fans shut off via hardwired safety, and dampers D-1 and D-3 fully close.  
+   - An audio/visual alarm activates.  
+   - The freezestat switch must be manually reset after the issue is corrected. Then normal operation resumes.
+
+2. **Loss of Power**  
+   - If power is lost, chilled and hot water control valves fail open.
+
+3. **Smoke Shutdown**  
+   - A smoke detector in both supply and return air ducts shuts off supply and exhaust fans via hardwired safety when smoke is detected, and triggers an audio/visual alarm.  
+   - After correction, the system resets and returns to normal operation.  
+   - Coordinate with the fire alarm system.
+
+4. **Frost Protection for Heat Wheel**  
+   - The heat recovery low limit setpoint (HRLL-SP) is per the manufacturer.  
+   - If T-6 (exhaust air) drops below HRLL-SP, bypass damper D-5 opens to protect the wheel from freezing.
+
+5. **Emergency HVAC/Ventilation Power-Off (EPO)**  
+   - If activated, DOAS-1 is disabled, and dampers D-1 and D-3 are confirmed closed. (Per instructions referencing DOAS-1)
+
+6. **Max Ventilation Override**  
+   - Activating a pushbutton switch sets OA and EA CFM to maximum for 20 minutes (adjustable).  
+   - Outside air damper D-1 fully opens, and recirculation damper D-2 fully closes.  
+   - Each DOAS has a switch; activating any of the five (5) switches for DOAS-1 or DOAS-2A through D initiates this sequence for all units.
+
+7. **HW Valve Cabinet Temperature**  
+   - HV-1 modulates to maintain a cabinet temperature of 55°F (T-3) when the DOAS is off.
+
+---
+
+### 9. Alarms
+
+#### 9.1 Level 1 Alarms
+
+1. **Smoke Detector Alarms**  
+2. **Emergency DOAS-2A/B/C/D Power Shutdown**  
+3. **Dampers D-1 and D-3 Not Closed on EPO**  
+   - If dampers remain open when EPO is activated.
+
+#### 9.2 Level 2 Alarms
+
+1. **High Temperature Alarm (Space)**  
+   - Space temperature is 10°F above setpoint for 60 minutes.  
+2. **Damper Status Mismatch**  
+   - Damper status does not equal command.
+
+#### 9.3 Level 3 Alarms
+
+1. **Controller Failure Alarm**  
+2. **Fan Status Mismatch**  
+   - Fan status does not equal command.  
+3. **High Temperature Alarm (Supply)**  
+   - Supply temperature is 5°F above setpoint for 30 minutes.  
+4. **Low Temperature Alarm (Supply)**  
+   - Supply temperature is 5°F below setpoint for 30 minutes.  
+5. **Valve Status Mismatch**  
+   - CV-1 or HV-1 status does not match command.
+
+#### 9.4 Level 4 Alarms
+
+1. **DOAS-2A/B/C/D Runtime Maintenance Alarm**  
+   - Per manufacturer’s recommendations.
+
+2. **ERW Differential Pressure Alarm**  
+   - If differential pressure across the ERW exceeds an adjustable setpoint, indicating a need for servicing.

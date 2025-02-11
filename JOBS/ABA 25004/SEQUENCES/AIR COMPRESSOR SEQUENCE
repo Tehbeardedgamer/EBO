@@ -1,0 +1,22 @@
+## AIR COMPRESSOR EQUIPMENT WATER COOLING SEQUENCE
+
+### 1. General
+
+1. **2-Way Control Valve**  
+   - Provide a 2-way control valve on the chilled water return piping from each water-cooled compressed air equipment (as shown on the mechanical plans).  
+   - Install temperature sensors on the return and supply water piping.
+
+2. **Control Valve Modulation**  
+   - The 2-way control valve modulates to maintain a leaving water temperature setpoint of 85 °F (adjustable).
+
+### 2. Alarms
+
+1. **High Temperature Alarm**  
+   - An alarm is generated if the leaving water temperature exceeds the adjustable high temperature limit.
+
+---
+
+
+
+
+**End of Reformatted Sequences**
