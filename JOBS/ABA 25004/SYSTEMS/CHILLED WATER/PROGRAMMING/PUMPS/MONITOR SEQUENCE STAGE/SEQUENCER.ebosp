@@ -1,0 +1,133 @@
+'¯¯¯¯¯¯¯¯¯¯¯¯¯¯¯¯¯¯¯¯¯¯¯¯¯¯¯¯¯¯¯¯¯¯¯¯¯¯¯¯¯¯¯¯¯¯¯¯¯¯¯¯¯
+'AUTHOR SPENCER WENNERMARK 8/12/2023 ENTECH AUSTIN, TX
+'_____________________________________________________
+
+'--- HEADER COMMENTS ---
+' This script manages and sequences PUMPs based on various criteria such as their status, failure rate,
+' current runtime, It regularly checks for changes in PUMP availability and adjusts the
+' sequencing accordingly.
+
+'VARIABLES
+NUMERIC INPUT STATUS_A, STATUS_B, STATUS_C, STATUS_D, STATUS_E, STATUS_F, STATUS_G
+NUMERIC INPUT DOWN_A, DOWN_B, DOWN_C, DOWN_D, DOWN_E, DOWN_F, DOWN_G
+NUMERIC INPUT RT_A, RT_B, RT_C, RT_D, RT_E, RT_F, RT_G
+NUMERIC INPUT FORCE_RESEQUENCE
+NUMERIC OUTPUT PUMP_1, PUMP_2, PUMP_3, PUMP_4, PUMP_5, PUMP_6, PUMP_7
+NUMERIC PUMP_DOWN[7], PUMP_AVAIL[7], PUMP_STATUS[7], PUMP_RT[7], PUMP_SEQ[7], SCORE[7], RUNTIME[7], PREVIOUS_PUMP_AVAIL[7]
+NUMERIC MAX_ORDER, i, PUMPS_AVAIL, PUMP_CHANGED, LAST_ROTATION
+
+    INITALIZE:
+    ' Initialize arrays using explicit assignments
+    PUMP_DOWN[1] = DOWN_A
+    PUMP_DOWN[2] = DOWN_B
+    PUMP_DOWN[3] = DOWN_C
+    PUMP_DOWN[4] = DOWN_D
+    PUMP_DOWN[5] = DOWN_E
+    PUMP_DOWN[6] = DOWN_F
+    PUMP_DOWN[7] = DOWN_G
+    
+    
+    PUMP_STATUS[1] = STATUS_A
+    PUMP_STATUS[2] = STATUS_B
+    PUMP_STATUS[3] = STATUS_C
+    PUMP_STATUS[4] = STATUS_D
+    PUMP_STATUS[5] = STATUS_E
+    PUMP_STATUS[6] = STATUS_F
+    PUMP_STATUS[7] = STATUS_G
+    
+    
+    PUMP_RT[1] = RT_A
+    PUMP_RT[2] = RT_B
+    PUMP_RT[3] = RT_C
+    PUMP_RT[4] = RT_D
+    PUMP_RT[5] = RT_E
+    PUMP_RT[6] = RT_F
+    PUMP_RT[7] = RT_G
+    
+    
+    GOTO CHECK_PUMP_AVAIL
+
+CHECK_PUMP_AVAIL:
+    PUMPS_AVAIL = 0
+    PUMP_CHANGED = FALSE
+
+    FOR i = 1 TO 7
+        PUMP_AVAIL[i] = MAXIMUM(1 - PUMP_DOWN[i], 0) * (PUMP_STATUS[i] > 0)
+        IF PUMP_AVAIL[i] <> PREVIOUS_PUMP_AVAIL[i] THEN
+            PUMP_CHANGED = TRUE
+        ENDIF
+        PREVIOUS_PUMP_AVAIL[i] = PUMP_AVAIL[i]
+    NEXT i
+    
+    PUMPS_AVAIL = SUM(PUMP_AVAIL)
+    
+    IF PUMP_CHANGED THEN
+        GOTO CHECK_RESEQUENCE
+    ENDIF
+    
+    GOTO WAIT_LOOP
+
+CHECK_RESEQUENCE:
+    IF ((FORCE_RESEQUENCE = On) & ((DATE - 604800) > LAST_ROTATION)) THEN
+        LAST_ROTATION = DATE
+        GOTO RUNTIME_RESEQUENCE
+    ENDIF
+    GOTO SEQUENCE_RESET
+
+SEQUENCE_RESET:
+    FOR i = 1 TO 7
+        IF (PUMP_AVAIL[i] = 0) & (PUMP_SEQ[i] > 0) THEN PUMP_SEQ[i] = 0
+    NEXT i
+    GOTO SEQUENCE_SCORE
+
+SEQUENCE_SCORE:
+    FOR i = 1 TO 7
+        SCORE[i] = (PUMP_AVAIL[i] > 0) + ((PUMP_STATUS[i]) * (PUMP_AVAIL[i] > 0))
+    NEXT i
+    GOTO PUMP_ORDER
+
+PUMP_ORDER:
+    FOR i = 1 TO 7
+        PUMP_SEQ[i] = 0
+    NEXT i
+
+    FOR i = 1 TO MINIMUM(PUMPS_AVAIL, 7)
+        MAX_ORDER = MAXITEM(SCORE)
+        PUMP_SEQ[MAX_ORDER] = i
+        SCORE[MAX_ORDER] = 0
+    NEXT i
+    
+    GOTO SET_SEQUENCE
+
+RUNTIME_RESEQUENCE:
+    FOR i = 1 TO 7
+        RUNTIME[i] = MAXIMUM(PUMP_RT[i], 0.01) * (PUMP_AVAIL[i] > 0)
+    NEXT i
+
+    FOR i = 1 TO 7
+        PUMP_SEQ[i] = 0
+    NEXT i
+
+    FOR i = 1 TO MINIMUM(PUMPS_AVAIL, 7)
+        MAX_ORDER = MAXITEM(RUNTIME)
+        PUMP_SEQ[MAX_ORDER] = ((PUMPS_AVAIL + 1) - i)
+        RUNTIME[MAX_ORDER] = 0
+    NEXT i
+
+    GOTO SET_SEQUENCE
+
+SET_SEQUENCE:
+PUMP_1 = PUMP_SEQ[1]
+PUMP_2 = PUMP_SEQ[2]
+PUMP_3 = PUMP_SEQ[3]
+PUMP_4 = PUMP_SEQ[4]
+PUMP_5 = PUMP_SEQ[5]
+PUMP_6 = PUMP_SEQ[6]
+PUMP_7 = PUMP_SEQ[7]
+
+   
+    GOTO WAIT_LOOP
+
+WAIT_LOOP:
+    WAIT 60
+    GOTO INITALIZE

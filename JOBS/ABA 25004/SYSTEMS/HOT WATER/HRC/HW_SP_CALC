@@ -1,0 +1,42 @@
+' Author: Spencer Wennermark 02/24/2025, Entech Austin, TX
+' Contact: spencer.wennermark@entechsales.com
+' Description: Hot Water Supply Temperature Setpoint Adjustment based on Valve Position
+
+NUMERIC INPUT VALVE_POSITION, MAX_HW_SP, MIN_HW_SP  ' Current valve position in the HW system
+NUMERIC OUTPUT HW_SUPPLY_SP  ' Hot Water Supply Temperature Setpoint
+NUMERIC PUBLIC TMR, TMR_2       ' TMRs for checking conditions over intervals
+FUNCTION SECTMR            ' Function to handle timing
+
+GOTO INITIALIZE
+
+INITIALIZE:
+    HW_SUPPLY_SP = 100   ' Start with an initial setpoint
+    TMR = 0
+    TMR_2 = 0
+    GOTO INITIAL_SETPOINT
+
+INITIAL_SETPOINT:
+    ' Check if any valve position is above or below threshold
+   IF VALVE_POSITION < 90 THEN GOTO DECREASE_HW_SP
+   IF SECTMR((VALVE_POSITION >= 90), 900, TMR,TRUE) THEN GOTO INCREASE_HW_SP
+    
+
+CHECK_POSITION:
+    ' Monitor valve position to determine if we need to increase setpoint
+  IF SECTMR((VALVE_POSITION > 85), 900, TMR_2,TRUE) THEN GOTO INCREASE_HW_SP
+  IF VALVE_POSITION <= 85 THEN GOTO INITIAL_SETPOINT
+  
+
+INCREASE_HW_SP:
+TMR = 0
+TMR_2 = 0
+    ' Increase HW setpoint incrementally up to a maximum of 90°F
+    HW_SUPPLY_SP = MINIMUM((HW_SUPPLY_SP + 0.5), MAX_HW_SP)
+    GOTO CHECK_POSITION
+
+DECREASE_HW_SP:
+TMR = 0
+TMR_2 = 0
+    ' Decrease HW setpoint incrementally down to a minimum of 80°F if no valves are > 90%
+      HW_SUPPLY_SP = MAXIMUM((HW_SUPPLY_SP - 0.2), MIN_HW_SP)
+			IF TS > 900 THEN GOTO INITIAL_SETPOINT

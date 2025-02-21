@@ -1,0 +1,123 @@
+' Initialize numeric inputs and outputs
+NUMERIC INPUT CHILLER_ORDER, ISO_STATUS, RUN_STATUS, FAULT_STATUS, FLOW_SWITCH_STATUS, COMMUNICATION_STATUS
+NUMERIC INPUT CHILLERS_REQ, FAILURE_TIMER
+NUMERIC OUTPUT ISO_CMD_A, CHILLER_SS
+NUMERIC PUBLIC FAILED_STATUS
+STRING OUTPUT DEBUG_MSG
+NUMERIC FAIL_RETRIES, ISO_RETRIES, FLOW_RETRIES
+
+GOTO Initialize
+
+Initialize:
+  ' Initialize all outputs and retry counters
+  ISO_CMD_A = OFF
+  CHILLER_SS = OFF
+  FAILED_STATUS = OFF
+  FAIL_RETRIES = 0
+  ISO_RETRIES = 0
+  FLOW_RETRIES = 0
+  ' Go to wait loop after initialization
+  GOTO WAIT_LOOP
+
+CHECK_REQUIRED:
+
+DEBUG_MSG = "Checking if required"
+  ' If communication fails, do not start chiller
+  IF COMMUNICATION_STATUS = 0 THEN
+  DEBUG_MSG = "Communication failed"
+   GOTO CHILLER_OFF
+   ENDIF
+  ' If required chillers >= this chiller’s sequence, attempt to start
+  IF (CHILLERS_REQ >= CHILLER_ORDER) & (CHILLER_ORDER > 0) THEN 
+  DEBUG_MSG = "Starting chiller"
+  GOTO START_CHILLER 
+  ELSE 
+    DEBUG_MSG = "Chiller not required"  
+  GOTO CHILLER_OFF
+ENDIF
+
+START_CHILLER:
+  ' Start chiller only if no faults
+  IF FAULT_STATUS = 0 & COMMUNICATION_STATUS = 1 THEN
+    ISO_CMD_A = ON
+    WAIT 60
+
+    ' Retry isolation status check
+    WHILE (ISO_STATUS = 0) & (ISO_RETRIES < 3) & (COMMUNICATION_STATUS = 1)
+      WAIT 30
+      ISO_RETRIES = ISO_RETRIES + 1
+    ENDWHILE
+
+    ' If isolation still failed, shut down
+    IF ISO_STATUS = 0 THEN 
+    DEBUG_MSG = "Isolation failed"
+    GOTO CHILLER_FAILED
+    ENDIF
+
+    ' Check flow switch
+    WHILE (FLOW_SWITCH_STATUS = 0) & (FLOW_RETRIES < 3) & (COMMUNICATION_STATUS = 1)
+      WAIT 30
+      FLOW_RETRIES = FLOW_RETRIES + 1
+    ENDWHILE
+
+    ' If flow switch failed, shut down
+    IF FLOW_SWITCH_STATUS = 0 THEN
+    DEBUG_MSG = "Flow switch failed"
+     GOTO CHILLER_FAILED
+    ENDIF
+
+    ' Start the chiller
+    CHILLER_SS = ON
+    WAIT 30
+
+    ' If chiller status doesn't turn on in the given time, fail
+    IF TS > FAILURE_TIMER & RUN_STATUS = 0 THEN
+    DEBUG_MSG = "Chiller failed to start"
+    GOTO CHILLER_FAILED
+    ENDIF
+
+  ENDIF
+IF COMMUNICATION_STATUS = 0 THEN DEBUG_MSG = "Communication failed" GOTO CHILLER_OFF
+GOTO CHILLER_RUNNING
+
+CHILLER_RUNNING:
+  ' Check if chiller needs to be turned off based on various conditions
+  IF (CHILLERS_REQ < CHILLER_ORDER) or (CHILLER_ORDER = 0)  THEN GOTO CHILLER_OFF
+  IF  (FAULT_STATUS = 1) or (RUN_STATUS = 0) THEN GOTO CHILLER_FAILED
+  ' Reset FAIL_RETRIES if chiller is running for 300 seconds
+  IF (TS > 300) THEN FAIL_RETRIES = 0
+
+CHILLER_FAILED:
+  ' Increment failure count only for hard failures
+  IF FAIL_RETRIES < 3 THEN FAIL_RETRIES = FAIL_RETRIES + 1 ELSE FAILED_STATUS = 1
+  ISO_CMD_A = OFF
+  CHILLER_SS = OFF
+  GOTO WAIT_LOOP
+
+CHILLER_OFF:
+  ' Turn off chiller and isolation command
+  CHILLER_SS = OFF
+  ISO_CMD_A = OFF
+  FAIL_RETRIES = 0
+  ISO_RETRIES = 0
+  FLOW_RETRIES = 0
+  ' Go to wait loop after turning chiller off
+  GOTO WAIT_LOOP
+
+CHILLER_DOWN:
+  ' Reset fail retries and check conditions for chiller down
+	CHILLER_SS = OFF
+	ISO_CMD_A = OFF
+  FAIL_RETRIES = 0
+  IF TS > 43200 then FAILED_STATUS = 0
+  IF FAILED_STATUS = 0 and FAULT_STATUS = 0 THEN 
+  DEBUG_MSG = "Awaiting Call"
+  GOTO CHILLER_OFF
+  ENDIF
+
+WAIT_LOOP:
+  ' Wait loop to handle chiller down or failure scenarios
+  IF FAILED_STATUS = 1 or FAULT_STATUS = 1 THEN GOTO CHILLER_DOWN
+  ' Goto check required loop after waiting for 30 seconds
+  WAIT 30
+  GOTO CHECK_REQUIRED

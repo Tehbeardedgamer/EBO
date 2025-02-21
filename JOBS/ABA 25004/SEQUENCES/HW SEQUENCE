@@ -90,7 +90,7 @@ The heat rejection loop consists of the following major equipment:
 
 ### 8. Hot Water Loop Sequence
 
-#### 8.1 Normal Operation
+#### 8.1 Normal Operation CURRENTLY REMOVED
 
 1. If the hot water return temperature at **T-13** is **less** than the process water return temperature at **T-7** (refer to process water controls schematic):  
    - Modulate **V-5** to maintain the hot water setpoint at **T-12**.  

@@ -1,0 +1,78 @@
+' PUMP STAGING CONTROL SCRIPT
+' This script controls pump speed based on the number of open chiller isolation valves.
+' Each open isolation valve increases pump speed by 33%.
+' Pumps are started in the predefined sequence.
+
+NUMERIC INPUT CHILLER_VALVES_OPEN
+NUMERIC INPUT PUMP_A, PUMP_B, PUMP_C, PUMP_D, PUMP_E, PUMP_F, PUMP_G ' Pump sequence order
+NUMERIC INPUT PUMPS_AVAILABLE
+NUMERIC INPUT SPEED_ADJUSTMENT
+NUMERIC OUTPUT PUMP_1_SPEED, PUMP_2_SPEED, PUMP_3_SPEED, PUMP_4_SPEED, PUMP_5_SPEED, PUMP_6_SPEED, PUMP_7_SPEED
+
+NUMERIC PUMP_SEQUENCE[7], PUMP_SPEED[7]
+NUMERIC i, j, VALVES_REMAINING, TEMP_SEQ
+
+GOTO INIT
+
+INIT:
+    ' Initialize all pump speeds to 0
+    FOR i = 1 TO 7
+        PUMP_SPEED[i] = 0
+    NEXT i
+CHECK_ORDER:
+    ' Assign pump sequence order from inputs
+    PUMP_SEQUENCE[1] = PUMP_A
+    PUMP_SEQUENCE[2] = PUMP_B
+    PUMP_SEQUENCE[3] = PUMP_C
+    PUMP_SEQUENCE[4] = PUMP_D
+    PUMP_SEQUENCE[5] = PUMP_E
+    PUMP_SEQUENCE[6] = PUMP_F
+    PUMP_SEQUENCE[7] = PUMP_G
+
+    ' Initialize valve count
+    VALVES_REMAINING = CHILLER_VALVES_OPEN
+
+    ' Sort pumps by sequence order (Bubble Sort)
+    FOR i = 1 TO 6
+        FOR j = i + 1 TO 7
+            IF (PUMP_SEQUENCE[j] > 0) AND (PUMP_SEQUENCE[i] > PUMP_SEQUENCE[j]) THEN
+                ' Swap sequence order
+                TEMP_SEQ = PUMP_SEQUENCE[i]
+                PUMP_SEQUENCE[i] = PUMP_SEQUENCE[j]
+                PUMP_SEQUENCE[j] = TEMP_SEQ
+            ENDIF
+        NEXT j
+    NEXT i
+
+    ' Assign pumps based on sequence
+    GOTO ASSIGN_PUMPS
+
+ASSIGN_PUMPS:
+    ' Distribute valves among pumps in sequence order
+    FOR i = 1 TO PUMPS_AVAILABLE
+        IF (PUMP_SEQUENCE[i] > 0) AND (VALVES_REMAINING > 0) THEN
+            ' Assign speed up to 100% (3 valves max per pump)
+            PUMP_SPEED[PUMP_SEQUENCE[i]] = MINIMUM(VALVES_REMAINING * SPEED_ADJUSTMENT, 100)
+            ' Reduce remaining valves
+            VALVES_REMAINING = VALVES_REMAINING - (PUMP_SPEED[PUMP_SEQUENCE[i]] / SPEED_ADJUSTMENT)
+        ENDIF
+    NEXT i
+
+    GOTO UPDATE_OUTPUTS
+
+UPDATE_OUTPUTS:
+    ' Assign calculated values to output variables
+    PUMP_1_SPEED = PUMP_SPEED[1]
+    PUMP_2_SPEED = PUMP_SPEED[2]
+    PUMP_3_SPEED = PUMP_SPEED[3]
+    PUMP_4_SPEED = PUMP_SPEED[4]
+    PUMP_5_SPEED = PUMP_SPEED[5]
+    PUMP_6_SPEED = PUMP_SPEED[6]
+    PUMP_7_SPEED = PUMP_SPEED[7]
+
+    GOTO WAIT_LOOP
+
+WAIT_LOOP:
+    ' Recalculate every 30 seconds
+    WAIT 30
+    GOTO CHECK_ORDER

@@ -1,0 +1,29 @@
+'1. If the hot water return temperature at **T-13** is **less** than the process water return temperature at **T-7** (refer to process water controls schematic):  
+ '  - Modulate **V-5** to maintain the hot water setpoint at **T-12**.  
+ '  - Boilers and boiler pumps shall be off.
+
+'2. If the hot water return temperature at **T-13** is **greater** than the process water return temperature at **T-7**:  
+ '  - The process water loop cannot provide any heat to the hot water loop.  
+ '  - **V-5** shall close to the process loop.
+
+ NUMERIC INPUT PW_RETURN_TEMP, HW_RETURN_TEMP,HW_SUPPLY_TEMP,HW_SUPPLY_SP,HW_VALVE_CMD_BYPASS_CALC
+ NUMERIC OUTPUT HW_VALVE_CMD_BYPASS
+
+ 
+ GOTO CONTROL_LOOP
+
+CONTROL_LOOP:
+
+IF PW_RETURN_TEMP > HW_RETURN_TEMP THEN HW_VALVE_CMD_BYPASS = HW_VALVE_CMD_BYPASS_CALC
+IF PW_RETURN_TEMP < HW_RETURN_TEMP THEN HW_VALVE_CMD_BYPASS = 0
+
+GOTO WAIT_LOOP
+
+WAIT_LOOP:
+
+IF TS > 10 THEN GOTO CONTROL_LOOP
+
+
+
+
+
