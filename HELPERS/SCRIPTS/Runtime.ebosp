@@ -1,0 +1,43 @@
+' Runtime Tracking Script
+' This script calculates the runtime of a device and breaks it down into years, months, weeks, days, hours, and minutes.
+
+NUMERIC INPUT DEVICE_STATUS ' Input: Status of the device (1 = running, 0 = stopped)
+NUMERIC OUTPUT MI_RT, H_RT, D_RT, W_RT, MO_RT, Y_RT ' Outputs for different time units of runtime
+NUMERIC PUBLIC RUNTIME ' Public variable storing total runtime in seconds
+NUMERIC REAL_MINUTES, REMAINING_MINUTES ' Variables to store converted time
+NUMERIC Y, M, W, D, H ' Constants for time conversions
+
+GOTO INI ' Jump to initialization section
+
+' Initialization section
+INI:
+Y = 525600 ' Minutes in a year (365 days)
+M = 43800  ' Minutes in a month (30.42 days on average)
+W = 10080  ' Minutes in a week (7 days)
+D = 1440   ' Minutes in a day (24 hours)
+H = 60     ' Minutes in an hour
+
+GOTO TRACK_RUNTIME ' Jump to runtime tracking section
+
+' Runtime tracking section
+TRACK_RUNTIME:
+IF DEVICE_STATUS = 1 THEN ' Check if the device is running
+    RUNTIME = RUNTIME + SCAN ' Accumulate runtime in seconds
+    REAL_MINUTES = (RUNTIME / 60) ' Convert runtime to minutes
+ENDIF
+
+' Convert total runtime minutes into various time units
+Y_RT = REAL_MINUTES / Y ' Calculate years
+REMAINING_MINUTES = REAL_MINUTES MOD Y ' Get remaining minutes after years
+
+MO_RT = REMAINING_MINUTES / M ' Calculate months
+REMAINING_MINUTES = REMAINING_MINUTES MOD M ' Get remaining minutes after months
+
+W_RT = REMAINING_MINUTES / W ' Calculate weeks
+REMAINING_MINUTES = REMAINING_MINUTES MOD W ' Get remaining minutes after weeks
+
+D_RT = REMAINING_MINUTES / D ' Calculate days
+REMAINING_MINUTES = REMAINING_MINUTES MOD D ' Get remaining minutes after days
+
+H_RT = REMAINING_MINUTES / H ' Calculate hours
+MI_RT = REMAINING_MINUTES MOD H ' Calculate remaining minutes after hours

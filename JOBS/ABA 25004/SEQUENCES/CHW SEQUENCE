@@ -47,7 +47,7 @@ The chilled water system consists of the following major equipment:
 
 ### 3. Loss of Normal Power
 
-1. **Emergency Power Coverage**  
+1. !**Emergency Power Coverage** ! 
    - The chilled water system controller, chiller controllers, and two (2) chilled water secondary pumps (one on each loop) will be on emergency power.  
    - This maintains chilled water circulation to prevent freezing of DOAS and RTU coils.  
    - Loss of power shall be indicated by an ATS dry contact.  
@@ -59,7 +59,7 @@ The chilled water system consists of the following major equipment:
      2. UPS power (provided by the electrical contractor)  
    - Coordinate with the electrical contractor.
 
-3. **Command Off During Loss of Power**  
+3.! **Command Off During Loss of Power** ! 
    - During loss of power, all other pumps, RTUs, etc., shall be commanded off (if they still have power) unless specifically called out in their associated sequence.  
    - All chillers and pumps not on backup generator shall be commanded off.
 
