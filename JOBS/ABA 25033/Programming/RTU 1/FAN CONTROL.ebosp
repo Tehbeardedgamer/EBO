@@ -1,0 +1,124 @@
+'------------------------------------------------------------------------------
+' RTU1_Fan_Control
+' Controls Supply and Return Fans with HOA logic, damper delay, and safety shutdowns.
+'------------------------------------------------------------------------------
+
+
+'=======================
+'        INPUTS
+'=======================
+NUMERIC INPUT HOA_SF_Pos           ' 0 = Off, 1 = Auto, 2 = Hand (Supply Fan)
+NUMERIC INPUT HOA_RF_Pos           ' 0 = Off, 1 = Auto, 2 = Hand (Return Fan)
+NUMERIC INPUT BAS_SF_Enable        ' BAS request to run Supply Fan
+NUMERIC INPUT BAS_RF_Enable        ' BAS request to run Return Fan
+NUMERIC INPUT Damper_Open_Proof    ' Digital input confirming dampers are fully open
+NUMERIC INPUT Freeze_Trip          ' Freeze stat tripped (1 = true)
+NUMERIC INPUT High_Static_Trip     ' Static pressure alarm (1 = true)
+
+
+'=======================
+'        OUTPUTS
+'=======================
+NUMERIC OUTPUT SF_Enable           ' Final command to Supply Fan starter
+NUMERIC OUTPUT RF_Enable           ' Final command to Return Fan starter
+NUMERIC OUTPUT Fan_Alarm           ' General fan alarm output
+
+
+'=======================
+'        INTERNALS
+'=======================
+NUMERIC SF_Enable_Ready
+NUMERIC RF_Enable_Ready
+NUMERIC Start_Timer
+
+
+'=======================
+'  ADJUSTABLE PARAMETERS
+'=======================
+NUMERIC INPUT Start_Delay          ' Delay before starting SF to allow dampers to open (seconds)
+
+
+'=======================
+'     INITIALIZATION
+'=======================
+GOTO MAIN
+
+
+'=======================
+'       MAIN LOGIC
+'=======================
+MAIN:
+
+  '-------------------------------
+  ' Evaluate Supply Fan Request
+  '-------------------------------
+  IF (HOA_SF_Pos = 2) THEN
+    SF_Enable_Ready = 1                     ' Hand
+  ELSE
+  IF ((HOA_SF_Pos = 1) AND (BAS_SF_Enable = 1)) THEN
+    SF_Enable_Ready = 1                     ' Auto and BAS request
+  ELSE
+    SF_Enable_Ready = 0
+  ENDIF
+    ENDIF
+
+
+  '-------------------------------
+  ' Evaluate Return Fan Request
+  '-------------------------------
+  IF (HOA_RF_Pos = 2) THEN
+    RF_Enable_Ready = 1                     ' Hand
+  ELSE
+  IF ((HOA_RF_Pos = 1) AND (BAS_RF_Enable = 1)) THEN
+    RF_Enable_Ready = 1                     ' Auto and BAS request
+  ELSE
+    RF_Enable_Ready = 0
+  ENDIF
+  ENDIF
+
+
+  '-------------------------------
+  ' Safety Interlocks
+  '-------------------------------
+  IF ((Freeze_Trip = 1) OR (High_Static_Trip = 1)) THEN
+    SF_Enable = 0
+    RF_Enable = 0
+    Fan_Alarm = 1
+    Start_Timer = 0
+    RETURN
+  ENDIF
+
+
+  '-------------------------------
+  ' Supply Fan Damper Delay Logic
+  '-------------------------------
+  IF ((SF_Enable_Ready = 1) AND (Damper_Open_Proof = 1)) THEN
+    IF (Start_Timer < Start_Delay) THEN
+      Start_Timer = Start_Timer + Scan
+      SF_Enable = 0
+    ELSE
+      SF_Enable = 1
+    ENDIF
+  ELSE
+    SF_Enable = 0
+    Start_Timer = 0
+  ENDIF
+
+
+  '-------------------------------
+  ' Return Fan Enable
+  '-------------------------------
+  ' Based on HOA or SF contact, assumed powered via interlock if SF is ON
+  IF (SF_Enable = 1) THEN
+    RF_Enable = RF_Enable_Ready
+  ELSE
+    RF_Enable = 0
+  ENDIF
+
+
+  '-------------------------------
+  ' Normal Condition
+  '-------------------------------
+  Fan_Alarm = 0
+
+

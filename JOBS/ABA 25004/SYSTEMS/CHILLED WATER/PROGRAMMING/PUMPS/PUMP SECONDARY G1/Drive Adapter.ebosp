@@ -1,0 +1,84 @@
+' G1_Pump_Drive_Adapter – normalize BACnet drive points to Health inputs (A/B/C)
+' Outputs: STS_*, TRIP_*, HOA_AUTO_*, MAINTENANCE_* for use by G1_Pump_Health
+
+' -------------------- INPUTS (bind these to your BACnet points) --------------------
+' Per-pump direct run feedback (binary) if available, else leave 0 and we’ll infer from FREQ_HZ
+NUMERIC INPUT RUN_FB_A, RUN_FB_B, RUN_FB_C         ' 1 = running proof from drive (if available)
+' Per-pump output frequency (Hz) – used to infer running if RUN_FB not present
+NUMERIC INPUT FREQ_HZ_A, FREQ_HZ_B, FREQ_HZ_C
+' Per-pump alarm words / error code (non-zero => trip)
+NUMERIC INPUT ALARM_WORD1_A, ALARM_WORD1_B, ALARM_WORD1_C
+NUMERIC INPUT ALARM_WORD2_A, ALARM_WORD2_B, ALARM_WORD2_C
+NUMERIC INPUT ALARM_WORD3_A, ALARM_WORD3_B, ALARM_WORD3_C
+NUMERIC INPUT ERROR_CODE_A, ERROR_CODE_B, ERROR_CODE_C
+' Per-pump HOA/lockout from panel/GUI (map Hand/Off/Auto to 1=Auto)
+NUMERIC INPUT HOA_AUTO_A, HOA_AUTO_B, HOA_AUTO_C   ' 1 = Auto, 0 = not Auto
+NUMERIC INPUT MAINTENANCE_A, MAINTENANCE_B, MAINTENANCE_C   ' 1 = locked out (maintenance)
+
+' -------------------- OUTPUTS (to Health script) --------------------
+NUMERIC OUTPUT STS_A, STS_B, STS_C                 ' 1 = running proof
+NUMERIC OUTPUT TRIP_A, TRIP_B, TRIP_C              ' 1 = faulted/tripped
+NUMERIC OUTPUT HOA_AUTO_OUT_A, HOA_AUTO_OUT_B, HOA_AUTO_OUT_C   ' pass-thru of HOA
+NUMERIC OUTPUT MAINTENANCE_OUT_A, MAINTENANCE_OUT_B, MAINTENANCE_OUT_C   ' pass-thru of lockout
+
+' -------------------- PUBLIC TUNING --------------------
+NUMERIC PUBLIC MIN_RUN_HZ                          ' Hz above which we consider “running” if RUN_FB is missing (e.g., 5.0)
+
+' -------------------- INTERNAL ARRAYS ------------------
+NUMERIC RUN_FB[3], FREQ_HZ[3], AL1[3], AL2[3], AL3[3], EC[3]
+NUMERIC HOA[3], LCK[3]
+NUMERIC STS[3], TRIP[3]
+NUMERIC i, ANY_ALARM
+NUMERIC FIRST_INIT_DONE
+
+GOTO INIT
+
+INIT:
+    IF MIN_RUN_HZ <= 0 THEN MIN_RUN_HZ = 5.0
+    IF FIRST_INIT_DONE = 0 THEN
+        ' Defaults
+        STS_A = 0 & STS_B = 0 & STS_C = 0
+        TRIP_A = 0 & TRIP_B = 0 & TRIP_C = 0
+        HOA_AUTO_OUT_A = 0 & HOA_AUTO_OUT_B = 0 & HOA_AUTO_OUT_C = 0
+        MAINTENANCE_OUT_A = 0 & MAINTENANCE_OUT_B = 0 & MAINTENANCE_OUT_C = 0
+        FIRST_INIT_DONE = 1
+    ENDIF
+    GOTO LOOP
+
+LOOP:
+    ' ---- Load arrays (1=A, 2=B, 3=C) ----
+    RUN_FB[1] = RUN_FB_A & RUN_FB[2] = RUN_FB_B & RUN_FB[3] = RUN_FB_C
+    FREQ_HZ[1] = FREQ_HZ_A & FREQ_HZ[2] = FREQ_HZ_B & FREQ_HZ[3] = FREQ_HZ_C
+    AL1[1] = ALARM_WORD1_A & AL1[2] = ALARM_WORD1_B & AL1[3] = ALARM_WORD1_C
+    AL2[1] = ALARM_WORD2_A & AL2[2] = ALARM_WORD2_B & AL2[3] = ALARM_WORD2_C
+    AL3[1] = ALARM_WORD3_A & AL3[2] = ALARM_WORD3_B & AL3[3] = ALARM_WORD3_C
+    EC[1] = ERROR_CODE_A & EC[2] = ERROR_CODE_B & EC[3] = ERROR_CODE_C
+    HOA[1] = HOA_AUTO_A & HOA[2] = HOA_AUTO_B & HOA[3] = HOA_AUTO_C
+    LCK[1] = MAINTENANCE_A & LCK[2] = MAINTENANCE_B & LCK[3] = MAINTENANCE_C
+
+    ' ---- Derive normalized bits ----
+    FOR i = 1 TO 3
+        ' STS: prefer direct RUN_FB; else infer from FREQ_HZ > MIN_RUN_HZ
+        STS[i] = 0
+        IF RUN_FB[i] = 1 THEN STS[i] = 1
+        IF STS[i] = 0 THEN
+            IF FREQ_HZ[i] >= MIN_RUN_HZ THEN STS[i] = 1
+        ENDIF
+
+        ' TRIP: any alarm word non-zero OR error code non-zero
+        ANY_ALARM = 0
+        IF AL1[i] <> 0 THEN ANY_ALARM = 1
+        IF AL2[i] <> 0 THEN ANY_ALARM = 1
+        IF AL3[i] <> 0 THEN ANY_ALARM = 1
+        TRIP[i] = 0
+        IF (ANY_ALARM = 1) OR (EC[i] <> 0) THEN TRIP[i] = 1
+    NEXT i
+
+    ' ---- Push to outputs (per-pump) ----
+    STS_A = STS[1] & STS_B = STS[2] & STS_C = STS[3]
+    TRIP_A = TRIP[1] & TRIP_B = TRIP[2] & TRIP_C = TRIP[3]
+    HOA_AUTO_OUT_A = HOA[1] & HOA_AUTO_OUT_B = HOA[2] & HOA_AUTO_OUT_C = HOA[3]
+    MAINTENANCE_OUT_A = LCK[1] & MAINTENANCE_OUT_B = LCK[2] & MAINTENANCE_OUT_C = LCK[3]
+
+    WAIT 2
+    GOTO LOOP

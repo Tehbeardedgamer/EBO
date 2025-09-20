@@ -1,0 +1,79 @@
+' G1_Speed_PI – Group 1 speed control using your PIControl() function.
+' Drives CHWP_MASTER_SPEED_CMD from DPS and DPS_SP, with fault gating from DPS_FAILED.
+
+' ------------------------- INPUTS -------------------------
+NUMERIC INPUT DPS_SP                 ' DP setpoint (psi)
+NUMERIC INPUT DPS                    ' Selected DP from G1_DP_Select (psi)
+NUMERIC INPUT DPS_FAILED             ' 1 if both sensors bad (from G1_DP_Select)
+FUNCTION PIControl
+' ------------------------- OUTPUTS ------------------------
+NUMERIC OUTPUT CHWP_MASTER_SPEED_CMD ' 0..100% target for all running pumps
+
+' ------------------------- PUBLICS ------------------------
+' PI tuning & limits
+NUMERIC PUBLIC PI_ERR                ' error (SP - PV), for trending
+NUMERIC PUBLIC PI_I_TERM             ' integral state, for diagnostics
+NUMERIC PUBLIC PI_OUT_PREV           ' last output, for diagnostics
+NUMERIC PUBLIC Kp                     ' % per psi (e.g., 6.0)
+NUMERIC PUBLIC Ki                     ' % per psi per second (e.g., 0.06)
+NUMERIC PUBLIC OUT_MIN                ' 0..100 (default 0)
+NUMERIC PUBLIC OUT_MAX                ' 0..100 (default 100)
+NUMERIC PUBLIC RATE_UP                ' %/s up (e.g., 1.0)
+NUMERIC PUBLIC RATE_DN                ' %/s down (e.g., 0.7)
+NUMERIC PUBLIC DELTA_T                ' seconds per pass; must match WAIT time (e.g., 2)
+
+' ------------------------- INTERNALS ----------------------
+NUMERIC FIRST_INIT_DONE
+NUMERIC I_TERM
+NUMERIC OUT_PREV
+NUMERIC OLD_DPS
+NUMERIC USE_KI, USE_OUT_MAX
+' Fault behavior
+NUMERIC FAULT_OUT_CAP          ' % cap when DPS_FAILED=1 (e.g., 60)
+
+GOTO INIT
+
+INIT:
+  ' Defaults
+  IF OUT_MIN < 0 THEN OUT_MIN = 0
+  IF OUT_MAX <= 0 THEN OUT_MAX = 100
+  IF RATE_UP <= 0 THEN RATE_UP = 1.0
+  IF RATE_DN <= 0 THEN RATE_DN = 0.7
+  IF DELTA_T <= 0 THEN DELTA_T = 2
+  IF FAULT_OUT_CAP <= 0 THEN FAULT_OUT_CAP = 60
+  IF Kp = 0 THEN Kp = 6.0
+  IF Ki = 0 THEN Ki = 0.06
+ 
+  IF FIRST_INIT_DONE = 0 THEN
+    ' Bumpless seed: make P+I ~= OUT_PREV (start at 0)
+    OUT_PREV = 0
+    PI_ERR   = DPS_SP - DPS
+    I_TERM   = OUT_PREV - (Kp * PI_ERR)
+    OLD_DPS  = DPS
+    PI_I_TERM = I_TERM
+    PI_OUT_PREV = OUT_PREV
+    FIRST_INIT_DONE = 1
+  ENDIF
+
+  GOTO LOOP
+
+LOOP:
+  
+  ' Fault gating: freeze I and cap output if sensors failed
+  USE_KI     = Ki
+  USE_OUT_MAX = OUT_MAX
+  IF DPS_FAILED = 1 THEN
+    USE_KI = 0
+    IF USE_OUT_MAX > FAULT_OUT_CAP THEN USE_OUT_MAX = FAULT_OUT_CAP
+  ENDIF
+
+  ' Call your PIControl (ReverseActing=0 for DP)
+  CHWP_MASTER_SPEED_CMD = PIControl(0, DPS, DPS_SP, I_TERM, Kp, USE_KI, OLD_DPS, OUT_PREV, DELTA_T, RATE_UP, RATE_DN, OUT_MIN, USE_OUT_MAX)
+
+  ' Publish diagnostics
+  PI_ERR      = DPS_SP - DPS
+  PI_I_TERM   = I_TERM
+  PI_OUT_PREV = OUT_PREV
+
+  WAIT 2
+  GOTO LOOP

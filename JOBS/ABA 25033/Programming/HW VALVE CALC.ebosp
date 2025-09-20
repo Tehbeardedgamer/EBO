@@ -1,0 +1,87 @@
+'=========================================================
+' Script: HW_VALVE Position Control
+' Purpose: Control a hot water valve’s position based on desired percentage
+'=========================================================
+
+'--- INPUTS ---
+NUMERIC INPUT HW_VALVE_PCT          'Target valve position (%) requested by control logic
+
+'--- OUTPUTS ---
+NUMERIC OUTPUT HW_VALVE_CMD         'Command to drive valve (ON, -ON, or OFF)
+NUMERIC OUTPUT HW_VALVE_POS         'Calculated actual valve position (%)
+
+'--- PUBLIC VARIABLES ---
+NUMERIC PUBLIC VALVE_COUNTER        'Internal counter representing valve travel (0–stroke time)
+NUMERIC PUBLIC PAUSE_TIMER          'Loop delay (seconds)
+NUMERIC PUBLIC VALVE_STROKE_TIME    'Full stroke travel time of valve actuator (seconds)
+
+'=========================================================
+' INITIALIZATION
+'=========================================================
+GOTO INI
+
+INI:
+    'Set initial loop timing
+    PAUSE_TIMER = 10                'Run control loop every 10 seconds
+
+    'Initialize outputs
+    HW_VALVE_CMD = -ON              'Default valve command to “drive closed”
+    HW_VALVE_POS = 0                'Assume valve starts fully closed
+
+    'Initialize position counter
+    VALVE_COUNTER = 0
+
+    'Wait for actuator stroke time (ensures sync with mechanical position)
+    WAIT VALVE_STROKE_TIME
+
+    'Go to movement control loop
+    GOTO MOVE_VALVE
+
+'=========================================================
+' MOVEMENT CONTROL
+'=========================================================
+MOVE_VALVE:
+    'Check if valve is idle (OFF) and position error is significant
+    IF ((HW_VALVE_CMD = OFF) & (((ABS(HW_VALVE_PCT - HW_VALVE_POS) / 100) * VALVE_STROKE_TIME) >= 1)) THEN
+
+        'If current position is below target, drive valve open
+        IF (HW_VALVE_POS < HW_VALVE_PCT) THEN
+            HW_VALVE_CMD = ON
+
+        'If current position is above target, drive valve closed
+        ELSE
+            HW_VALVE_CMD = -ON
+        ENDIF
+    ENDIF
+
+    'Go to wait loop for timing and incremental update
+    GOTO WAIT_LOOP
+
+'=========================================================
+' WAIT LOOP / POSITION TRACKING
+'=========================================================
+WAIT_LOOP:
+    '--- Driving valve closed ---
+    IF (HW_VALVE_CMD = -ON) THEN
+        'Decrease counter (simulate closing stroke)
+        VALVE_COUNTER = Maximum(Minimum(VALVE_STROKE_TIME + (Scan * -1), VALVE_STROKE_TIME), 0)
+
+        'If close enough to target, stop driving
+        IF ((HW_VALVE_POS - HW_VALVE_PCT) <= 1) THEN HW_VALVE_CMD = OFF
+
+    '--- Driving valve open ---
+    ELSE
+        IF (HW_VALVE_CMD = ON) THEN
+            'Increase counter (simulate opening stroke)
+            VALVE_COUNTER = Maximum(Minimum(VALVE_STROKE_TIME + (Scan * 1), VALVE_STROKE_TIME), 0)
+
+            'If close enough to target, stop driving
+            IF ((HW_VALVE_PCT - HW_VALVE_POS) <= 1) THEN HW_VALVE_CMD = OFF
+        ENDIF
+    ENDIF
+
+    '--- Calculate position percentage ---
+    HW_VALVE_POS = ((VALVE_COUNTER / Maximum(VALVE_STROKE_TIME, 1)) * 100)
+
+    '--- Loop timing control ---
+    IF TS >= PAUSE_TIMER THEN GOTO MOVE_VALVE

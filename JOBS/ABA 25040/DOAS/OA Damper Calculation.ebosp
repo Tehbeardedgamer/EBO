@@ -1,0 +1,84 @@
+'=========================================================
+' OA_DAMPER_CTRL
+' Outside Air Damper Control (modulating)
+'=========================================================
+
+' ------------------------- INPUTS -------------------------
+NUMERIC INPUT DOAS_MODE            ' From DOAS_MODE_SAFETY
+NUMERIC INPUT SAFETY_OK            ' 1=OK, 0=Trip
+NUMERIC INPUT FREEZE_LATCH         ' 1=Latched freeze trip
+
+NUMERIC INPUT ECON_AVAIL           ' 1=Economizer available, 0=not
+NUMERIC INPUT PURGE_ACTIVE         ' 1=Active, 0=not
+NUMERIC INPUT MIN_OA_ENABLE        ' 1=Enable minimum OA
+NUMERIC INPUT CO2_DEMAND           ' 0–100% demand signal (from CO₂ control), 0 if not used
+
+' ------------------------- OUTPUTS ------------------------
+NUMERIC OUTPUT OA_PROPOSED_CMD     ' OA Damper position (0–100%)
+
+' ------------------------- PUBLICS / TUNABLES -------------
+NUMERIC PUBLIC OA_MIN_POS          ' Minimum OA damper % (e.g. 20)
+NUMERIC PUBLIC OA_MAX_POS          ' Maximum OA damper % (e.g. 100)
+
+'===========================================================
+GOTO INI
+
+INI:
+  IF OA_MIN_POS <= 0 THEN OA_MIN_POS = 20
+  IF OA_MAX_POS <= 0 THEN OA_MAX_POS = 100
+  OA_PROPOSED_CMD = 0
+GOTO MAIN
+
+'===========================================================
+MAIN:
+  ' ---------- Safety Check ----------
+  IF (SAFETY_OK = 0) OR (FREEZE_LATCH = 1) THEN
+      OA_PROPOSED_CMD = 0
+      WAIT 1
+      GOTO MAIN
+  ENDIF
+
+  ' ---------- Mode Handling ----------
+  ' OFF (0), WARMUP (2), COOLDOWN (3), UNOCC PROTECT (5) → Closed
+  IF (DOAS_MODE = 0) OR (DOAS_MODE = 2) OR (DOAS_MODE = 3) OR (DOAS_MODE = 5) THEN
+      OA_PROPOSED_CMD = 0
+      WAIT 1
+      GOTO MAIN
+  ENDIF
+
+  ' PRESTART (1) → Go to minimum OA if enabled
+  IF DOAS_MODE = 1 THEN
+      IF MIN_OA_ENABLE = 1 THEN
+          OA_PROPOSED_CMD = OA_MIN_POS
+      ELSE
+          OA_PROPOSED_CMD = 0
+      ENDIF
+      WAIT 1
+      GOTO MAIN
+  ENDIF
+
+  ' ---------- OCCUPIED (4) ----------
+  IF DOAS_MODE = 4 THEN
+      ' Purge takes priority
+      IF PURGE_ACTIVE = 1 THEN
+          OA_PROPOSED_CMD = OA_MAX_POS
+      ELSE
+          ' Economizer overrides to 100%
+          IF ECON_AVAIL = 1 THEN
+              OA_PROPOSED_CMD = OA_MAX_POS
+          ELSE
+              ' Demand control ventilation (CO₂ input 0–100%)
+              IF MIN_OA_ENABLE = 1 THEN
+                  OA_PROPOSED_CMD = OA_MIN_POS + (CO2_DEMAND * (OA_MAX_POS - OA_MIN_POS) / 100)
+                  ' Clamp
+                  IF OA_PROPOSED_CMD > OA_MAX_POS THEN OA_PROPOSED_CMD = OA_MAX_POS
+                  IF OA_PROPOSED_CMD < OA_MIN_POS THEN OA_PROPOSED_CMD = OA_MIN_POS
+              ELSE
+                  OA_PROPOSED_CMD = 0
+              ENDIF
+          ENDIF
+      ENDIF
+  ENDIF
+
+  WAIT 1
+GOTO MAIN

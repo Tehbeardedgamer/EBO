@@ -1,0 +1,185 @@
+'=========================================================
+' DOAS_MASTER
+' Collects proposed device commands
+' Validates safeties and operating mode
+' Issues final hardware outputs
+'=========================================================
+
+' ------------------------- INPUTS -------------------------
+NUMERIC INPUT DOAS_MODE        ' From DOAS_MODE_SAFETY (0=OFF,1=PRESTART,2=WARMUP,3=COOLDOWN,4=OCC,5=UNOCC-PROTECT)
+NUMERIC INPUT SAFETY_OK        ' 1 = OK, 0 = Tripped
+NUMERIC INPUT FREEZE_LATCH     ' 1 = Latched trip
+
+' Proposed commands from device scripts
+NUMERIC INPUT SF_PROPOSED_CMD          ' Supply Fan
+NUMERIC INPUT EF_PROPOSED_CMD          ' Exhaust/Return Fan
+NUMERIC INPUT OA_PROPOSED_CMD          ' Outside Air Damper
+NUMERIC INPUT RA_PROPOSED_CMD          ' Return Air Damper
+NUMERIC INPUT EXH_PROPOSED_CMD         ' Exhaust Damper
+NUMERIC INPUT ISO_PROPOSED_CMD         ' Isolation/Fire-Smoke Dampers
+NUMERIC INPUT ERW_PROPOSED_CMD         ' Energy Recovery Wheel
+NUMERIC INPUT CHW_PROPOSED_CMD         ' Chilled Water Valve
+NUMERIC INPUT HW_PROPOSED_CMD          ' Hot Water/Preheat Valve
+NUMERIC INPUT HUMID_PROPOSED_CMD      ' Humidifier
+NUMERIC INPUT SAT_SP_PROPOSED         ' Supply Air Temperature Setpoint
+
+' ------------------------- OUTPUTS ------------------------
+NUMERIC OUTPUT SUPPLY_FAN_CMD
+NUMERIC OUTPUT EXHAUST_FAN_CMD
+NUMERIC OUTPUT OA_DAMPER_CMD
+NUMERIC OUTPUT RA_DAMPER_CMD
+NUMERIC OUTPUT EXH_DAMPER_CMD
+NUMERIC OUTPUT ISO_DAMPER_CMD
+NUMERIC OUTPUT ERW_CMD
+NUMERIC OUTPUT CHW_CMD
+NUMERIC OUTPUT HW_CMD
+NUMERIC OUTPUT HUMIDIFIER_CMD
+NUMERIC OUTPUT SAT_SP_CMD
+
+NUMERIC OUTPUT UNIT_SAFE_SHUTDOWN   ' 1 = Master forced safe state
+
+'===========================================================
+GOTO INI
+
+INI:
+  SUPPLY_FAN_CMD   = 0
+  EXHAUST_FAN_CMD  = 0
+  OA_DAMPER_CMD    = 0
+  RA_DAMPER_CMD    = 0
+  EXH_DAMPER_CMD   = 0
+  ISO_DAMPER_CMD   = 0
+  ERW_CMD          = 0
+  CHW_CMD          = 0
+  HW_CMD           = 0
+  HUMIDIFIER_CMD   = 0
+  SAT_SP_CMD       = 0
+  UNIT_SAFE_SHUTDOWN = 0
+GOTO MAIN
+
+'===========================================================
+MAIN:
+  ' ---------- Safety Validation ----------
+  IF (SAFETY_OK = 0) OR (FREEZE_LATCH = 1) THEN
+      ' Force all devices to safe state
+      SUPPLY_FAN_CMD   = 0
+      EXHAUST_FAN_CMD  = 0
+      OA_DAMPER_CMD    = 0
+      EXH_DAMPER_CMD   = 0
+      ISO_DAMPER_CMD   = 0
+      ERW_CMD          = 0
+      CHW_CMD          = 0
+      HW_CMD           = 0
+      HUMIDIFIER_CMD   = 0
+      SAT_SP_CMD       = 0
+      RA_DAMPER_CMD    = 1   ' Return open during shutdown
+
+      UNIT_SAFE_SHUTDOWN = 1
+      WAIT 1
+      GOTO MAIN
+  ENDIF
+
+  UNIT_SAFE_SHUTDOWN = 0
+
+  ' ---------- Mode-based Filtering ----------
+  ' OFF → All off
+  IF DOAS_MODE = 0 THEN
+      SUPPLY_FAN_CMD   = 0
+      EXHAUST_FAN_CMD  = 0
+      OA_DAMPER_CMD    = 0
+      EXH_DAMPER_CMD   = 0
+      ISO_DAMPER_CMD   = 0
+      ERW_CMD          = 0
+      CHW_CMD          = 0
+      HW_CMD           = 1   ' Maintain min preheat coil
+      HUMIDIFIER_CMD   = 0
+      RA_DAMPER_CMD    = 1
+      SAT_SP_CMD       = 45
+  ENDIF
+
+  ' PRESTART → Dampers prove, fans off
+  IF DOAS_MODE = 1 THEN
+      SUPPLY_FAN_CMD   = 0
+      EXHAUST_FAN_CMD  = 0
+      OA_DAMPER_CMD    = OA_PROPOSED_CMD
+      EXH_DAMPER_CMD   = EXH_PROPOSED_CMD
+      RA_DAMPER_CMD    = RA_PROPOSED_CMD
+      ISO_DAMPER_CMD   = ISO_PROPOSED_CMD
+      ERW_CMD          = 0
+      CHW_CMD          = 0
+      HW_CMD           = 0
+      HUMIDIFIER_CMD   = 0
+      SAT_SP_CMD       = 0
+  ENDIF
+
+  ' WARMUP → Use proposed, but enforce heating priority
+  IF DOAS_MODE = 2 THEN
+      SUPPLY_FAN_CMD   = SF_PROPOSED_CMD
+      EXHAUST_FAN_CMD  = EF_PROPOSED_CMD
+      OA_DAMPER_CMD    = 0
+      EXH_DAMPER_CMD   = 0
+      RA_DAMPER_CMD    = 1
+      ISO_DAMPER_CMD   = ISO_PROPOSED_CMD
+      ERW_CMD          = 0
+      CHW_CMD          = 0
+      HW_CMD           = HW_PROPOSED_CMD
+      HUMIDIFIER_CMD   = 0
+      SAT_SP_CMD       = 80
+  ENDIF
+
+  ' COOLDOWN → Use proposed, but enforce cooling priority
+  IF DOAS_MODE = 3 THEN
+      SUPPLY_FAN_CMD   = SF_PROPOSED_CMD
+      EXHAUST_FAN_CMD  = EF_PROPOSED_CMD
+      OA_DAMPER_CMD    = 0
+      EXH_DAMPER_CMD   = 0
+      RA_DAMPER_CMD    = 1
+      ISO_DAMPER_CMD   = ISO_PROPOSED_CMD
+      ERW_CMD          = 0
+      CHW_CMD          = CHW_PROPOSED_CMD
+      HW_CMD           = 0
+      HUMIDIFIER_CMD   = 0
+      SAT_SP_CMD       = 55
+  ENDIF
+
+  ' OCCUPIED → Pass through proposed commands
+  IF DOAS_MODE = 4 THEN
+      SUPPLY_FAN_CMD   = SF_PROPOSED_CMD
+      EXHAUST_FAN_CMD  = EF_PROPOSED_CMD
+      OA_DAMPER_CMD    = OA_PROPOSED_CMD
+      EXH_DAMPER_CMD   = EXH_PROPOSED_CMD
+      RA_DAMPER_CMD    = RA_PROPOSED_CMD
+      ISO_DAMPER_CMD   = ISO_PROPOSED_CMD
+      ERW_CMD          = ERW_PROPOSED_CMD
+      CHW_CMD          = CHW_PROPOSED_CMD
+      HW_CMD           = HW_PROPOSED_CMD
+      HUMIDIFIER_CMD   = HUMID_PROPOSED_CMD
+      SAT_SP_CMD       = SAT_SP_PROPOSED
+  ENDIF
+
+  ' UNOCC-PROTECT → Fan run + heating or cooling posture
+  IF DOAS_MODE = 5 THEN
+      SUPPLY_FAN_CMD   = SF_PROPOSED_CMD
+      EXHAUST_FAN_CMD  = EF_PROPOSED_CMD
+      OA_DAMPER_CMD    = 0
+      EXH_DAMPER_CMD   = 0
+      RA_DAMPER_CMD    = 1
+      ISO_DAMPER_CMD   = ISO_PROPOSED_CMD
+
+      ' Use whichever coil script proposed, depending on temp
+      IF CHW_PROPOSED_CMD > 0 THEN
+          ERW_CMD      = 0
+          CHW_CMD      = CHW_PROPOSED_CMD
+          HW_CMD       = 0
+          SAT_SP_CMD   = 55
+      ELSE
+          ERW_CMD      = 0
+          CHW_CMD      = 0
+          HW_CMD       = HW_PROPOSED_CMD
+          SAT_SP_CMD   = 80
+      ENDIF
+
+      HUMIDIFIER_CMD   = 0
+  ENDIF
+
+  WAIT 1
+GOTO MAIN

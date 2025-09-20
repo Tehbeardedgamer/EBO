@@ -1,0 +1,116 @@
+'=========================================================
+' VAV_MONITOR_RESET_8
+' Monitors 8 VAV damper positions with enable flags
+' Resets Supply Static Pressure Setpoint using 85% / 95% rule
+' Wait-loop style timing
+'=========================================================
+
+' ------------------------- INPUTS -------------------------
+NUMERIC INPUT VAV_DAMPER_1, VAV_ENABLE_1
+NUMERIC INPUT VAV_DAMPER_2, VAV_ENABLE_2
+NUMERIC INPUT VAV_DAMPER_3, VAV_ENABLE_3
+NUMERIC INPUT VAV_DAMPER_4, VAV_ENABLE_4
+NUMERIC INPUT VAV_DAMPER_5, VAV_ENABLE_5
+NUMERIC INPUT VAV_DAMPER_6, VAV_ENABLE_6
+NUMERIC INPUT VAV_DAMPER_7, VAV_ENABLE_7
+NUMERIC INPUT VAV_DAMPER_8, VAV_ENABLE_8
+
+' ------------------------- OUTPUTS ------------------------
+NUMERIC OUTPUT VAV_DAMPER_MAX     ' Maximum enabled damper position (%)
+NUMERIC OUTPUT DUCT_STATIC_SP       ' Static pressure setpoint (in.w.c)
+NUMERIC OUTPUT RESET_STATE        ' -1 = down, 0 = hold, +1 = up
+
+' ------------------------- PUBLICS / TUNABLES -------------
+NUMERIC PUBLIC DUCT_STATIC_MIN         ' e.g. 0.80
+NUMERIC PUBLIC DUCT_STATIC_MAX         ' e.g. 2.50
+NUMERIC PUBLIC DUCT_STATIC_START       ' e.g. 1.50
+NUMERIC PUBLIC DUCT_STATIC_STEP_UP     ' e.g. 0.05
+NUMERIC PUBLIC DUCT_STATIC_STEP_DN     ' e.g. 0.05
+NUMERIC PUBLIC RESET_INTERVAL_S   ' e.g. 30
+
+' ------------------------- INTERNALS ----------------------
+NUMERIC VAV_DAMPER[8]
+NUMERIC VAV_ENABLE[8]
+NUMERIC i
+NUMERIC max_vav_pos
+NUMERIC active_count
+
+'===========================================================
+GOTO INI
+
+INI:
+  IF DUCT_STATIC_MIN <= 0 THEN DUCT_STATIC_MIN = 0.80
+  IF DUCT_STATIC_MAX <= 0 THEN DUCT_STATIC_MAX = 2.50
+  IF DUCT_STATIC_START <= 0 THEN DUCT_STATIC_START = 1.50
+  IF DUCT_STATIC_STEP_UP <= 0 THEN DUCT_STATIC_STEP_UP = 0.05
+  IF DUCT_STATIC_STEP_DN <= 0 THEN DUCT_STATIC_STEP_DN = 0.05
+  IF RESET_INTERVAL_S <= 0 THEN RESET_INTERVAL_S = 30
+
+  DUCT_STATIC_SP = DUCT_STATIC_START
+  RESET_STATE = 0
+  VAV_DAMPER_MAX = 0
+
+GOTO MAIN
+
+'===========================================================
+MAIN:
+  ' ---------- Load arrays ----------
+  VAV_DAMPER[1] = VAV_DAMPER_1
+  VAV_ENABLE[1] = VAV_ENABLE_1
+  VAV_DAMPER[2] = VAV_DAMPER_2
+  VAV_ENABLE[2] = VAV_ENABLE_2
+  VAV_DAMPER[3] = VAV_DAMPER_3
+  VAV_ENABLE[3] = VAV_ENABLE_3
+  VAV_DAMPER[4] = VAV_DAMPER_4
+  VAV_ENABLE[4] = VAV_ENABLE_4
+  VAV_DAMPER[5] = VAV_DAMPER_5
+  VAV_ENABLE[5] = VAV_ENABLE_5
+  VAV_DAMPER[6] = VAV_DAMPER_6
+  VAV_ENABLE[6] = VAV_ENABLE_6
+  VAV_DAMPER[7] = VAV_DAMPER_7
+  VAV_ENABLE[7] = VAV_ENABLE_7
+  VAV_DAMPER[8] = VAV_DAMPER_8
+  VAV_ENABLE[8] = VAV_ENABLE_8
+
+  ' ---------- Find max of enabled VAVs ----------
+  max_vav_pos = 0
+  active_count = 0
+
+  FOR i = 1 TO 8
+    IF VAV_ENABLE[i] = 1 THEN
+      active_count = active_count + 1
+      IF VAV_DAMPER[i] > max_vav_pos THEN
+          max_vav_pos = VAV_DAMPER[i]
+      ENDIF
+    ENDIF
+  NEXT i
+
+  VAV_DAMPER_MAX = max_vav_pos
+
+  ' ---------- Reset logic ----------
+  RESET_STATE = 0
+  IF active_count > 0 THEN
+    IF max_vav_pos > 95 THEN
+        DUCT_STATIC_SP = DUCT_STATIC_SP + DUCT_STATIC_STEP_UP
+        RESET_STATE = 1
+    ELSE
+      IF max_vav_pos < 85 THEN
+          DUCT_STATIC_SP = DUCT_STATIC_SP - DUCT_STATIC_STEP_DN
+          RESET_STATE = -1
+      ENDIF
+    ENDIF
+  ENDIF
+
+  ' ---------- Clamp setpoint ----------
+  IF DUCT_STATIC_SP < DUCT_STATIC_MIN THEN DUCT_STATIC_SP = DUCT_STATIC_MIN
+  IF DUCT_STATIC_SP > DUCT_STATIC_MAX THEN DUCT_STATIC_SP = DUCT_STATIC_MAX
+
+
+  
+GOTO WAIT_LOOP
+
+'===========================================================
+WAIT_LOOP:
+  IF TS > RESET_INTERVAL_S THEN GOTO MAIN
+  WAIT 1
+

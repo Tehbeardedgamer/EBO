@@ -1,0 +1,132 @@
+'=====================================================================
+' Script: CHILLER_FAILURE_EVAL
+' Purpose: Evaluate C1/C2 compressor/chiller faults.
+'          C1_Failed = 1 if ANY C1 fault/alarm is true, else 0
+'          C2_Failed = 1 if ANY C2 fault/alarm is true, else 0
+'          ChillerFault = 1 if BOTH C1_Failed and C2_Failed are true, else 0
+' Safety:  Diagnostic only; does not command equipment.
+'=====================================================================
+
+'-----------------------
+' INPUTS (C1)
+'-----------------------
+NUMERIC INPUT C1Cmp1HighVfdCurrent
+NUMERIC INPUT C1Cmp1LowPrDiffOrRatio
+NUMERIC INPUT C1Cmp1MultiStartFail
+NUMERIC INPUT C1Cmp1OffCurrentHi
+NUMERIC INPUT C1Cmp1OffVfdCommFail
+NUMERIC INPUT C1Cmp1OffVfdFault
+NUMERIC INPUT C1Cmp1OffVfdTempHi
+NUMERIC INPUT C1Cmp1OffVfdTempLo
+NUMERIC INPUT C1Co1LowDischSHAlm
+NUMERIC INPUT C1Co1OilFeedLoss
+NUMERIC INPUT C1Comp1OFFCondPressHi
+NUMERIC INPUT C1Comp1OFFCondPressSen
+NUMERIC INPUT C1Comp1OFFDischTempHi
+NUMERIC INPUT C1Comp1OFFDischTempSen
+NUMERIC INPUT C1Comp1OFFEvapPressLow
+NUMERIC INPUT C1Comp1OFFEvapPressSen
+NUMERIC INPUT C1Comp1OFFHighPress
+NUMERIC INPUT C1Comp1OFFMechLoPress
+NUMERIC INPUT C1Comp1OFFMotorTempHi
+NUMERIC INPUT C1Comp1OFFOilFeedPSen
+NUMERIC INPUT C1Comp1OFFOilFilterPHi
+NUMERIC INPUT C1Comp1OFFSuctTempSen
+NUMERIC INPUT C1CompNoPressStart
+NUMERIC INPUT C1ControlBoardOffline
+NUMERIC INPUT C1DcFanFault
+NUMERIC INPUT C1EcExvModCommErr
+NUMERIC INPUT C1EconExvMtrFault
+NUMERIC INPUT C1EvapExvMtrFault
+NUMERIC INPUT C1FailedPumpdown
+NUMERIC INPUT C1GroundFault
+NUMERIC INPUT C1InhbtLoadCondPressHi
+NUMERIC INPUT C1InhbtLoadEvapPressLo
+NUMERIC INPUT C1RestartDelayPwrLRun
+
+'-----------------------
+' INPUTS (C2)
+'-----------------------
+NUMERIC INPUT C2Cmp1HighVfdCurrent
+NUMERIC INPUT C2Cmp1LowPrDiffOrRatio
+NUMERIC INPUT C2Cmp1MultiStartFail
+NUMERIC INPUT C2Cmp1OffCurrentHi
+NUMERIC INPUT C2Cmp1OffVfdFault
+NUMERIC INPUT C2Cmp1OffVfdTempHi
+NUMERIC INPUT C2Cmp1OffVfdTempLo
+NUMERIC INPUT C2Co1LowDischSHAlm
+NUMERIC INPUT C2Co1OilFeedLoss
+NUMERIC INPUT C2Comp1OFFCondPressHi
+NUMERIC INPUT C2Comp1OFFCondPressSen
+NUMERIC INPUT C2Comp1OFFDischTempHi
+NUMERIC INPUT C2Comp1OFFDischTempSen
+NUMERIC INPUT C2Comp1OFFEvapPressLow
+NUMERIC INPUT C2Comp1OFFEvapPressSen
+NUMERIC INPUT C2Comp1OFFHighPress
+NUMERIC INPUT C2Comp1OFFMechLoPress
+NUMERIC INPUT C2Comp1OFFMotorTempHi
+NUMERIC INPUT C2Comp1OFFOilFeedPSen
+NUMERIC INPUT C2Comp1OFFOilFilterPHi
+NUMERIC INPUT C2Comp1OFFSuctTempSen
+NUMERIC INPUT C2CompNoPressStart
+NUMERIC INPUT C2ControlBoardOffline
+NUMERIC INPUT C2DcFanFault
+NUMERIC INPUT C2EcExvModCommErr
+NUMERIC INPUT C2EconExvMtrFault
+NUMERIC INPUT C2EvapExvMtrFault
+NUMERIC INPUT C2FailedPumpdown
+NUMERIC INPUT C2GroundFault
+NUMERIC INPUT C2InhbtLoadCondPressHi
+NUMERIC INPUT C2InhbtLoadEvapPressLo
+NUMERIC INPUT C2RestartDelayPwrLRun
+
+'-----------------------
+' OUTPUTS
+'-----------------------
+NUMERIC OUTPUT C1_Failed
+NUMERIC OUTPUT C2_Failed
+NUMERIC OUTPUT ChillerFault
+
+'-----------------------
+' INTERNALS / PUBLICS
+'-----------------------
+NUMERIC C1_FaultSum, C2_FaultSum
+NUMERIC PUBLIC Scan_Period_s   ' seconds
+
+'-----------------------
+' RUNTIME
+'-----------------------
+INI:
+Scan_Period_s = 2
+    GOTO EVAL_LOOP
+
+EVAL_LOOP:
+    ' ---- Aggregate C1 fault state (any non-zero -> failed) ----
+    C1_FaultSum = (C1Cmp1HighVfdCurrent + C1Cmp1LowPrDiffOrRatio + C1Cmp1MultiStartFail + C1Cmp1OffCurrentHi + C1Cmp1OffVfdCommFail + C1Cmp1OffVfdFault + C1Cmp1OffVfdTempHi + C1Cmp1OffVfdTempLo+ C1Co1LowDischSHAlm+ C1Co1OilFeedLoss+ C1Comp1OFFCondPressHi + C1Comp1OFFCondPressSen + C1Comp1OFFDischTempHi + C1Comp1OFFDischTempSen + C1Comp1OFFEvapPressLow + C1Comp1OFFEvapPressSen + C1Comp1OFFHighPress + C1Comp1OFFMechLoPress + C1Comp1OFFMotorTempHi + C1Comp1OFFOilFeedPSen + C1Comp1OFFOilFilterPHi + C1Comp1OFFSuctTempSen + C1CompNoPressStart + C1ControlBoardOffline + C1DcFanFault + C1EcExvModCommErr + C1EconExvMtrFault + C1EvapExvMtrFault + C1FailedPumpdown + C1GroundFault + C1InhbtLoadCondPressHi + C1InhbtLoadEvapPressLo + C1RestartDelayPwrLRun)
+
+    IF C1_FaultSum > 0 THEN
+        C1_Failed = 1
+    ELSE
+        C1_Failed = 0
+    ENDIF
+
+    ' ---- Aggregate C2 fault state (any non-zero -> failed) ----
+    C2_FaultSum =  (C2Cmp1HighVfdCurrent + C2Cmp1LowPrDiffOrRatio + C2Cmp1MultiStartFail + C2Cmp1OffCurrentHi + C2Cmp1OffVfdFault + C2Cmp1OffVfdTempHi + C2Cmp1OffVfdTempLo + C2Co1LowDischSHAlm + C2Co1OilFeedLoss + C2Comp1OFFCondPressHi + C2Comp1OFFCondPressSen + C2Comp1OFFDischTempHi + C2Comp1OFFDischTempSen + C2Comp1OFFEvapPressLow + C2Comp1OFFEvapPressSen + C2Comp1OFFHighPress + C2Comp1OFFMechLoPress + C2Comp1OFFMotorTempHi + C2Comp1OFFOilFeedPSen + C2Comp1OFFOilFilterPHi + C2Comp1OFFSuctTempSen + C2CompNoPressStart + C2ControlBoardOffline + C2DcFanFault + C2EcExvModCommErr + C2EconExvMtrFault + C2EvapExvMtrFault + C2FailedPumpdown + C2GroundFault + C2InhbtLoadCondPressHi + C2InhbtLoadEvapPressLo + C2RestartDelayPwrLRun)
+
+    IF C2_FaultSum > 0 THEN
+        C2_Failed = 1
+    ELSE
+        C2_Failed = 0
+    ENDIF
+
+    ' ---- Chiller-level fault (both failed) ----
+    ' Use multiplication to avoid AND syntax ambiguity and clamp to 0/1
+    ChillerFault = C1_Failed * C2_Failed
+    IF ChillerFault > 0 THEN
+        ChillerFault = 1
+    ELSE
+        ChillerFault = 0
+    ENDIF
+
+    WAIT Scan_Period_s
+    GOTO EVAL_LOOP

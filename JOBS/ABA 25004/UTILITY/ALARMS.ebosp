@@ -1,0 +1,3 @@
+NUMERIC INPUT BypDpr_TooClosedAlm,BypDpr_TooOpenAlm,ChwVlv_LeakingAlm,ChwVlv_TooClosedAlm,ChwVlv_TooOpenAlm,FaceDpr1_TooClosedAlm,FaceDpr1_TooOpenAlm,FaceDpr2_TooClosedAlm,FaceDpr2_TooOpenAlm,FreezeStat
+NUMERIC INPUT GeneralAlarm_Indicator,HwVlv_LeakingAlm,HwVlv_TooClosedAlm,HwVlv_TooOpenAlm,RunTime_MaintAlm,SaTmp_HiAlm,SaTmp_LoAlm,SD_Alm,SupplyFan_1_Alm,SupplyFan_2_Alm,SupplyFan_3_Alm,SupplyFan_4_Alm
+NUMERIC OUTPUT Bypass_Mismatch, Face_Mismatch_1, Face_Mismatch2, Chw_Mismatch, Hw_Mismatch, Runtime, SA_OOR, SAF_Mismatch1,SAF_Mismatch2,SAF_Mismatch3,SAF_Mismatch4,FREEZESTAT

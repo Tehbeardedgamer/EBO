@@ -1,0 +1,60 @@
+'=========================================================
+' SF_PID_CTRL
+' Supply Fan PID controller
+' Uses external PID() function to calculate VFD command
+'=========================================================
+
+' ------------------------- INPUTS -------------------------
+NUMERIC INPUT DOAS_MODE          ' From DOAS_MODE_SAFETY
+NUMERIC INPUT SAFETY_OK          ' 1 = OK, 0 = Trip
+NUMERIC INPUT FREEZE_LATCH       ' 1 = Latched freeze trip
+NUMERIC INPUT DUCT_STATIC        ' Measured Supply Static Pressure
+NUMERIC INPUT DUCT_STATIC_SP       ' Setpoint from VAV Reset Script
+
+' ------------------------- OUTPUTS ------------------------
+NUMERIC OUTPUT SF_PROPOSED_CMD   ' Proposed VFD speed (0–100%)
+
+' ------------------------- PUBLICS / TUNABLES -------------
+NUMERIC PUBLIC I_TERM            ' Integral storage
+NUMERIC PUBLIC OLD_ERR           ' Previous error
+NUMERIC PUBLIC KP                ' Proportional gain
+NUMERIC PUBLIC KI                ' Integral gain
+NUMERIC PUBLIC KD                ' Derivative gain
+FUNCTION PID_LOOP
+'===========================================================
+GOTO INI
+
+INI:
+  ' ---- Default tuning if unset ----
+  IF KP <= 0 THEN KP = 1
+  IF KI < 0 THEN KI = 0.1
+  IF KD < 0 THEN KD = 0
+
+  I_TERM = 0
+  OLD_ERR = 0
+  SF_PROPOSED_CMD = 0
+
+GOTO MAIN
+
+'===========================================================
+MAIN:
+  ' ---------- Safety & Mode Check ----------
+  IF (SAFETY_OK = 0) OR (FREEZE_LATCH = 1) THEN
+      SF_PROPOSED_CMD = 0
+      WAIT 1
+      GOTO MAIN
+  ENDIF
+
+  ' If DOAS_MODE = OFF (0) or PRESTART (1) → no fan speed
+  IF (DOAS_MODE = 0) OR (DOAS_MODE = 1) THEN
+      SF_PROPOSED_CMD = 0
+      WAIT 1
+      GOTO MAIN
+  ENDIF
+
+  ' ---------- Call PID() function ----------
+  ' ReverseActing = 0 (higher pressure → higher speed)
+  SF_PROPOSED_CMD = PID_LOOP(0, DUCT_STATIC, DUCT_STATIC_SP, I_TERM, KP, KI, KD, OLD_ERR)
+
+  WAIT 10
+GOTO MAIN

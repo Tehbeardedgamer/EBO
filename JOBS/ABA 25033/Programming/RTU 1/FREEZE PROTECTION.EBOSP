@@ -1,0 +1,105 @@
+'------------------------------------------------------------------------------
+' RTU1_Freeze_Protection
+' Controls freeze response actions using low limit and freeze-stat inputs.
+'------------------------------------------------------------------------------
+
+
+'=======================
+'        INPUTS
+'=======================
+NUMERIC INPUT Low_Limit_Temp         ' Temperature from low limit thermostat
+NUMERIC INPUT Mixed_Air_Temp         ' Mixed air temperature at freeze-stat location
+NUMERIC INPUT Reset_Freeze_Alarm     ' Manual reset input for freeze-stat (0 = hold, 1 = reset)
+
+
+'=======================
+'       OUTPUTS
+'=======================
+NUMERIC OUTPUT Freeze_Trip           ' General freeze condition flag (1 = active)
+NUMERIC OUTPUT CHW_Valve_Freeze_Cmd  ' Freeze override CHW valve command (1 = open)
+NUMERIC OUTPUT CHW_Pump_Enable       ' Command to enable CHW pump (at least one)
+NUMERIC OUTPUT SF_Shutdown_Cmd       ' Command to shut down supply fan
+NUMERIC OUTPUT RF_Shutdown_Cmd       ' Command to shut down return fan
+NUMERIC OUTPUT EF_Shutdown_Cmd       ' Command to shut down exhaust fan
+NUMERIC OUTPUT Freeze_Alarm          ' Alarm output for freeze protection events
+
+
+'=======================
+'      INTERNALS
+'=======================
+NUMERIC LL_Trip
+NUMERIC FS_Trip
+NUMERIC FS_Latched
+
+
+'=======================
+'    SETPOINT INPUTS
+'=======================
+NUMERIC INPUT SP_Low_Limit_Temp      ' Low limit thermostat setpoint (default = 40°F)
+NUMERIC INPUT SP_Freeze_Trip_Temp    ' Freeze-stat trip setpoint (default = 36°F)
+
+
+'=======================
+'     INITIALIZATION
+'=======================
+GOTO MAIN
+
+
+'=======================
+'       MAIN LOGIC
+'=======================
+MAIN:
+
+  '-------------------------------
+  ' Evaluate Low Limit Thermostat
+  '-------------------------------
+  IF (Low_Limit_Temp <= SP_Low_Limit_Temp) THEN
+    LL_Trip = 1
+  ELSE
+    LL_Trip = 0
+  ENDIF
+
+
+  '-------------------------------
+  ' Evaluate Manual Reset Freeze Stat (Latched)
+  '-------------------------------
+  IF (Mixed_Air_Temp <= SP_Freeze_Trip_Temp) THEN
+    FS_Latched = 1
+  ENDIF
+
+  ' Manual reset logic
+  IF (Reset_Freeze_Alarm = 1) THEN
+    FS_Latched = 0
+  ENDIF
+
+  FS_Trip = FS_Latched
+
+
+  '-------------------------------
+  ' Output Logic
+  '-------------------------------
+  Freeze_Trip = LL_Trip OR FS_Trip
+
+  ' Both conditions cause valve open + CHW pump start
+  IF (Freeze_Trip = 1) THEN
+    CHW_Valve_Freeze_Cmd = 1
+    CHW_Pump_Enable = 1
+  ELSE
+    CHW_Valve_Freeze_Cmd = 0
+    CHW_Pump_Enable = 0
+  ENDIF
+
+  ' Freeze-stat causes full unit shutdown
+  IF (FS_Trip = 1) THEN
+    SF_Shutdown_Cmd = 1
+    RF_Shutdown_Cmd = 1
+    EF_Shutdown_Cmd = 1
+    Freeze_Alarm = 1
+  ELSE
+    SF_Shutdown_Cmd = 0
+    RF_Shutdown_Cmd = 0
+    EF_Shutdown_Cmd = 0
+    Freeze_Alarm = LL_Trip
+  ENDIF
+
+

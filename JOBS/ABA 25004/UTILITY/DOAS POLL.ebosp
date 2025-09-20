@@ -1,0 +1,186 @@
+Numeric Input BldgStPr, ChwLaTmp, ChwVlv_Fbk, EaBypDpr_Fbk, EaDpr_Fbk, EaFan1_DiffPr, EaFan2_DiffPr, EaFan3_DiffPr, EaFan4_DiffPr, EaRh, EaTmp, EW_DiffPr, HwLaTmp, HwVlv_Fbk, MaRh, MaTmp, OaBypDpr_Fbk, OaDpr1_Fbk, OaDpr2_Fbk
+Numeric Input OaFlow, OaRh, OaTmp, RaRh, RaTmp, RecircDpr_Fbk, RmCO2, RmRh, RmTmp, RmVOC, SaFan1_DiffPr, SaFan2_DiffPr, SaFan3_DiffPr, SaFan4_DiffPr, SaRh, SaTmp, ChwVlv_Pos, EaBypDpr_Pos, EaDpr_Pos, EaFan1_Spd, EaFan2_Spd, EaFan3_Spd
+Numeric Input EaFan4_Spd, EW_Spd, HwVlv_Pos, OaBypDpr_Pos, OaDpr1_Pos, OaDpr2_Pos, RecircDpr_Pos, SaFan1_Spd, SaFan2_Spd, SaFan3_Spd, SaFan4_Spd, BldgStPrSpt, CO2SPAlm, DewPointSPAlm, EaFan_MaxSpd_FanArrayInAlarm, EaFan_MaxSpd_FanArrayNormal
+Numeric Input EaFan_Spd_Ovr, EaFan1_Flow, EaFan2_Flow, EaFan3_Flow, EaFan4_Flow, EaFanTracking, EconoEnableSpt, EconoMaTmpSpt, EconoSaTmpAlmSpt, EW_Flow, EWFlow_Correction, FanRunTime, FanRunTime_Maint, FrostThreshold, LowDATWheelEnaSpt, MaxExhaustFanSpd
+Numeric Input MaxSupplyFanSpd, MinExhaustFanSpd, MinSupplyFanSpd, OaRh_NetIn, OaTmp_NetIn, RaCO2Spt, RecircDpr_LoLimit, RunTimeMaint_AlmSpt, SaClgTmpSpt, SaFan_MaxSpd_FanArrayInAlarm, SaFan_MaxSpd_FanArrayNormal, SaFan_Spd_Ovr, SaFan1_Flow, SaFan2_Flow
+Numeric Input SaFan3_Flow, SaFan4_Flow, SaFanFlow, SaFanFlowSpt, SaHtgTmpSpt, SaTmpSpt_RmRhCtrl, WheelClgModeSpt, WheelDefrostTime, WheelDPAlm_Spt, WheelHtgModeSpt, EaFan1_Flt, EaFan1_Sts, EaFan2_Flt, EaFan2_Sts, EaFan3_Flt, EaFan3_Sts, EaFan4_Flt, EaFan4_Sts
+Numeric Input EW_Flt, EW_Sts, FreezeStat, OaFltr1_Sts, OaFltr2_Sts, RaFltr_Sts, SaFan1_Flt, SaFan1_Sts, SaFan2_Flt, SaFan2_Sts, SaFan3_Flt, SaFan3_Sts, SaFan4_Flt, SaFan4_Sts, SaStPrHiLimitSw, SD1_Alm, SD2_Alm, EaFan1_Cmd, EaFan2_Cmd, EaFan3_Cmd, EaFan4_Cmd, EW_Cmd
+Numeric Input SaFan1_Cmd, SaFan2_Cmd, SaFan3_Cmd, SaFan4_Cmd, ChwVlv_TooClosedAlm, ChwVlv_TooOpenAlm, CO2HiAlm, DirtyWheelAlm, DischargeDewPointHiAlm, EaDpr_TooClosedAlm, EaDpr_TooOpenAlm, EconoSaTmpAlm, ExhaustFan_1_Alm, ExhaustFan_2_Alm, ExhaustFan_3_Alm, ExhaustFan_4_Alm
+Numeric Input FanStatus, OaDpr_TooClosedAlm, OaDpr_TooOpenAlm, RaStPrLoSw_Alarm, RunTime_MaintAlm, RunTime_MaintReset, SafetyReset, SaStPrHiSw_Alarm, SaTmpAlm, SaTmpLoAlm, ScheduleNetIn, SupplyFan_1_Alm, SupplyFan_2_Alm, SupplyFan_3_Alm, SupplyFan_4_Alm, WheelAlm
+
+Numeric Output xBldgStPr, xChwLaTmp, xChwVlv_Fbk, xEaBypDpr_Fbk, xEaDpr_Fbk, xEaFan1_DiffPr, xEaFan2_DiffPr, xEaFan3_DiffPr, xEaFan4_DiffPr, xEaRh, xEaTmp, xEW_DiffPr, xHwLaTmp, xHwVlv_Fbk, xMaRh, xMaTmp, xOaBypDpr_Fbk, xOaDpr1_Fbk, xOaDpr2_Fbk 
+Numeric Output xOaFlow, xOaRh, xOaTmp, xRaRh, xRaTmp, xRecircDpr_Fbk, xRmCO2, xRmRh, xRmTmp, xRmVOC, xSaFan1_DiffPr, xSaFan2_DiffPr, xSaFan3_DiffPr, xSaFan4_DiffPr, xSaRh, xSaTmp, xChwVlv_Pos, xEaBypDpr_Pos, xEaDpr_Pos, xEaFan1_Spd, xEaFan2_Spd, xEaFan3_Spd
+Numeric Output xEaFan4_Spd, xEW_Spd, xHwVlv_Pos, xOaBypDpr_Pos, xOaDpr1_Pos, xOaDpr2_Pos, xRecircDpr_Pos, xSaFan1_Spd, xSaFan2_Spd, xSaFan3_Spd, xSaFan4_Spd, xBldgStPrSpt, xCO2SPAlm, xDewPointSPAlm, xEaFan_MaxSpd_FanArrayInAlarm, xEaFan_MaxSpd_FanArrayNormal
+Numeric Output xEaFan_Spd_Ovr, xEaFan1_Flow, xEaFan2_Flow, xEaFan3_Flow, xEaFan4_Flow, xEaFanTracking, xEconoEnableSpt, xEconoMaTmpSpt, xEconoSaTmpAlmSpt, xEW_Flow, xEWFlow_Correction, xFanRunTime, xFanRunTime_Maint, xFrostThreshold, xLowDATWheelEnaSpt, xMaxExhaustFanSpd
+Numeric Output xMaxSupplyFanSpd, xMinExhaustFanSpd, xMinSupplyFanSpd, xOaRh_NetIn, xOaTmp_NetIn, xRaCO2Spt, xRecircDpr_LoLimit, xRunTimeMaint_AlmSpt, xSaClgTmpSpt, xSaFan_MaxSpd_FanArrayInAlarm, xSaFan_MaxSpd_FanArrayNormal, xSaFan_Spd_Ovr, xSaFan1_Flow, xSaFan2_Flow
+Numeric Output xSaFan3_Flow, xSaFan4_Flow, xSaFanFlow, xSaFanFlowSpt, xSaHtgTmpSpt, xSaTmpSpt_RmRhCtrl, xWheelClgModeSpt, xWheelDefrostTime, xWheelDPAlm_Spt, xWheelHtgModeSpt, xEaFan1_Flt, xEaFan1_Sts, xEaFan2_Flt, xEaFan2_Sts, xEaFan3_Flt, xEaFan3_Sts, xEaFan4_Flt
+Numeric Output xEaFan4_Sts, xEW_Flt, xEW_Sts, xFreezeStat, xOaFltr1_Sts, xOaFltr2_Sts, xRaFltr_Sts, xSaFan1_Flt, xSaFan1_Sts, xSaFan2_Flt, xSaFan2_Sts, xSaFan3_Flt, xSaFan3_Sts, xSaFan4_Flt, xSaFan4_Sts, xSaStPrHiLimitSw, xSD1_Alm, xSD2_Alm, xEaFan1_Cmd, xEaFan2_Cmd
+Numeric Output xEaFan3_Cmd, xEaFan4_Cmd, xEW_Cmd, xSaFan1_Cmd, xSaFan2_Cmd, xSaFan3_Cmd, xSaFan4_Cmd, xChwVlv_TooClosedAlm, xChwVlv_TooOpenAlm, xCO2HiAlm, xDirtyWheelAlm, xDischargeDewPointHiAlm, xEaDpr_TooClosedAlm, xEaDpr_TooOpenAlm, xEconoSaTmpAlm, xExhaustFan_1_Alm
+Numeric Output xExhaustFan_2_Alm, xExhaustFan_3_Alm, xExhaustFan_4_Alm, xFanStatus, xOaDpr_TooClosedAlm, xOaDpr_TooOpenAlm, xRaStPrLoSw_Alarm, xRunTime_MaintAlm, xRunTime_MaintReset, xSafetyReset, xSaStPrHiSw_Alarm, xSaTmpAlm, xSaTmpLoAlm, xScheduleNetIn, xSupplyFan_1_Alm
+Numeric Output xSupplyFan_2_Alm, xSupplyFan_3_Alm, xSupplyFan_4_Alm, xWheelAlm
+
+goto Pollvalues
+
+Pollvalues:
+xBldgStPr = BldgStPr
+xChwLaTmp = ChwLaTmp
+xChwVlv_Fbk = ChwVlv_Fbk
+xEaBypDpr_Fbk = EaBypDpr_Fbk
+xEaDpr_Fbk = EaDpr_Fbk
+xEaFan1_DiffPr = EaFan1_DiffPr
+xEaFan2_DiffPr = EaFan2_DiffPr
+xEaFan3_DiffPr = EaFan3_DiffPr
+xEaFan4_DiffPr = EaFan4_DiffPr
+xEaRh = EaRh
+xEaTmp = EaTmp
+xEW_DiffPr = EW_DiffPr
+xHwLaTmp = HwLaTmp
+xHwVlv_Fbk = HwVlv_Fbk
+xMaRh = MaRh
+xMaTmp = MaTmp
+xOaBypDpr_Fbk = OaBypDpr_Fbk
+xOaDpr1_Fbk = OaDpr1_Fbk
+xOaDpr2_Fbk = OaDpr2_Fbk
+xOaFlow = OaFlow
+xOaRh = OaRh
+xOaTmp = OaTmp
+xRaRh = RaRh
+xRaTmp = RaTmp
+xRecircDpr_Fbk = RecircDpr_Fbk
+xRmCO2 = RmCO2
+xRmRh = RmRh
+xRmTmp = RmTmp
+xRmVOC = RmVOC
+xSaFan1_DiffPr = SaFan1_DiffPr
+xSaFan2_DiffPr = SaFan2_DiffPr
+xSaFan3_DiffPr = SaFan3_DiffPr
+xSaFan4_DiffPr = SaFan4_DiffPr
+xSaRh = SaRh
+xSaTmp = SaTmp
+xChwVlv_Pos = ChwVlv_Pos
+xEaBypDpr_Pos = EaBypDpr_Pos
+xEaDpr_Pos = EaDpr_Pos
+xEaFan1_Spd = EaFan1_Spd
+xEaFan2_Spd = EaFan2_Spd
+xEaFan3_Spd = EaFan3_Spd
+xEaFan4_Spd = EaFan4_Spd
+xEW_Spd = EW_Spd
+xHwVlv_Pos = HwVlv_Pos
+xOaBypDpr_Pos = OaBypDpr_Pos
+xOaDpr1_Pos = OaDpr1_Pos
+xOaDpr2_Pos = OaDpr2_Pos
+xRecircDpr_Pos = RecircDpr_Pos
+xSaFan1_Spd = SaFan1_Spd
+xSaFan2_Spd = SaFan2_Spd
+xSaFan3_Spd = SaFan3_Spd
+xSaFan4_Spd = SaFan4_Spd
+xBldgStPrSpt = BldgStPrSpt
+xCO2SPAlm = CO2SPAlm
+xDewPointSPAlm = DewPointSPAlm
+xEaFan_MaxSpd_FanArrayInAlarm = EaFan_MaxSpd_FanArrayInAlarm
+xEaFan_MaxSpd_FanArrayNormal = EaFan_MaxSpd_FanArrayNormal
+xEaFan_Spd_Ovr = EaFan_Spd_Ovr
+xEaFan1_Flow = EaFan1_Flow
+xEaFan2_Flow = EaFan2_Flow
+xEaFan3_Flow = EaFan3_Flow
+xEaFan4_Flow = EaFan4_Flow
+xEaFanTracking = EaFanTracking
+xEconoEnableSpt = EconoEnableSpt
+xEconoMaTmpSpt = EconoMaTmpSpt
+xEconoSaTmpAlmSpt = EconoSaTmpAlmSpt
+xEW_Flow = EW_Flow
+xEWFlow_Correction = EWFlow_Correction
+xFanRunTime = FanRunTime
+xFanRunTime_Maint = FanRunTime_Maint
+xFrostThreshold = FrostThreshold
+xLowDATWheelEnaSpt = LowDATWheelEnaSpt
+xMaxExhaustFanSpd = MaxExhaustFanSpd
+xMaxSupplyFanSpd = MaxSupplyFanSpd
+xMinExhaustFanSpd = MinExhaustFanSpd
+xMinSupplyFanSpd = MinSupplyFanSpd
+xOaRh_NetIn = OaRh_NetIn
+xOaTmp_NetIn = OaTmp_NetIn
+xRaCO2Spt = RaCO2Spt
+xRecircDpr_LoLimit = RecircDpr_LoLimit
+xRunTimeMaint_AlmSpt = RunTimeMaint_AlmSpt
+xSaClgTmpSpt = SaClgTmpSpt
+xSaFan_MaxSpd_FanArrayInAlarm = SaFan_MaxSpd_FanArrayInAlarm
+xSaFan_MaxSpd_FanArrayNormal = SaFan_MaxSpd_FanArrayNormal
+xSaFan_Spd_Ovr = SaFan_Spd_Ovr
+xSaFan1_Flow = SaFan1_Flow
+xSaFan2_Flow = SaFan2_Flow
+xSaFan3_Flow = SaFan3_Flow
+xSaFan4_Flow = SaFan4_Flow
+xSaFanFlow = SaFanFlow
+xSaFanFlowSpt = SaFanFlowSpt
+xSaHtgTmpSpt = SaHtgTmpSpt
+xSaTmpSpt_RmRhCtrl = SaTmpSpt_RmRhCtrl
+xWheelClgModeSpt = WheelClgModeSpt
+xWheelDefrostTime = WheelDefrostTime
+xWheelDPAlm_Spt = WheelDPAlm_Spt
+xWheelHtgModeSpt = WheelHtgModeSpt
+xEaFan1_Flt = EaFan1_Flt
+xEaFan1_Sts = EaFan1_Sts
+xEaFan2_Flt = EaFan2_Flt
+xEaFan2_Sts = EaFan2_Sts
+xEaFan3_Flt = EaFan3_Flt
+xEaFan3_Sts = EaFan3_Sts
+xEaFan4_Flt = EaFan4_Flt
+xEaFan4_Sts = EaFan4_Sts
+xEW_Flt = EW_Flt
+xEW_Sts = EW_Sts
+xFreezeStat = FreezeStat
+xOaFltr1_Sts = OaFltr1_Sts
+xOaFltr2_Sts = OaFltr2_Sts
+xRaFltr_Sts = RaFltr_Sts
+xSaFan1_Flt = SaFan1_Flt
+xSaFan1_Sts = SaFan1_Sts
+xSaFan2_Flt = SaFan2_Flt
+xSaFan2_Sts = SaFan2_Sts
+xSaFan3_Flt = SaFan3_Flt
+xSaFan3_Sts = SaFan3_Sts
+xSaFan4_Flt = SaFan4_Flt
+xSaFan4_Sts = SaFan4_Sts
+xSaStPrHiLimitSw = SaStPrHiLimitSw
+xSD1_Alm = SD1_Alm
+xSD2_Alm = SD2_Alm
+xEaFan1_Cmd = EaFan1_Cmd
+xEaFan2_Cmd = EaFan2_Cmd
+xEaFan3_Cmd = EaFan3_Cmd
+xEaFan4_Cmd = EaFan4_Cmd
+xEW_Cmd = EW_Cmd
+xSaFan1_Cmd = SaFan1_Cmd
+xSaFan2_Cmd = SaFan2_Cmd
+xSaFan3_Cmd = SaFan3_Cmd
+xSaFan4_Cmd = SaFan4_Cmd
+xChwVlv_TooClosedAlm = ChwVlv_TooClosedAlm
+xChwVlv_TooOpenAlm = ChwVlv_TooOpenAlm
+xCO2HiAlm = CO2HiAlm
+xDirtyWheelAlm = DirtyWheelAlm
+xDischargeDewPointHiAlm = DischargeDewPointHiAlm
+xEaDpr_TooClosedAlm = EaDpr_TooClosedAlm
+xEaDpr_TooOpenAlm = EaDpr_TooOpenAlm
+xEconoSaTmpAlm = EconoSaTmpAlm
+xExhaustFan_1_Alm = ExhaustFan_1_Alm
+xExhaustFan_2_Alm = ExhaustFan_2_Alm
+xExhaustFan_3_Alm = ExhaustFan_3_Alm
+xExhaustFan_4_Alm = ExhaustFan_4_Alm
+xFanStatus = FanStatus
+xOaDpr_TooClosedAlm = OaDpr_TooClosedAlm
+xOaDpr_TooOpenAlm = OaDpr_TooOpenAlm
+xRaStPrLoSw_Alarm = RaStPrLoSw_Alarm
+xRunTime_MaintAlm = RunTime_MaintAlm
+xRunTime_MaintReset = RunTime_MaintReset
+xSafetyReset = SafetyReset
+xSaStPrHiSw_Alarm = SaStPrHiSw_Alarm
+xSaTmpAlm = SaTmpAlm
+xSaTmpLoAlm = SaTmpLoAlm
+xScheduleNetIn = ScheduleNetIn
+xSupplyFan_1_Alm = SupplyFan_1_Alm
+xSupplyFan_2_Alm = SupplyFan_2_Alm
+xSupplyFan_3_Alm = SupplyFan_3_Alm
+xSupplyFan_4_Alm = SupplyFan_4_Alm
+xWheelAlm = WheelAlm
+
+Wait 10
+goto Pollvalues

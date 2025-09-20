@@ -1,0 +1,73 @@
+'=========================================================
+' Script: HW_VALVE Control with PID
+' Purpose: Modulate hot water valve to maintain space temperature
+'=========================================================
+
+'--- INPUTS ---
+NUMERIC INPUT HEATING_SP        'Heating temperature setpoint (°C)
+NUMERIC INPUT SPACE_TEMP        'Current measured space temperature (°C)
+STRING INPUT MODE               'System operating mode (e.g., "HEATING")
+
+'--- OUTPUTS ---
+NUMERIC OUTPUT HW_VALVE_CMD     'Valve command output (0-100%)
+
+'--- INTERNAL VARIABLES ---
+NUMERIC PK, IK, DK              'PID tuning parameters
+NUMERIC OLDERR                  'Previous error for derivative term
+NUMERIC IVALVE                  'Integral accumulator
+NUMERIC PAUSE_TIMER             'Loop timing (seconds)
+
+'--- FUNCTIONS ---
+FUNCTION HW_VALVE_PID           'PID calculation function
+
+'=========================================================
+' INITIALIZATION
+'=========================================================
+GOTO INI
+
+INI:
+    'Set default timing and initial values
+    PAUSE_TIMER = 30            'Loop executes every 30 seconds
+    HW_VALVE_CMD = 0            'Start with valve closed
+    PK = 1.0                     'Proportional gain
+    IK = 0.1                     'Integral gain
+    DK = 0.01                    'Derivative gain
+    OLDERR = 0                   'Reset PID error memory
+    IVALVE = 0                   'Reset PID integral term
+
+    GOTO CONTROL_LOOP
+
+'=========================================================
+' CONTROL LOOP
+'=========================================================
+CONTROL_LOOP:
+    'Check operating mode
+    IF (MODE = "HEATING") THEN
+        'Run PID control for HW valve
+        HW_VALVE_CMD = HW_VALVE_PID(0, HEATING_SP, SPACE_TEMP, IVALVE, PK, IK, DK, OLDERR)
+    ELSE
+        'If not heating, skip to wait loop
+        GOTO WAIT_LOOP
+    ENDIF
+
+'=========================================================
+' SAFETY / OVERRIDE
+'=========================================================
+NO_HEAT:
+    'Ensure valve is closed when not heating
+    IF (MODE <> "HEATING") THEN
+        IVALVE = 0               'Reset integral term
+        HW_VALVE_CMD = 0         'Close valve
+    ENDIF
+
+		IF MODE = "HEATING" THEN GOTO CONTROL_LOOP
+
+'=========================================================
+' TIMING CONTROL
+'=========================================================
+WAIT_LOOP:
+    'If not heating and valve already closed, ensure safety logic is applied
+    IF (MODE <> "HEATING") & (HW_VALVE_CMD = 0) THEN GOTO NO_HEAT
+
+    'Re-execute control loop after pause interval
+    IF (TS >= PAUSE_TIMER) THEN GOTO CONTROL_LOOP

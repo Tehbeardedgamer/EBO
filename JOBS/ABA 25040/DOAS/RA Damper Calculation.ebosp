@@ -1,0 +1,80 @@
+'=========================================================
+' RA_DAMPER_CTRL
+' Return Air Damper Control (complementary to OA)
+'=========================================================
+
+' ------------------------- INPUTS -------------------------
+NUMERIC INPUT DOAS_MODE            ' From DOAS_MODE_SAFETY
+NUMERIC INPUT SAFETY_OK            ' 1=OK, 0=Trip
+NUMERIC INPUT FREEZE_LATCH         ' 1=Latched freeze trip
+
+NUMERIC INPUT OA_PROPOSED_CMD      ' From OA_DAMPER_CTRL
+NUMERIC INPUT ECON_AVAIL           ' 1=Economizer available
+NUMERIC INPUT PURGE_ACTIVE         ' 1=Active, 0=not
+NUMERIC INPUT MIN_OA_ENABLE        ' 1=Enable minimum OA
+
+' ------------------------- OUTPUTS ------------------------
+NUMERIC OUTPUT RA_PROPOSED_CMD     ' RA Damper position (0–100%)
+
+'===========================================================
+GOTO INI
+
+INI:
+  RA_PROPOSED_CMD = 100
+GOTO MAIN
+
+'===========================================================
+MAIN:
+  ' ---------- Safety Check ----------
+  IF (SAFETY_OK = 0) OR (FREEZE_LATCH = 1) THEN
+      RA_PROPOSED_CMD = 100   ' Fail-safe open
+      WAIT 1
+      GOTO MAIN
+  ENDIF
+
+  ' ---------- Mode Handling ----------
+  ' OFF (0), UNOCC PROTECT (5) → RA open
+  IF (DOAS_MODE = 0) OR (DOAS_MODE = 5) THEN
+      RA_PROPOSED_CMD = 100
+      WAIT 1
+      GOTO MAIN
+  ENDIF
+
+  ' PRESTART (1) → RA mostly open unless Min OA enabled
+  IF DOAS_MODE = 1 THEN
+      IF MIN_OA_ENABLE = 1 THEN
+          RA_PROPOSED_CMD = 100 - OA_PROPOSED_CMD
+      ELSE
+          RA_PROPOSED_CMD = 100
+      ENDIF
+      WAIT 1
+      GOTO MAIN
+  ENDIF
+
+  ' WARMUP (2), COOLDOWN (3) → RA 100%
+  IF (DOAS_MODE = 2) OR (DOAS_MODE = 3) THEN
+      RA_PROPOSED_CMD = 100
+      WAIT 1
+      GOTO MAIN
+  ENDIF
+
+  ' ---------- OCCUPIED (4) ----------
+  IF DOAS_MODE = 4 THEN
+      ' Purge → RA closed
+      IF PURGE_ACTIVE = 1 THEN
+          RA_PROPOSED_CMD = 0
+      ELSE
+          ' Economizer → OA 100%, RA closed
+          IF ECON_AVAIL = 1 THEN
+              RA_PROPOSED_CMD = 0
+          ELSE
+              ' Normal occupied → inverse of OA
+              RA_PROPOSED_CMD = 100 - OA_PROPOSED_CMD
+              IF RA_PROPOSED_CMD < 0 THEN RA_PROPOSED_CMD = 0
+              IF RA_PROPOSED_CMD > 100 THEN RA_PROPOSED_CMD = 100
+          ENDIF
+      ENDIF
+  ENDIF
+
+  WAIT 1
+GOTO MAIN

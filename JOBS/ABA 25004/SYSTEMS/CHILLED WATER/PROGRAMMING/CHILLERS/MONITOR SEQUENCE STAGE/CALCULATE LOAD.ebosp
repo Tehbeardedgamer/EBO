@@ -1,100 +1,106 @@
-NUMERIC INPUT KW_A, STATUS_A, KW_B, STATUS_B, KW_C, STATUS_C, KW_D, STATUS_D
-NUMERIC INPUT KW_E, STATUS_E, KW_F, STATUS_F, KW_G, STATUS_G, KW_H, STATUS_H
-NUMERIC INPUT KW_I, STATUS_I, KW_J, STATUS_J, KW_K, STATUS_K, KW_L, STATUS_L
-NUMERIC INPUT KW_M, STATUS_M, KW_N, STATUS_N, KW_O, STATUS_O, KW_P, STATUS_P
+'=====================================================================
+' Script: CHILLER_SYSTEM_AVG_LOAD
+' Purpose: Average system load (%) across all ACTIVE chillers.
+'          Each chiller provides STATUS (0/1) and CAP (percent 0–100).
+'          LOAD_X = CAP_X if Status=1 else 0.
+'          AVERAGE_LOAD = mean of active chillers' CAP (%).
+'=====================================================================
 
-NUMERIC OUTPUT LOAD_A, LOAD_B, LOAD_C, LOAD_D, LOAD_E, LOAD_F, LOAD_G, LOAD_H
-NUMERIC OUTPUT LOAD_I, LOAD_J, LOAD_K, LOAD_L, LOAD_M, LOAD_N, LOAD_O, LOAD_P
+'-----------------------
+' INPUTS
+'-----------------------
+NUMERIC INPUT CAP_A, STATUS_A, CAP_B, STATUS_B, CAP_C, STATUS_C, CAP_D, STATUS_D
+NUMERIC INPUT CAP_E, STATUS_E, CAP_F, STATUS_F, CAP_G, STATUS_G, CAP_H, STATUS_H
+NUMERIC INPUT CAP_I, STATUS_I, CAP_J, STATUS_J, CAP_K, STATUS_K, CAP_L, STATUS_L
+NUMERIC INPUT CAP_M, STATUS_M, CAP_N, STATUS_N, CAP_O, STATUS_O, CAP_P, STATUS_P
+
+'-----------------------
+' OUTPUTS
+'-----------------------
 NUMERIC OUTPUT AVERAGE_LOAD, TOTAL_LOAD, ACTIVE_CHILLERS
 
-NUMERIC MAX_KW, CHILLER_STATUS[16]
-NUMERIC KW[16], SYSLOAD[16]
-NUMERIC i ' For loop index
+'-----------------------
+' INTERNALS / ARRAYS / PUBLICS
+'-----------------------
+NUMERIC CAP[16], CHILLER_STATUS[16]
+NUMERIC SYSLOAD[16]
+NUMERIC i
+NUMERIC PUBLIC Scan_Period_s   ' seconds
 
+'-----------------------
+' RUNTIME
+'-----------------------
 GOTO INIT
 
 INIT:
-'--- Initialize arrays ---
-KW[1] = KW_A
-KW[2] = KW_B
-KW[3] = KW_C
-KW[4] = KW_D
-KW[5] = KW_E
-KW[6] = KW_F
-KW[7] = KW_G
-KW[8] = KW_H
-KW[9] = KW_I
-KW[10] = KW_J
-KW[11] = KW_K
-KW[12] = KW_L
-KW[13] = KW_M
-KW[14] = KW_N
-KW[15] = KW_O
-KW[16] = KW_P
+    '--- Initialize arrays from inputs ---
+    CAP[1]  = CAP_A
+    CAP[2]  = CAP_B
+    CAP[3]  = CAP_C
+    CAP[4]  = CAP_D
+    CAP[5]  = CAP_E
+    CAP[6]  = CAP_F
+    CAP[7]  = CAP_G
+    CAP[8]  = CAP_H
+    CAP[9]  = CAP_I
+    CAP[10] = CAP_J
+    CAP[11] = CAP_K
+    CAP[12] = CAP_L
+    CAP[13] = CAP_M
+    CAP[14] = CAP_N
+    CAP[15] = CAP_O
+    CAP[16] = CAP_P
 
-CHILLER_STATUS[1] = STATUS_A
-CHILLER_STATUS[2] = STATUS_B
-CHILLER_STATUS[3] = STATUS_C
-CHILLER_STATUS[4] = STATUS_D
-CHILLER_STATUS[5] = STATUS_E
-CHILLER_STATUS[6] = STATUS_F
-CHILLER_STATUS[7] = STATUS_G
-CHILLER_STATUS[8] = STATUS_H
-CHILLER_STATUS[9] = STATUS_I
-CHILLER_STATUS[10] = STATUS_J
-CHILLER_STATUS[11] = STATUS_K
-CHILLER_STATUS[12] = STATUS_L
-CHILLER_STATUS[13] = STATUS_M
-CHILLER_STATUS[14] = STATUS_N
-CHILLER_STATUS[15] = STATUS_O
-CHILLER_STATUS[16] = STATUS_P
+    CHILLER_STATUS[1]  = STATUS_A
+    CHILLER_STATUS[2]  = STATUS_B
+    CHILLER_STATUS[3]  = STATUS_C
+    CHILLER_STATUS[4]  = STATUS_D
+    CHILLER_STATUS[5]  = STATUS_E
+    CHILLER_STATUS[6]  = STATUS_F
+    CHILLER_STATUS[7]  = STATUS_G
+    CHILLER_STATUS[8]  = STATUS_H
+    CHILLER_STATUS[9]  = STATUS_I
+    CHILLER_STATUS[10] = STATUS_J
+    CHILLER_STATUS[11] = STATUS_K
+    CHILLER_STATUS[12] = STATUS_L
+    CHILLER_STATUS[13] = STATUS_M
+    CHILLER_STATUS[14] = STATUS_N
+    CHILLER_STATUS[15] = STATUS_O
+    CHILLER_STATUS[16] = STATUS_P
 
-GOTO CALCULATE_LOAD
+    ' default scan period if not set elsewhere
+    IF Scan_Period_s = 0 THEN
+        Scan_Period_s = 60
+    ENDIF
+
+    GOTO CALCULATE_LOAD
 
 CALCULATE_LOAD:
-MAX_KW = 450 ' Each chiller has a max load of 450 kW
-TOTAL_LOAD = 0
-ACTIVE_CHILLERS = 0
+    TOTAL_LOAD = 0
+    ACTIVE_CHILLERS = 0
 
-FOR i = 1 TO 16
-    IF CHILLER_STATUS[i] = 1 THEN
-        SYSLOAD[i] = (KW[i] / MAX_KW) * 100.0
-        TOTAL_LOAD = TOTAL_LOAD + SYSLOAD[i]
-        ACTIVE_CHILLERS = ACTIVE_CHILLERS + 1
+    FOR i = 1 TO 16
+        IF CHILLER_STATUS[i] = 1 THEN
+            ' capacity is already %, so system load equals capacity
+            SYSLOAD[i] = CAP[i]
+            TOTAL_LOAD = TOTAL_LOAD + SYSLOAD[i]
+            ACTIVE_CHILLERS = ACTIVE_CHILLERS + 1
+        ELSE
+            SYSLOAD[i] = 0
+        ENDIF
+    NEXT i
+
+    '--- Calculate Average Load ---
+    IF ACTIVE_CHILLERS > 0 THEN
+        AVERAGE_LOAD = TOTAL_LOAD / ACTIVE_CHILLERS
     ELSE
-        SYSLOAD[i] = 0
+        AVERAGE_LOAD = 0
     ENDIF
-NEXT i
 
-'--- Calculate Average Load ---
-IF ACTIVE_CHILLERS > 0 THEN
-    AVERAGE_LOAD = TOTAL_LOAD / ACTIVE_CHILLERS
-ELSE
-    AVERAGE_LOAD = 0
-ENDIF
 
-GOTO UPDATE_OUTPUTS
 
-UPDATE_OUTPUTS:
-LOAD_A = SYSLOAD[1]
-LOAD_B = SYSLOAD[2]
-LOAD_C = SYSLOAD[3]
-LOAD_D = SYSLOAD[4]
-LOAD_E = SYSLOAD[5]
-LOAD_F = SYSLOAD[6]
-LOAD_G = SYSLOAD[7]
-LOAD_H = SYSLOAD[8]
-LOAD_I = SYSLOAD[9]
-LOAD_J = SYSLOAD[10]
-LOAD_K = SYSLOAD[11]
-LOAD_L = SYSLOAD[12]
-LOAD_M = SYSLOAD[13]
-LOAD_N = SYSLOAD[14]
-LOAD_O = SYSLOAD[15]
-LOAD_P = SYSLOAD[16]
-
-GOTO WAIT_LOOP
+    GOTO WAIT_LOOP
 
 WAIT_LOOP:
-WAIT 60
-GOTO INIT
+    WAIT Scan_Period_s
+    GOTO INIT

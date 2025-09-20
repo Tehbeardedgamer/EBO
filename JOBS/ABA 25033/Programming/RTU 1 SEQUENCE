@@ -1,0 +1,149 @@
+%------------------------------------------------------------------------------
+% RTU-1 SEQUENCE OF OPERATION - Documentation
+%
+% This document outlines the sequence of operation for RTU-1, including control
+% logic for air handling, freeze protection, preheat coil pump operation, supply
+% and return air volume control, economizer mode, normal and night setback modes,
+% operating room smoke evacuation, and humidification control.
+%
+% Sections:
+%   A. General: Describes BAS controller integration, fan operation, damper control,
+%      alarm conditions, economizer, and sensor requirements.
+%   B. Freeze Protection: Details freeze protection logic using thermostats and
+%      freeze-stats, including alarm and restart procedures.
+%   C. Preheat Coil Circulating Pump: Specifies conditions for pump operation.
+%   D. Supply Air Volume Control: Outlines VFD control based on duct static pressure.
+%   E. Return Air Volume Control: Describes VFD modulation for minimum OA CFM differential.
+%   F. Economizer Mode: Defines economizer operation based on outside air conditions,
+%      temperature, and humidity.
+%   G. Normal Operating Mode: Sets discharge air temperature and coil modulation logic.
+%   H. Night Setback Mode: Specifies schedules and control logic for cooling and heating
+%      during setback periods, including ramp sequences for temperature and humidification.
+%   I. Operating Room Smoke Evacuation Mode: Details smoke evacuation sequence for ORs.
+%   HUMIDIFICATION CONTROL SEQUENCE: Provides humidifier control logic for normal and
+%      night setback modes, including dew-point and room humidity set-points.
+%
+% Adjustable parameters are indicated by (adj.) and should be set according to
+% project requirements.
+%
+% Refer to this document for programming and implementation of RTU-1 control logic
+% within the Building Automation System (BAS).
+%------------------------------------------------------------------------------
+\section*{RTU‐1 Sequence of Operation}
+
+\subsection*{A. General}
+\begin{enumerate}
+    \item Air handling unit shall be controlled by a local BAS controller which interfaces to the central BAS via a gateway or BACNET interface.
+    \item Supply fan is energized by a HOA located in the local control panel when in the hand position or by the local BAS controller when in the automatic position. A time delay relay shall be used to delay the starting of the fan to allow smoke dampers time to fully open.
+    \item Return fan is energized by HOA located in the local control panel when in the hand position or by a supply fan contract when in the automatic position.
+    \item The system shall operate in one of two modes (night setback or normal). Normal/night setback schedules shall be programmed into the BAS. The system shall include an override timer option of 4 hours (adj.) so that the air handler can be put into normal mode during night setback hours. Refer to additional night setback control sequences.
+    \item When the local BAS controller is de‐energized, the chilled water valve(s) and control dampers shall assume their normal position.
+    \item A high limit static pressure sensor shall be located in the supply duct within 10 feet of the air handler supply air discharge location. A duct static pressure sensor of 4 inch W.G. (adj.) as measured by the high limit static pressure sensor, shall shut the unit down and initiate an alarm.
+    \item Minimum outside air damper to be open to minimum setting when air handling unit is indexed on, and shall remain completely closed any time the unit is indexed off.
+    \item Airflow measuring stations (manufactured by paragon) shall be installed in the inlet cones of both the supply and return fans.
+    \item All fire/smoke dampers associated with the air handling unit shall be opened and closed by a fan starter contact. All fire/smoke dampers are to close when the air handling unit is deenergized.
+    \item Discharge air temperature signal to controller shall be accomplished using an average from multiple sensors.
+    \item The air handling unit shall be equipped with a fully modulating economizer mode to take advantage of free cooling.
+\end{enumerate}
+
+\subsection*{B. Freeze Protection}
+\begin{enumerate}
+    \item A low limit thermostat on the entering side of the primary chilled water coil set at 40°F (adj.) shall fully open the chilled water valve and start at least one (1) chilled water pump and initiate an alarm. The system shall automatically restart once the alarm condition has ended.
+    \item A manual reset freeze‐stat on the leaving side of the primary chilled water coil shall stop the air handling unit any time the mixed air temperature drops below a set‐point of 36°F (adj). If this occurs, all outside air dampers shall completely close, the chilled water valve(s) shall completely open, at least one (1) chilled water pump per coil shall start, and initiate an alarm. The supply, return and interlocked exhaust fans shall stop.
+\end{enumerate}
+
+\subsection*{C. Preheat Coil Circulating Pump}
+\begin{enumerate}
+    \item The preheat coil circulating pump shall run continuously when any of the following occurs:
+    \begin{enumerate}
+        \item The preheat coil control valve is enabled.
+        \item The freeze stat has tripped.
+    \end{enumerate}
+\end{enumerate}
+
+\subsection*{D. Supply Air Volume Control}
+\begin{enumerate}
+    \item A duct mounted pressure sensor shall control the supply fan variable frequency drive. It shall vary the speed of the fan motor as required to maintain a duct static pressure of 1” W.G. (adj). as measured by the duct mounted static pressure sensor. The duct mounted static pressure sensor shall be mounted 2/3 of the way down the medium pressure supply duct.
+\end{enumerate}
+
+\subsection*{E. Return Air Volume Control}
+\begin{enumerate}
+    \item Utilizing the airflow measuring stations installed for the supply and return fans. The VFD Controller shall modulate the return fan motor speed as required to maintain the minimum outside air CFM differential between the supply and return fans.
+\end{enumerate}
+
+\subsection*{F. Economizer Mode}
+\begin{enumerate}
+    \item Economizer mode shall follow the following condition as shown in the table below:
+\end{enumerate}
+
+\begin{tabular}{|l|l|l|}
+\hline
+Economizer Condition & Outside Air Condition & Notes \\
+\hline
+No economizer & Hoa $\geq$ hra \&/or Toa $\geq$ 70°F (Adj.) & \\
+100\% Economizer & Hoa $\leq$ hra \& Tdat $<$ Toa $<$ 70°F (Adj.) & Cooling remains enabled \\
+Fully modulating economizer & Toa $\leq$ Tdat & Economizer damper shall modulate to maintain twa = return air enthalpy \\
+\hline
+\end{tabular}
+
+\begin{itemize}
+    \item ToA = outside air temperature
+    \item ToAT = discharge air temperature set‐point
+    \item Note: Economizer damper shall modulate closed if the return air relative humidity falls below 40\%
+\end{itemize}
+
+\subsection*{G. Normal Operating Mode}
+\begin{enumerate}
+    \item Discharge air set‐point off unit to be set at 46°F (adj).
+    \item Glycol coil shall modulate to maintain discharge air set‐point off of unit.
+    \item If glycol coil control valve is fully open and the discharge air temperature off of unit is above set‐point, then the glycol coil control valve shall stay fully open and the non‐glycol coil control valve shall modulate to maintain discharge air temperature set‐point off of unit.
+\end{enumerate}
+
+\subsection*{H. Night Setback Mode}
+\begin{enumerate}
+    \item Night setback mode shall be enabled between 8:00 PM and 5:00 AM (adj). In this mode the following shall occur:
+    \begin{enumerate}
+        \item Cooling Mode
+        \begin{enumerate}
+            \item Low temperature chiller (CH‐2) shall shutdown and the low temperature chilled water valve shall close.
+            \item The primary chilled water valve shall modulate back to maintain 55°F discharge air temperature off of the cooling coil. The unit shall stay in this mode up to the limit where any operating room reaches or exceeds 70°F/60\%RH. If any operating room exceeds these set‐points, the discharge air temperature set‐point shall reduce 1°F every 5 minutes (adj.) until the operating room falls below this upper set‐point.
+            \item Humidifiers shall turn off, preheat coil control valve shall close.
+            \item A 1 hour (adj.) full down sequence shall be written to bring the discharge air back to its normal operating set‐point. The humidifier shall be turned on and also follow a 1 hour ramp up sequence to reach their normal operating set‐point. This sequence shall begin 1 hour before coming out of night setback mode.
+        \end{enumerate}
+        \item Heating Mode
+        \begin{enumerate}
+            \item The air handling unit discharge air temperature set‐point shall be 55°F (adj).
+            \item The preheat coil control valve shall modulate to maintain air handling unit discharge air set‐point.
+            \item Reheat box control valves shall modulate to maintain minimum of 60°F as sensed by their corresponding thermostat.
+            \item The primary chilled water control valve shall modulate back to maintain 65°F discharge air temperature off of the cooling coil. The unit shall stay in this mode up to the limit where any operating room reaches or exceeds 70°F/60\%RH. If any operating room exceeds these set‐points, the discharge air temperature set‐point shall reduce by 1°F every 5 minutes (adj.) until the operating room falls below this upper set‐point.
+            \item Humidifiers shall turn off.
+            \item A 1 hour (adj.) pull up sequence shall be written to bring the discharge air temperature set‐point and the reheat boxes back to their normal operating set‐point. The humidifier shall be turned on and also follow a 1 hour ramp up sequence to reach their normal operating set‐point.
+        \end{enumerate}
+    \end{enumerate}
+\end{enumerate}
+
+\subsection*{I. Operating Room Smoke Evacuation Mode}
+\begin{enumerate}
+    \item Each OR has a supply air box, return air FSD and a normally closed exhaust damper.
+    \item Upon detection of smoke from the operating room smoke detector, the respective room supply box shall remain open, the return air FSD shall close and the exhaust air motorized damper shall fully open and the room's smoke exhaust fan shall start to exhaust the room.
+\end{enumerate}
+
+\section*{Humidification Control Sequence}
+
+\subsection*{A. Normal Operating Mode}
+\begin{enumerate}
+    \item Primary humidifiers (main unit).
+    \begin{enumerate}
+        \item The primary air distribution system humidifier shall modulate to maintain a supply air dew‐point of 44°F (adj). Dew‐point temperature shall be calculated based on the discharge air temperature and humidity sensors.
+    \end{enumerate}
+    \item Secondary humidifiers (duct mounted)
+    \begin{enumerate}
+        \item Humidifiers shall modulate to maintain the designated room humidistat set‐point (adj). Room humidity control shall be limited to a range between 40\% and 60\% (adj).
+    \end{enumerate}
+\end{enumerate}
+
+\subsection*{B. Night Setback Mode}
+\begin{enumerate}
+    \item Humidifiers shall turn off.
+    \item Refer to air handling unit night setback mode for additional requirements for humidifier start‐up ramp schedule.
+\end{enumerate}

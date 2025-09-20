@@ -1,0 +1,166 @@
+' G1_Sequencer_Array – Runtime-based weekly rotation & ordering (array style)
+' - Least-runtime → longest among AVAILABLE pumps
+' - AVAILABLE = (DOWN=0) & (Fail=0) & (OPTIONALLY STS=0 if IGNORE_RUNNING=1)
+' - Weekly rotation via ROTATE_PULSE advances ROTATE_SEED and biases ties fairly
+' - Deterministic, EBO-safe (no ELSEIF, no nested array indexing), 1-based arrays
+
+' -------------------- INPUTS --------------------
+NUMERIC INPUT DOWN_A, DOWN_B, DOWN_C          ' 1=locked out / maintenance
+NUMERIC INPUT Fail_A, Fail_B, Fail_C    ' 1=Fail latch from per-pump
+NUMERIC INPUT STS_A, STS_B, STS_C    ' 1=currently running (VFD proven)
+NUMERIC INPUT RT_A, RT_B, RT_C                ' runtime (hours)
+NUMERIC INPUT ROTATE_PULSE                    ' momentary 1 to advance weekly rotation
+
+' -------------------- OUTPUTS -------------------
+NUMERIC OUTPUT PUMP_1                         ' order for Pump A (1..3, or 0 if unavailable)
+NUMERIC OUTPUT PUMP_2                         ' order for Pump B (1..3, or 0)
+NUMERIC OUTPUT PUMP_3                         ' order for Pump C (1..3, or 0)
+NUMERIC OUTPUT PUMPS_AVAIL                    ' count of available pumps (0..3)
+
+' -------------------- PUBLICS -------------------
+NUMERIC PUBLIC IGNORE_RUNNING                 ' 1=exclude running pumps from resequence (default 1)
+NUMERIC PUBLIC ROTATE_SEED                    ' 0..2 tiny-bias seed (kept between weeks)
+
+' -------------------- INTERNAL ARRAYS ---------
+NUMERIC DOWN[3], Fail[3], STS[3], RT[3]
+NUMERIC AVAIL[3], BIAS[3], PRIORITY[3], ORDER[3], ORDER_PREV[3]
+NUMERIC FIRST_INIT_DONE
+NUMERIC BIG, i
+NUMERIC MIN_IDX, MIN_VAL
+NUMERIC AVAILABLE_COUNT
+
+GOTO INIT
+
+INIT:
+    IF FIRST_INIT_DONE = 0 THEN
+        IF (ROTATE_SEED < 0) OR (ROTATE_SEED > 2) THEN ROTATE_SEED = 0
+        IF IGNORE_RUNNING <= 0 THEN IGNORE_RUNNING = 1   ' default& do not reshuffle live
+        PUMP_1 = 0
+        PUMP_2 = 0
+        PUMP_3 = 0
+        FOR i = 1 TO 3
+            ORDER_PREV[i] = 0
+        NEXT i
+        FIRST_INIT_DONE = 1
+    ENDIF
+    GOTO LOOP
+
+LOOP:
+    ' ----- Load inputs into arrays (1=A, 2=B, 3=C) -----
+    DOWN[1] = DOWN_A & DOWN[2] = DOWN_B & DOWN[3] = DOWN_C
+    Fail[1] = Fail_A & Fail[2] = Fail_B & Fail[3] = Fail_C
+    STS[1] = STS_A & STS[2] = STS_B & STS[3] = STS_C
+    RT[1] = RT_A & RT[2] = RT_B & RT[3] = RT_C
+
+    ' ----- Advance weekly rotation seed on pulse -----
+    IF ROTATE_PULSE = 1 THEN
+        ROTATE_SEED = ROTATE_SEED + 1
+        IF ROTATE_SEED > 2 THEN ROTATE_SEED = 0
+    ENDIF
+
+    ' ----- Tiny biases based on seed (deterministic tie-break) -----
+    IF ROTATE_SEED = 0 THEN
+        BIAS[1] = 0.000 & BIAS[2] = 0.001 & BIAS[3] = 0.002
+    ELSE
+        IF ROTATE_SEED = 1 THEN
+            BIAS[1] = 0.001 & BIAS[2] = 0.002 & BIAS[3] = 0.000
+        ELSE
+            ' ROTATE_SEED = 2
+            BIAS[1] = 0.002 & BIAS[2] = 0.000 & BIAS[3] = 0.001
+        ENDIF
+    ENDIF
+
+    ' ----- Availability & priority (lower = better) -----
+    AVAILABLE_COUNT = 0
+    BIG = 9999999
+
+    FOR i = 1 TO 3
+        ' Base availability& not down and not Fail
+        AVAIL[i] = 0
+        IF (DOWN[i] = 0) THEN
+            IF (Fail[i] = 0) THEN
+                AVAIL[i] = 1
+            ENDIF
+        ENDIF
+
+        ' Optionally exclude currently running pumps from resequencing
+        IF IGNORE_RUNNING = 1 THEN
+            IF STS[i] = 1 THEN
+                AVAIL[i] = 0
+            ENDIF
+        ENDIF
+
+        IF AVAIL[i] = 1 THEN
+            PRIORITY[i] = RT[i] + BIAS[i]     ' least runtime wins
+            AVAILABLE_COUNT = AVAILABLE_COUNT + 1
+        ELSE
+            PRIORITY[i] = BIG                 ' exclude
+        ENDIF
+    NEXT i
+
+    ' Publish availability count
+    PUMPS_AVAIL = AVAILABLE_COUNT
+
+    ' ----- If none available (e.g., all running & IGNORE_RUNNING=1), hold previous order -----
+    IF AVAILABLE_COUNT = 0 THEN
+        PUMP_1 = ORDER_PREV[1]
+        PUMP_2 = ORDER_PREV[2]
+        PUMP_3 = ORDER_PREV[3]
+        WAIT 2
+        GOTO LOOP
+    ENDIF
+
+    ' ----- Clear current ORDER array -----
+    FOR i = 1 TO 3
+        ORDER[i] = 0
+    NEXT i
+
+    ' =================== PICK #1 (minimum PRIORITY) ===================
+    MIN_IDX = 0
+    MIN_VAL = BIG
+    FOR i = 1 TO 3
+        IF PRIORITY[i] < MIN_VAL THEN
+            MIN_VAL = PRIORITY[i]
+            MIN_IDX = i
+        ENDIF
+    NEXT i
+    IF MIN_IDX > 0 THEN
+        ORDER[MIN_IDX] = 1
+        PRIORITY[MIN_IDX] = BIG
+    ENDIF
+
+    ' =================== PICK #2 (minimum of remaining) ===================
+    MIN_IDX = 0
+    MIN_VAL = BIG
+    FOR i = 1 TO 3
+        IF PRIORITY[i] < MIN_VAL THEN
+            MIN_VAL = PRIORITY[i]
+            MIN_IDX = i
+        ENDIF
+    NEXT i
+    IF MIN_IDX > 0 THEN
+        ORDER[MIN_IDX] = 2
+        PRIORITY[MIN_IDX] = BIG
+    ENDIF
+
+    ' =================== PICK #3 (any remaining available) ===================
+    FOR i = 1 TO 3
+        IF (ORDER[i] = 0) THEN
+            IF AVAIL[i] = 1 THEN
+                ORDER[i] = 3
+            ENDIF
+        ENDIF
+    NEXT i
+
+    ' ----- Push to outputs -----
+    PUMP_1 = ORDER[1]
+    PUMP_2 = ORDER[2]
+    PUMP_3 = ORDER[3]
+
+    ' ----- Remember for next scan -----
+    FOR i = 1 TO 3
+        ORDER_PREV[i] = ORDER[i]
+    NEXT i
+
+    WAIT 2
+    GOTO LOOP

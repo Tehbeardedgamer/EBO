@@ -1,0 +1,69 @@
+' TRI-STATE VALVE ACTUATOR
+' Drives -On / Off / On based on desired percent and estimated position.
+' Dependencies: feed HwVlvPctCmd (0..100) from your PID or other logic.
+' Safety: clamps stroke counter, 1% deadband to stop.
+
+NUMERIC INPUT  HwVlvPctCmd          ' 0..100 % desired
+NUMERIC OUTPUT HwVlvCmd, HwVlvPos   ' tri-state cmd, estimated pos %
+NUMERIC PUBLIC VlvStrokeTime, VlvCounter
+
+' Internal
+NUMERIC MoveDir                     ' -1 = closing, 0 = stop, +1 = opening
+
+GOTO INI
+
+INI:
+    ' reasonable defaults if not set elsewhere
+    IF VlvStrokeTime <= 0 THEN VlvStrokeTime = 90  ' seconds full stroke (adjust as needed)
+    VlvCounter = MINIMUM(MAXIMUM(VlvCounter, 0), VlvStrokeTime)
+    HwVlvCmd = Off
+    MoveDir = 0
+    HwVlvPos = (VlvCounter / MAXIMUM(VlvStrokeTime,1)) * 100
+GOTO COMPUTE_CMD
+
+COMPUTE_CMD:
+    ' decide direction only if currently stopped (prevents chattering)
+    IF HwVlvCmd = Off THEN
+        IF ABS(HwVlvPctCmd - HwVlvPos) >= 1 THEN
+            IF HwVlvPos < HwVlvPctCmd THEN
+                HwVlvCmd = On
+                MoveDir = 1
+            ELSE
+                HwVlvCmd = -On
+                MoveDir = -1
+            ENDIF
+        ELSE
+            MoveDir = 0
+        ENDIF
+    ENDIF
+GOTO MOVE_VALVE
+
+MOVE_VALVE:
+    ' advance the stroke counter according to direction
+    ' TS = seconds since entering this label (built-in)
+    IF MoveDir = 1 THEN
+        VlvCounter = MINIMUM(VlvCounter + TS, VlvStrokeTime)
+    ELSE
+IF MoveDir = -1 THEN
+        VlvCounter = MAXIMUM(VlvCounter - TS, 0)
+    ENDIF
+
+    ' update position estimate
+    HwVlvPos = (VlvCounter / MAXIMUM(VlvStrokeTime,1)) * 100
+
+    ' stop when within 1% of target or end-stop reached
+    IF ABS(HwVlvPctCmd - HwVlvPos) <= 1 THEN
+        HwVlvCmd = Off
+        MoveDir = 0
+    ELSE
+        ' also stop if we hit an endpoint
+        IF (MoveDir = 1 AND VlvCounter >= VlvStrokeTime) OR (MoveDir = -1 AND VlvCounter <= 0) THEN
+            HwVlvCmd = Off
+            MoveDir = 0
+        ENDIF
+    ENDIF
+GOTO WAIT_LOOP
+
+WAIT_LOOP:
+    ' pace the loop; feel free to tweak
+    IF TS >= 1 THEN GOTO COMPUTE_CMD

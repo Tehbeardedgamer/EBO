@@ -1,0 +1,313 @@
+# Plant Glue – Pump Controls (Secondary Loops, Groups of 3)
+
+This page wires together every script and signal for the chilled-water **secondary** pumping system using two 3‑pump groups: **G1 = P‑2A/B/C** and **G2 = P‑2D/E/F**. It standardizes names, shows who feeds whom, and lists all public tunables and alarms.
+
+> **Flow of control (high level)**
+>
+> DP Sensors → **DP Selector** → **Speed PI** → `CHWP_MASTER_SPEED_CMD` → **Per‑Pump Startup (A/B/C)** → VFDs
+>
+> VFD feedback + alarm words → **Drive Adapter** → **Pump Health** → **Sequencer** → `ORDER_*` and `PUMPS_AVAIL`
+>
+> `ORDER_*` + `CHWP_MASTER_SPEED_CMD` + staging logic → **Staging Supervisor** → `PUMPS_REQ`
+>
+> `PUMPS_REQ` + per‑pump Startup close the loop; **EOM Bypass** modulates only when single pump @ min speed.
+
+---
+
+## Naming Convention
+
+* **Group prefixes:** `G1_` for P‑2A/B/C; `G2_` for P‑2D/E/F.
+* **Per‑pump letters:** `A`,`B`,`C` (or `D`,`E`,`F` for G2).
+* **Normalized signals** (adapter/health):
+
+  * `STATUS_*` = VFD proven run (1/0)
+  * `TRIP_*` = VFD fault/trip
+  * `HOA_AUTO_*` = HOA in Auto (1=Auto)
+  * `LCKOUT_*` = maintenance lockout (1=down)
+  * `FAILED_*` = hard fail latch (from Health)
+  * `DOWN_*` = down/locked out (from Health)
+  * `INHIBIT_*` = soft inhibit (min off, starts/hr)
+
+---
+
+## Module Wiring (per group)
+
+### 1) **DP Selector** – `Gx_DP_Select`
+
+**Purpose:** Dual‑sensor validation, low‑select, and health flags.
+
+**Inputs**
+
+* `DPS_1A`, `DPS_1B` (psi) – the two DP sensors for the loop.
+
+**Public tunables**
+
+* `DP_LOW_LIMIT` (psi, default 5.0)
+* `DP_LOW_TIME` (s, default 300)
+
+**Outputs**
+
+* `DPS` (psi) – selected DP (low‑select if both good)
+* `DPS_FAILED` (1/0) – both sensors bad
+* `DPS_SEL` (0=failed/hold, 1=A, 2=B, 3=LOW‑SELECT)
+* `A_BAD`, `B_BAD` (1/0)
+
+**Feeds →** `Gx_Speed_PI` (uses `DPS`, `DPS_FAILED`) and any alarming.
+
+---
+
+### 2) **Speed PI** – `Gx_Speed_PI`
+
+**Purpose:** Compute group master speed from DP setpoint and selected DP using `PIControl()` with rate limits and anti‑windup.
+
+**Inputs**
+
+* `DPS_SP` (psi)
+* `DPS` (psi) from DP Selector
+* `DPS_FAILED` (1/0)
+* `FUNCTION PIControl` (declared)
+
+**Public tunables**
+
+* `Kp`, `Ki` (e.g., `Kp=6.0`, `Ki=0.06`)
+* `OUT_MIN=0`, `OUT_MAX=100`
+* `RATE_UP` (%/s), `RATE_DN` (%/s)
+* `DELTA_T` (s per pass)
+* `FAULT_OUT_CAP` (% when `DPS_FAILED=1`, default 60)
+
+**Outputs**
+
+* `CHWP_MASTER_SPEED_CMD` (0..100%) – common target for all pumps in the group
+* Diagnostics: `PI_ERR`, `PI_I_TERM`, `PI_OUT_PREV`
+
+**Feeds →** Per‑pump Startup (A/B/C), Staging Supervisor, EOM Bypass.
+
+---
+
+### 3) **Drive Adapter** – `Gx_Pump_Drive_Adapter`
+
+**Purpose:** Normalize raw BACnet drive points into clean bits for health logic.
+
+**Inputs (per pump A/B/C)**
+
+* `RUN_FB_*` (1/0) **or** `FREQ_HZ_*` (Hz)
+* `ALARM_WORD1_*`, `ALARM_WORD2_*`, `ALARM_WORD3_*`, `ERROR_CODE_*`
+* `HOA_AUTO_*` (1=Auto), `LCKOUT_*` (1=down)
+
+**Public tunables**
+
+* `MIN_RUN_HZ` (Hz, default 5.0) – running threshold if `RUN_FB_*` missing
+
+**Outputs (to Health)**
+
+* `STATUS_*` (1/0), `TRIP_*` (1/0)
+* `HOA_AUTO_OUT_*` (pass‑through), `LCKOUT_OUT_*` (pass‑through)
+
+**Feeds →** Pump Health.
+
+---
+
+### 4) **Pump Health** – `Gx_Pump_Health`
+
+**Purpose:** Determine `DOWN_*`, `FAILED_*`, `INHIBIT_*`, `HEALTHY_*` per pump; enforce start‑prove, loss‑of‑proof, starts/hr, trips/hr, min‑off.
+
+**Inputs (per pump)**
+
+* `SS_*` (Start command from Per‑pump Startup)
+* `STATUS_*` (from Adapter), `TRIP_*` (from Adapter)
+* `HOA_AUTO_*`, `LCKOUT_*` (from Adapter/GUI)
+* Optional: `EXT_FAILED_*` (from Per‑pump Startup’s latch)
+
+**Public tunables**
+
+* `START_PROVE_S` (e.g., 180), `LOSS_PROOF_S` (e.g., 30), `TRIP_DEBOUNCE_S` (1)
+* `MIN_OFF_S` (e.g., 60), `MAX_STARTS_HR` (e.g., 6), `MAX_TRIPS_HR` (e.g., 3)
+* `COUNT_WINDOW_S` (e.g., 3600), `IGNORE_EXT_FAILED` (0/1)
+* Resets: `RESET_ALL`, `RESET_A/B/C`
+
+**Outputs (to Sequencer)**
+
+* `DOWN_A/B/C`, `FAILED_A/B/C`, `INHIBIT_A/B/C`, `HEALTHY_A/B/C`
+* `PUMPS_AVAIL` (healthy count)
+
+**Feeds →** Sequencer. Alarms can be generated from `FAILED_*`, rate limits, etc.
+
+---
+
+### 5) **Sequencer (array style)** – `Gx_Sequencer_Array`
+
+**Purpose:** Order pumps **least‑runtime → longest**, deterministic weekly rotation; optionally ignore running pumps when resequencing.
+
+**Inputs**
+
+* `DOWN_A/B/C`, `FAILED_A/B/C` (from Health)
+* `STATUS_A/B/C` (optional, if `IGNORE_RUNNING=1`)
+* `RT_A/B/C` (runtime hours)
+* `ROTATE_PULSE` (weekly pulse)
+
+**Public tunables**
+
+* `IGNORE_RUNNING` (1=exclude running, default 1)
+* `ROTATE_SEED` (0..2, persisted)
+
+**Outputs**
+
+* `PUMP_1/2/3` (orders for A/B/C: 1..3 or 0 if unavailable)
+* `PUMPS_AVAIL`
+
+**Feeds →** Per‑pump Startup (`ORDER` input per pump).
+
+---
+
+### 6) **Staging Supervisor (TS‑timed)** – `Gx_Staging_TS`
+
+**Purpose:** Decide `PUMPS_REQ` based on 10‑minute criteria and DP status.
+
+**Inputs**
+
+* `CHWP_MASTER_SPEED_CMD` (from Speed PI)
+* `DPS`, `DPS_SP`, `DPS_FAILED` (from Selector/Setpoint)
+* `EMERGENCY_POWER`
+
+**Public tunables**
+
+* `STAGE_UP_THRESH` (default 90%) and `STAGE_UP_TIME` (600 s)
+* `STAGE_DN_2_THRESH` (35%), `STAGE_DN_3_THRESH` (50%), `STAGE_DN_TIME` (600 s)
+* `DP_TOL` (psi band, default 0)
+* `MIN_STAGE_DWELL` (e.g., 300 s)
+* `MIN_PUMPS` (floor, default 1)
+
+**Output**
+
+* `PUMPS_REQ` (0..3)
+
+**Feeds →** Per‑pump Startup blocks.
+
+---
+
+### 7) **Per‑Pump Startup** – `Gx_Pump_Startup_[A|B|C]`
+
+**Purpose:** Start/stop and ramp each pump smoothly to the common master command; prove start; latch failures; rate‑limit up/down.
+
+**Inputs**
+
+* `ORDER` (1..3 or 0) from Sequencer
+* `PUMPS_REQ` (from Staging)
+* `CHWP_MASTER_SPEED_CMD` (from Speed PI)
+* `PUMP_STATUS` (VFD proven run)
+* `CHWP_FAULT_RESET` (momentary)
+
+**Public tunables**
+
+* `START_TIMEOUT` (e.g., 180 s to prove)
+* `LOSS_TIMEOUT` (e.g., 30 s)
+* `RATE_UP`, `RATE_DN`, `DELTA_T`
+
+**Outputs**
+
+* `CHWP_SS` (start/stop command to VFD)
+* `CHWP_SPEED_CMD` (0..100 % to VFD)
+* `CHWP_FAILED` (latched)
+
+**Feeds →** Health (`SS_*`, optional `EXT_FAILED_*`).
+
+---
+
+### 8) **End‑of‑Main Bypass** – `Gx_EOM_Bypass`
+
+**Purpose:** Two bypass valves modulate **only** when exactly one pump is running **at minimum speed** to maintain DP; force‑open at SP+band.
+
+**Inputs**
+
+* `DPS`, `DPS_SP`, `DPS_FAILED`
+* `PUMPS_REQ`
+* `CHWP_MASTER_SPEED_CMD`
+
+**Public tunables**
+
+* `MIN_PUMP_SPEED` (% at which single‑pump condition engages, e.g., 5)
+* `FORCE_OPEN_BAND` (psi above SP, e.g., 4)
+* PI tuning `Kp`, `Ki`, `RATE_UP`, `RATE_DN`, `DELTA_T`
+
+**Outputs**
+
+* `BYP_A_CMD`, `BYP_B_CMD` (0..100%) – tandem commands
+
+---
+
+### 9) **Weekly Rotation Pulse** – `Gx_Weekly_Rotation_Pulse`
+
+**Purpose:** One‑scan pulse at configured day/time to advance rotation seed.
+
+**Public tunables**
+
+* `ROTATE_DAY` (1..7), `ROTATE_HOUR` (0..23), `ROTATE_MIN` (0..59)
+* Optional `PULSE_WINDOW_S` (e.g., 60)
+
+**Output**
+
+* `ROTATE_PULSE` → Sequencer
+
+---
+
+## Signal Map (Group 1 example)
+
+```
+G1_DPS_1A/B ──> G1_DP_Select ─┐
+                             ├── DPS, DPS_FAILED ──> G1_Speed_PI ──> CHWP_MASTER_SPEED_CMD ──┐
+                             └────────────────────────────────────────────────────────────────┘
+G1_Pump_Drive_Adapter <= BACnet points (run fb / Hz, alarm words, error code, HOA, lockout)
+    ├─> STATUS_A/B/C, TRIP_A/B/C, HOA_AUTO_*, LCKOUT_* ──> G1_Pump_Health
+    │       G1_Pump_Health ──> DOWN_*, FAILED_*, INHIBIT_*, HEALTHY_*, PUMPS_AVAIL
+    └─> G1_Sequencer_Array (uses DOWN/FAILED [+ optional STATUS], runtime, ROTATE_PULSE)
+
+G1_Sequencer_Array ──> PUMP_1/2/3 (orders) ──> three G1_Pump_Startup instances
+G1_Staging_TS <── CHWP_MASTER_SPEED_CMD, DPS, DPS_SP, DPS_FAILED, EMERGENCY_POWER ──> PUMPS_REQ
+G1_Pump_Startup[*] <── ORDER, PUMPS_REQ, CHWP_MASTER_SPEED_CMD, PUMP_STATUS ──> CHWP_SS, CHWP_SPEED_CMD
+G1_EOM_Bypass <── PUMPS_REQ, CHWP_MASTER_SPEED_CMD, DPS, DPS_SP, DPS_FAILED ──> BYP_A_CMD, BYP_B_CMD
+G1_Weekly_Rotation_Pulse ──> ROTATE_PULSE ──> G1_Sequencer_Array
+```
+
+Replicate the same pattern for **G2** with `G2_` prefixes and pumps `D/E/F`.
+
+---
+
+## BACnet Binding Guidance (Adapter)
+
+* **Run proof:** Prefer a boolean “Drive Running / Run Status”. If absent, infer `STATUS` from `Output Frequency ≥ MIN_RUN_HZ`.
+* **Trip:** Any of `Alarm Word`, `Alarm Word 2/3` non‑zero OR `Alarm Log: Error Code` non‑zero ⇒ `TRIP=1`.
+* **HOA Auto:** Map MSV to `1=Auto`, else 0.
+* **Lockout:** Bind your GUI “Pump Down” bit to `LCKOUT_*`.
+
+Trend: `CHWP_MASTER_SPEED_CMD`, `DPS`, `DPS_SP`, `PUMPS_REQ`, `ORDER_*`, `CHWP_SPEED_CMD_*`, `FAILED_*`.
+
+---
+
+## Alarming (suggested)
+
+* **DP sensor failure:** `DPS_FAILED=1` (critical)
+* **Pump failed:** any `FAILED_* = 1`
+* **Trip storm:** `TRIPS_WIN > MAX_TRIPS_HR` within window
+* **No lead available:** `PUMPS_AVAIL = 0`
+
+---
+
+## Commissioning Checklist
+
+1. Bind DP sensors, verify `Gx_DP_Select` shows correct `DPS_SEL` and `DPS`.
+2. Tune `Gx_Speed_PI` to hold DP with one pump; confirm rate limits.
+3. Bind VFD points to `Gx_Pump_Drive_Adapter`; verify `STATUS`/`TRIP`.
+4. Verify `Gx_Pump_Health` flags and counters (start‑prove, loss‑proof, min‑off, starts/hr, trips/hr).
+5. Feed runtimes into `Gx_Sequencer_Array`; trigger `ROTATE_PULSE` and confirm `ROTATE_SEED` advances.
+6. Exercise `Gx_Staging_TS` (≥90% for 10 min adds a pump; ≤35%/50% for 10 min drops per spec).
+7. Confirm `Gx_Pump_Startup` ramps and latches failures properly.
+8. Validate `Gx_EOM_Bypass` opens in single‑pump min‑speed and force‑opens at `SP + band`.
+9. Set alarms, trend key points, and document final setpoints.
+
+---
+
+### Notes
+
+* All scripts are **flow style** (label‑based), use `SECTIMER(..., 0)` where condition time must accrue across labels (health), and **TS‑timed labels** where continuous label time is intended (staging).
+* Keep `DELTA_T` in PI and Startup equal to your `WAIT` duration (e.g., 2 s).
+* For weekly rotation, use the dedicated **Weekly Rotation Pulse** rather than ad‑hoc flags.

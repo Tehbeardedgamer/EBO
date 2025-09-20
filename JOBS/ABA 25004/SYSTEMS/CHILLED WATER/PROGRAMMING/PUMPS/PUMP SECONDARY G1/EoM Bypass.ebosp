@@ -1,0 +1,136 @@
+' G1_EOM_Bypass – End-of-Main bypass control for one group (two bypass valves in tandem)
+' Behavior:
+'  1) Single-pump, min-speed condition -> modulate both bypass valves to maintain DP (via PI).
+'  2) High-DP override: if DPS >= DPS_SP + FORCE_OPEN_BAND, drive both valves to 100% until DP <= SP.
+
+' --------------------- INPUTS ---------------------
+NUMERIC INPUT DPS                     ' psi (selected DP from G1_DP_Select)
+NUMERIC INPUT DPS_SP                  ' psi (setpoint)
+NUMERIC INPUT DPS_FAILED              ' 1 if both sensors bad (from selector)
+NUMERIC INPUT PUMPS_REQ               ' 0..3 requested pumps (from stager)
+NUMERIC INPUT CHWP_MASTER_SPEED_CMD   ' 0..100 % (group command from PI)
+
+' Required function
+FUNCTION PIControl
+
+' --------------------- OUTPUTS --------------------
+NUMERIC OUTPUT BYP_A_CMD              ' 0..100% valve A command
+NUMERIC OUTPUT BYP_B_CMD              ' 0..100% valve B command
+
+' --------------------- PUBLICS (TUNING & DIAG) ---
+' Engage logic
+NUMERIC PUBLIC MIN_PUMP_SPEED         ' %; "at minimum speed" threshold (e.g., 5)
+NUMERIC PUBLIC FORCE_OPEN_BAND        ' psi; force-open band above SP (e.g., 4)
+
+' PI tuning for modulating mode (ReverseActing=1: open more when DP > SP)
+NUMERIC PUBLIC Kp                     ' % per psi (e.g., 8.0)
+NUMERIC PUBLIC Ki                     ' % per psi per second (e.g., 0.08)
+NUMERIC PUBLIC OUT_MIN                ' 0..100 (default 0)
+NUMERIC PUBLIC OUT_MAX                ' 0..100 (default 100)
+NUMERIC PUBLIC RATE_UP                ' %/s up (e.g., 2.0)
+NUMERIC PUBLIC RATE_DN                ' %/s down (e.g., 2.0)
+NUMERIC PUBLIC DELTA_T                ' seconds per pass; must match WAIT (e.g., 2)
+
+' Diagnostics
+NUMERIC PUBLIC BYP_MODE               ' 0=idle/closing, 1=modulating, 2=force-open
+NUMERIC PUBLIC BYP_ERR                ' SP - PV (signed per PI call)
+NUMERIC PUBLIC BYP_I_TERM             ' PI integral state
+NUMERIC PUBLIC BYP_OUT_PREV           ' last output (pre-rate-limit)
+
+' --------------------- INTERNALS ------------------
+NUMERIC FIRST_INIT_DONE
+NUMERIC CMD                          ' working copy of output 0..100
+NUMERIC USE_Ki, USE_OUT_MAX
+NUMERIC SINGLE_PUMP, AT_MIN, HIGH_DP
+NUMERIC OLD_DPS                      ' passthrough for PIControl
+
+GOTO INIT
+
+INIT:
+    ' Defaults / guards
+    IF MIN_PUMP_SPEED < 0 THEN MIN_PUMP_SPEED = 5
+    IF FORCE_OPEN_BAND <= 0 THEN FORCE_OPEN_BAND = 4
+
+    IF Kp <= 0 THEN Kp = 8.0
+    IF Ki <= 0 THEN Ki = 0.08
+    IF OUT_MIN < 0 THEN OUT_MIN = 0
+    IF OUT_MAX <= 0 THEN OUT_MAX = 100
+    IF RATE_UP <= 0 THEN RATE_UP = 2.0
+    IF RATE_DN <= 0 THEN RATE_DN = 2.0
+    IF DELTA_T <= 0 THEN DELTA_T = 2
+
+    IF FIRST_INIT_DONE = 0 THEN
+        CMD = 0
+        BYP_MODE = 0
+        BYP_I_TERM = 0
+        BYP_OUT_PREV = 0
+        OLD_DPS = DPS
+        FIRST_INIT_DONE = 1
+    ENDIF
+
+    GOTO LOOP
+
+LOOP:
+    ' ----- Determine modes/flags -----
+    SINGLE_PUMP = 0
+    IF PUMPS_REQ = 1 THEN SINGLE_PUMP = 1
+
+    AT_MIN = 0
+    IF CHWP_MASTER_SPEED_CMD <= MIN_PUMP_SPEED THEN AT_MIN = 1
+
+    HIGH_DP = 0
+    IF DPS >= (DPS_SP + FORCE_OPEN_BAND) THEN HIGH_DP = 1
+
+    ' Default mode
+    BYP_MODE = 0   ' idle/closing
+
+    ' ----- DPS failed: fail passive (ramp closed) -----
+    IF DPS_FAILED = 1 THEN
+        ' Freeze I, ramp closed gently
+        IF CMD > 0 THEN
+            CMD = MAXIMUM(0, CMD - (RATE_DN * DELTA_T))
+        ENDIF
+        BYP_A_CMD = CMD
+        BYP_B_CMD = CMD
+        BYP_ERR = DPS_SP - DPS   ' for trend only
+        WAIT 2
+        GOTO LOOP
+    ENDIF
+
+    ' ----- High-DP override: force open -----
+    IF HIGH_DP = 1 THEN
+        BYP_MODE = 2
+        ' Drive to 100% with rate limit to avoid slamming
+        CMD = MINIMUM(100, CMD + (RATE_UP * DELTA_T))
+        BYP_A_CMD = CMD
+        BYP_B_CMD = CMD
+        BYP_ERR = DPS - DPS_SP    ' informational
+        WAIT 2
+        GOTO LOOP
+    ENDIF
+
+    ' ----- Single @ min-speed → modulate to maintain DP -----
+    IF (SINGLE_PUMP = 1) & (AT_MIN = 1) THEN
+        BYP_MODE = 1
+        ' Allow PI to act; normal limits
+        USE_Ki = Ki
+        USE_OUT_MAX = OUT_MAX
+        ' ReverseActing=1 so output increases when PV>DPS_SP (needs more bypass)
+        CMD = PIControl(1, DPS, DPS_SP, BYP_I_TERM, Kp, USE_Ki, OLD_DPS, BYP_OUT_PREV, DELTA_T, RATE_UP, RATE_DN, OUT_MIN, USE_OUT_MAX)
+        BYP_ERR = DPS_SP - DPS    ' PIControl uses ReverseActing=1 internally; we still trend SP-PV if desired
+        BYP_A_CMD = CMD
+        BYP_B_CMD = CMD
+        WAIT 2
+        GOTO LOOP
+    ENDIF
+
+    ' ----- Otherwise: close valves (idle) -----
+    BYP_MODE = 0
+    IF CMD > 0 THEN
+        CMD = MAXIMUM(0, CMD - (RATE_DN * DELTA_T))
+    ENDIF
+    BYP_A_CMD = CMD
+    BYP_B_CMD = CMD
+
+    WAIT 2
+    GOTO LOOP

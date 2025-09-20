@@ -1,0 +1,205 @@
+' G1_Staging_TS – Secondary pumps staging supervisor (Group of 3) using TS-based timing labels
+' Spec rules:
+'  - Stage UP at ?90% command for 10 minutes (lead->lag1, lag1->lag2), while DP below SP
+'  - Stage DOWN at ?50% (3->2) or ?35% (2->1) for 10 minutes, while DP ? SP
+'  - Emergency power or DP sensor fail-safe => 1 pump
+'  - Dwell after any stage change to prevent chatter
+
+' -------------------- INPUTS --------------------
+NUMERIC INPUT CHWP_MASTER_SPEED_CMD     ' 0..100 % (group PI command)
+NUMERIC INPUT DPS                       ' psi (selected DP)
+NUMERIC INPUT DPS_SP                    ' psi (setpoint)
+NUMERIC INPUT EMERGENCY_POWER           ' 1 = emergency mode isACTIVE
+NUMERIC INPUT DPS_FAILED                ' 1 = both DP sensors bad (from selector)
+
+' -------------------- OUTPUTS -------------------
+NUMERIC PUBLIC PUMPS_REQ                ' 0..3 pumps requested
+
+' -------------------- PUBLIC TUNABLES ----------
+NUMERIC PUBLIC STAGE_UP_THRESH          ' % to add next pump (default 90)
+NUMERIC PUBLIC STAGE_UP_TIME            ' s continuous to add (default 600)
+NUMERIC PUBLIC STAGE_DN_2_THRESH        ' % for 2->1 (default 35)
+NUMERIC PUBLIC STAGE_DN_3_THRESH        ' % for 3->2 (default 50)
+NUMERIC PUBLIC STAGE_DN_TIME            ' s continuous to drop (default 600)
+NUMERIC PUBLIC DP_TOL                   ' psi band (default 0.0 ? use strict ? / <)
+NUMERIC PUBLIC MIN_STAGE_DWELL          ' s dwell after any change (default 300)
+NUMERIC PUBLIC MIN_PUMPS                ' min pumps when isACTIVE (default 1)
+
+' -------------------- INTERNALS -----------------
+NUMERIC FIRST_INIT_DONE
+NUMERIC CMD                            ' working copy of command
+NUMERIC DP_OK                          ' 1 when DP ? SP - DP_TOL
+NUMERIC isACTIVE                         ' 1 when loop considered isACTIVE
+NUMERIC TARGET_REQ                     ' scratch for transitions
+
+GOTO INIT
+
+INIT:
+    IF STAGE_UP_THRESH <= 0 THEN STAGE_UP_THRESH = 90
+    IF STAGE_UP_TIME <= 0 THEN STAGE_UP_TIME = 600
+    IF STAGE_DN_2_THRESH <= 0 THEN STAGE_DN_2_THRESH = 35
+    IF STAGE_DN_3_THRESH <= 0 THEN STAGE_DN_3_THRESH = 50
+    IF STAGE_DN_TIME <= 0 THEN STAGE_DN_TIME = 600
+    IF DP_TOL < 0 THEN DP_TOL = 0
+    IF MIN_STAGE_DWELL < 0 THEN MIN_STAGE_DWELL = 300
+    IF MIN_PUMPS < 0 THEN MIN_PUMPS = 1
+    IF MIN_PUMPS > 3 THEN MIN_PUMPS = 3
+
+    IF FIRST_INIT_DONE = 0 THEN
+        PUMPS_REQ = MINIMUM(MAXIMUM(MIN_PUMPS, 0), 3)
+        FIRST_INIT_DONE = 1
+    ENDIF
+    GOTO STATE_
+
+    ' ==================== MAIN STATE ROUTER ====================
+STATE_:
+    ' Immediate overrides
+    IF EMERGENCY_POWER = 1 THEN GOTO OVERRIDE_1
+    IF DPS_FAILED = 1 THEN GOTO FAILSAFE_1
+
+    ' Derived flags
+    CMD = CHWP_MASTER_SPEED_CMD
+    DP_OK = 0
+    IF DPS >= (DPS_SP - DP_TOL) THEN DP_OK = 1
+
+    ' Simple notion of "isACTIVE": DP below SP or calling for any non-trivial command
+    isACTIVE = 0
+    IF DP_OK = 0 THEN isACTIVE = 1
+    IF CMD >= 5 THEN isACTIVE = 1
+
+    ' Enforce floor/ceiling
+    IF isACTIVE = 1 THEN
+        IF PUMPS_REQ < MIN_PUMPS THEN PUMPS_REQ = MIN_PUMPS
+    ENDIF
+    IF PUMPS_REQ < 0 THEN PUMPS_REQ = 0
+    IF PUMPS_REQ > 3 THEN PUMPS_REQ = 3
+
+    ' Decide which timing label (if any) to enter
+    IF PUMPS_REQ = 1 THEN
+        ' Stage UP candidate 1->2: need DP below SP and high command
+        IF (DP_OK = 0) THEN
+            IF CMD >= STAGE_UP_THRESH THEN GOTO UP_1_2
+        ENDIF
+        GOTO WAIT_LOOP
+    ENDIF
+
+    IF PUMPS_REQ = 2 THEN
+        ' Stage UP candidate 2->3
+        IF (DP_OK = 0) THEN
+            IF CMD >= STAGE_UP_THRESH THEN GOTO UP_2_3
+        ENDIF
+        ' Stage DOWN candidate 2->1
+        IF (DP_OK = 1) THEN
+            IF CMD <= STAGE_DN_2_THRESH THEN GOTO DOWN_2_1
+        ENDIF
+        GOTO WAIT_LOOP
+    ENDIF
+
+    IF PUMPS_REQ = 3 THEN
+        ' Stage DOWN candidate 3->2 (spec 50%)
+        IF (DP_OK = 1) THEN
+            IF CMD <= STAGE_DN_3_THRESH THEN GOTO DOWN_3_2
+        ENDIF
+        GOTO WAIT_LOOP
+    ENDIF
+
+    GOTO WAIT_LOOP
+
+    ' -------------------- WAIT_LOOP/HOLD --------------------
+WAIT_LOOP:
+    WAIT 2
+    GOTO STATE_
+
+    ' ==================== TIMING LABELS (TS accrues here) ====================
+
+    ' ---- Stage UP 1 -> 2 ----
+UP_1_2:
+    ' Exit conditions reset TS
+    IF EMERGENCY_POWER = 1 THEN GOTO OVERRIDE_1
+    IF DPS_FAILED = 1 THEN GOTO FAILSAFE_1
+    IF CMD < STAGE_UP_THRESH THEN GOTO STATE_
+    IF DPS >= (DPS_SP - DP_TOL) THEN GOTO STATE_
+
+    ' 10 minutes continuously in this label
+    IF TS >= STAGE_UP_TIME THEN
+        TARGET_REQ = 2
+        GOTO COMMIT_CHANGE
+    ENDIF
+
+    WAIT 2
+    GOTO UP_1_2
+
+    ' ---- Stage UP 2 -> 3 ----
+UP_2_3:
+    IF EMERGENCY_POWER = 1 THEN GOTO OVERRIDE_1
+    IF DPS_FAILED = 1 THEN GOTO FAILSAFE_1
+    IF CMD < STAGE_UP_THRESH THEN GOTO STATE_
+    IF DPS >= (DPS_SP - DP_TOL) THEN GOTO STATE_
+
+    IF TS >= STAGE_UP_TIME THEN
+        TARGET_REQ = 3
+        GOTO COMMIT_CHANGE
+    ENDIF
+
+    WAIT 2
+    GOTO UP_2_3
+
+    ' ---- Stage DOWN 3 -> 2 (?50% & DP_OK) ----
+DOWN_3_2:
+    IF EMERGENCY_POWER = 1 THEN GOTO OVERRIDE_1
+    IF DPS_FAILED = 1 THEN GOTO FAILSAFE_1
+    IF CMD > STAGE_DN_3_THRESH THEN GOTO STATE_
+    IF DP_OK = 0 THEN GOTO STATE_
+
+    IF TS >= STAGE_DN_TIME THEN
+        TARGET_REQ = 2
+        GOTO COMMIT_CHANGE
+    ENDIF
+
+    WAIT 2
+    GOTO DOWN_3_2
+
+    ' ---- Stage DOWN 2 -> 1 (?35% & DP_OK) ----
+DOWN_2_1:
+    IF EMERGENCY_POWER = 1 THEN GOTO OVERRIDE_1
+    IF DPS_FAILED = 1 THEN GOTO FAILSAFE_1
+    IF CMD > STAGE_DN_2_THRESH THEN GOTO STATE_
+    IF DP_OK = 0 THEN GOTO STATE_
+
+    IF TS >= STAGE_DN_TIME THEN
+        TARGET_REQ = 1
+        GOTO COMMIT_CHANGE
+    ENDIF
+
+    WAIT 2
+    GOTO DOWN_2_1
+
+    ' ==================== APPLY CHANGE + DWELL ====================
+COMMIT_CHANGE:
+    ' Apply target, clamp to 0..3 and MIN_PUMPS
+    PUMPS_REQ = TARGET_REQ
+    IF PUMPS_REQ < 0 THEN PUMPS_REQ = 0
+    IF PUMPS_REQ > 3 THEN PUMPS_REQ = 3
+    IF PUMPS_REQ < MIN_PUMPS THEN PUMPS_REQ = MIN_PUMPS
+    GOTO DWELL
+
+DWELL:
+    ' Optional quiet period after any stage change to avoid bounce
+    IF EMERGENCY_POWER = 1 THEN GOTO OVERRIDE_1
+    IF DPS_FAILED = 1 THEN GOTO FAILSAFE_1
+    IF TS >= MIN_STAGE_DWELL THEN GOTO STATE_
+    WAIT 2
+    GOTO DWELL
+
+    ' ==================== OVERRIDES ====================
+OVERRIDE_1:
+    ' Emergency Power -> 1 pump
+    PUMPS_REQ = 1
+    WAIT 2
+    GOTO STATE_
+
+FAILSAFE_1:
+    ' DP sensor fail-safe -> 1 pump
+    PUMPS_REQ = 1
+    WAIT 2
+    GOTO STATE_

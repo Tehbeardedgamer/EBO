@@ -1,0 +1,51 @@
+'------------------------------------------------------------------------------
+' RTU1_PreheatPump_Control
+' Enables preheat coil pump based on preheat valve activity or freeze stat trip
+'------------------------------------------------------------------------------
+
+
+'=======================
+'        INPUTS
+'=======================
+NUMERIC INPUT Preheat_Valve_Cmd      ' % Command to the preheat valve
+NUMERIC INPUT Freeze_Trip            ' Freeze protection active (from freeze protection script)
+
+
+'=======================
+'       OUTPUTS
+'=======================
+NUMERIC OUTPUT Preheat_Pump_Enable   ' Command to enable the preheat pump
+
+
+'=======================
+'      INTERNALS
+'=======================
+NUMERIC Valve_Active
+
+
+'=======================
+'     INITIALIZATION
+'=======================
+GOTO MAIN
+
+
+'=======================
+'       MAIN LOGIC
+'=======================
+MAIN:
+
+    ' Consider valve active if > 0% command
+    IF (Preheat_Valve_Cmd > 0) THEN
+        Valve_Active = 1
+    ELSE
+        Valve_Active = 0
+    ENDIF
+
+    ' Enable pump if valve is open or freeze condition exists
+    IF ((Valve_Active = 1) OR (Freeze_Trip = 1)) THEN
+        Preheat_Pump_Enable = 1
+    ELSE
+        Preheat_Pump_Enable = 0
+    ENDIF
+
+    RETURN

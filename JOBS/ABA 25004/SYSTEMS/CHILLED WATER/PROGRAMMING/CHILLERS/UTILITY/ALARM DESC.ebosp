@@ -1,0 +1,105 @@
+'************************************************************
+' Script: Chiller Fault Description Builder
+' Purpose: Collects all active C1/C2 alarm points and builds
+'          a string list of alarms into ChillerFaultDesc.
+'************************************************************
+
+' === INPUTS ===
+NUMERIC INPUT  C1Cmp1HighVfdCurrent, C1Cmp1LowPrDiffOrRatio, C1Cmp1MultiStartFail, C1Cmp1OffCurrentHi, C1Cmp1OffVfdCommFail, C1Cmp1OffVfdFault, C1Cmp1OffVfdTempHi, C1Cmp1OffVfdTempLo, C1Co1LowDischSHAlm, C1Co1OilFeedLoss, C1Comp1OFFCondPressHi, C1Comp1OFFCondPressSen, C1Comp1OFFDischTempHi, C1Comp1OFFDischTempSen, C1Comp1OFFEvapPressLow, C1Comp1OFFEvapPressSen, C1Comp1OFFHighPress, C1Comp1OFFMechLoPress, C1Comp1OFFMotorTempHi, C1Comp1OFFOilFeedPSen, C1Comp1OFFOilFilterPHi, C1Comp1OFFSuctTempSen, C1CompNoPressStart, C1ControlBoardOffline, C1DcFanFault, C1EcExvModCommErr, C1EconExvMtrFault, C1EvapExvMtrFault, C1FailedPumpdown, C1GroundFault, C1InhbtLoadCondPressHi, C1InhbtLoadEvapPressLo, C1RestartDelayPwrLRun
+
+NUMERIC INPUT  C2Cmp1HighVfdCurrent, C2Cmp1LowPrDiffOrRatio, C2Cmp1MultiStartFail, C2Cmp1OffCurrentHi, C2Cmp1OffVfdCommFail, C2Cmp1OffVfdFault, C2Cmp1OffVfdTempHi, C2Cmp1OffVfdTempLo, C2Co1LowDischSHAlm, C2Co1OilFeedLoss, C2Comp1OFFCondPressHi, C2Comp1OFFCondPressSen, C2Comp1OFFDischTempHi, C2Comp1OFFDischTempSen, C2Comp1OFFEvapPressLow, C2Comp1OFFEvapPressSen, C2Comp1OFFHighPress, C2Comp1OFFMechLoPress, C2Comp1OFFMotorTempHi, C2Comp1OFFOilFeedPSen, C2Comp1OFFOilFilterPHi, C2Comp1OFFSuctTempSen, C2CompNoPressStart, C2ControlBoardOffline, C2DcFanFault, C2EcExvModCommErr, C2EconExvMtrFault, C2EvapExvMtrFault, C2FailedPumpdown, C2GroundFault, C2InhbtLoadCondPressHi, C2InhbtLoadEvapPressLo, C2RestartDelayPwrLRun
+
+' === OUTPUT ===
+STRING OUTPUT ChillerFaultDesc
+
+' === VARS ===
+STRING FaultList
+
+' === MAIN LOOP ===
+GOTO CHECK_FAULTS
+
+CHECK_FAULTS:
+    FaultList = ""
+
+    ' ----------- C1 Faults ------------
+    IF C1Cmp1HighVfdCurrent = 1 THEN FaultList = FaultList + "C1Cmp1HighVfdCurrent, "
+    IF C1Cmp1LowPrDiffOrRatio = 1 THEN FaultList = FaultList + "C1Cmp1LowPrDiffOrRatio, "
+    IF C1Cmp1MultiStartFail = 1 THEN FaultList = FaultList + "C1Cmp1MultiStartFail, "
+    IF C1Cmp1OffCurrentHi = 1 THEN FaultList = FaultList + "C1Cmp1OffCurrentHi, "
+    IF C1Cmp1OffVfdCommFail = 1 THEN FaultList = FaultList + "C1Cmp1OffVfdCommFail, "
+    IF C1Cmp1OffVfdFault = 1 THEN FaultList = FaultList + "C1Cmp1OffVfdFault, "
+    IF C1Cmp1OffVfdTempHi = 1 THEN FaultList = FaultList + "C1Cmp1OffVfdTempHi, "
+    IF C1Cmp1OffVfdTempLo = 1 THEN FaultList = FaultList + "C1Cmp1OffVfdTempLo, "
+    IF C1Co1LowDischSHAlm = 1 THEN FaultList = FaultList + "C1Co1LowDischSHAlm, "
+    IF C1Co1OilFeedLoss = 1 THEN FaultList = FaultList + "C1Co1OilFeedLoss, "
+    IF C1Comp1OFFCondPressHi = 1 THEN FaultList = FaultList + "C1Comp1OFFCondPressHi, "
+    IF C1Comp1OFFCondPressSen = 1 THEN FaultList = FaultList + "C1Comp1OFFCondPressSen, "
+    IF C1Comp1OFFDischTempHi = 1 THEN FaultList = FaultList + "C1Comp1OFFDischTempHi, "
+    IF C1Comp1OFFDischTempSen = 1 THEN FaultList = FaultList + "C1Comp1OFFDischTempSen, "
+    IF C1Comp1OFFEvapPressLow = 1 THEN FaultList = FaultList + "C1Comp1OFFEvapPressLow, "
+    IF C1Comp1OFFEvapPressSen = 1 THEN FaultList = FaultList + "C1Comp1OFFEvapPressSen, "
+    IF C1Comp1OFFHighPress = 1 THEN FaultList = FaultList + "C1Comp1OFFHighPress, "
+    IF C1Comp1OFFMechLoPress = 1 THEN FaultList = FaultList + "C1Comp1OFFMechLoPress, "
+    IF C1Comp1OFFMotorTempHi = 1 THEN FaultList = FaultList + "C1Comp1OFFMotorTempHi, "
+    IF C1Comp1OFFOilFeedPSen = 1 THEN FaultList = FaultList + "C1Comp1OFFOilFeedPSen, "
+    IF C1Comp1OFFOilFilterPHi = 1 THEN FaultList = FaultList + "C1Comp1OFFOilFilterPHi, "
+    IF C1Comp1OFFSuctTempSen = 1 THEN FaultList = FaultList + "C1Comp1OFFSuctTempSen, "
+    IF C1CompNoPressStart = 1 THEN FaultList = FaultList + "C1CompNoPressStart, "
+    IF C1ControlBoardOffline = 1 THEN FaultList = FaultList + "C1ControlBoardOffline, "
+    IF C1DcFanFault = 1 THEN FaultList = FaultList + "C1DcFanFault, "
+    IF C1EcExvModCommErr = 1 THEN FaultList = FaultList + "C1EcExvModCommErr, "
+    IF C1EconExvMtrFault = 1 THEN FaultList = FaultList + "C1EconExvMtrFault, "
+    IF C1EvapExvMtrFault = 1 THEN FaultList = FaultList + "C1EvapExvMtrFault, "
+    IF C1FailedPumpdown = 1 THEN FaultList = FaultList + "C1FailedPumpdown, "
+    IF C1GroundFault = 1 THEN FaultList = FaultList + "C1GroundFault, "
+    IF C1InhbtLoadCondPressHi = 1 THEN FaultList = FaultList + "C1InhbtLoadCondPressHi, "
+    IF C1InhbtLoadEvapPressLo = 1 THEN FaultList = FaultList + "C1InhbtLoadEvapPressLo, "
+    IF C1RestartDelayPwrLRun = 1 THEN FaultList = FaultList + "C1RestartDelayPwrLRun, "
+
+    ' ----------- C2 Faults ------------
+    IF C2Cmp1HighVfdCurrent = 1 THEN FaultList = FaultList + "C2Cmp1HighVfdCurrent, "
+    IF C2Cmp1LowPrDiffOrRatio = 1 THEN FaultList = FaultList + "C2Cmp1LowPrDiffOrRatio, "
+    IF C2Cmp1MultiStartFail = 1 THEN FaultList = FaultList + "C2Cmp1MultiStartFail, "
+    IF C2Cmp1OffCurrentHi = 1 THEN FaultList = FaultList + "C2Cmp1OffCurrentHi, "
+    IF C2Cmp1OffVfdCommFail = 1 THEN FaultList = FaultList + "C2Cmp1OffVfdCommFail, "
+    IF C2Cmp1OffVfdFault = 1 THEN FaultList = FaultList + "C2Cmp1OffVfdFault, "
+    IF C2Cmp1OffVfdTempHi = 1 THEN FaultList = FaultList + "C2Cmp1OffVfdTempHi, "
+    IF C2Cmp1OffVfdTempLo = 1 THEN FaultList = FaultList + "C2Cmp1OffVfdTempLo, "
+    IF C2Co1LowDischSHAlm = 1 THEN FaultList = FaultList + "C2Co1LowDischSHAlm, "
+    IF C2Co1OilFeedLoss = 1 THEN FaultList = FaultList + "C2Co1OilFeedLoss, "
+    IF C2Comp1OFFCondPressHi = 1 THEN FaultList = FaultList + "C2Comp1OFFCondPressHi, "
+    IF C2Comp1OFFCondPressSen = 1 THEN FaultList = FaultList + "C2Comp1OFFCondPressSen, "
+    IF C2Comp1OFFDischTempHi = 1 THEN FaultList = FaultList + "C2Comp1OFFDischTempHi, "
+    IF C2Comp1OFFDischTempSen = 1 THEN FaultList = FaultList + "C2Comp1OFFDischTempSen, "
+    IF C2Comp1OFFEvapPressLow = 1 THEN FaultList = FaultList + "C2Comp1OFFEvapPressLow, "
+    IF C2Comp1OFFEvapPressSen = 1 THEN FaultList = FaultList + "C2Comp1OFFEvapPressSen, "
+    IF C2Comp1OFFHighPress = 1 THEN FaultList = FaultList + "C2Comp1OFFHighPress, "
+    IF C2Comp1OFFMechLoPress = 1 THEN FaultList = FaultList + "C2Comp1OFFMechLoPress, "
+    IF C2Comp1OFFMotorTempHi = 1 THEN FaultList = FaultList + "C2Comp1OFFMotorTempHi, "
+    IF C2Comp1OFFOilFeedPSen = 1 THEN FaultList = FaultList + "C2Comp1OFFOilFeedPSen, "
+    IF C2Comp1OFFOilFilterPHi = 1 THEN FaultList = FaultList + "C2Comp1OFFOilFilterPHi, "
+    IF C2Comp1OFFSuctTempSen = 1 THEN FaultList = FaultList + "C2Comp1OFFSuctTempSen, "
+    IF C2CompNoPressStart = 1 THEN FaultList = FaultList + "C2CompNoPressStart, "
+    IF C2ControlBoardOffline = 1 THEN FaultList = FaultList + "C2ControlBoardOffline, "
+    IF C2DcFanFault = 1 THEN FaultList = FaultList + "C2DcFanFault, "
+    IF C2EcExvModCommErr = 1 THEN FaultList = FaultList + "C2EcExvModCommErr, "
+    IF C2EconExvMtrFault = 1 THEN FaultList = FaultList + "C2EconExvMtrFault, "
+    IF C2EvapExvMtrFault = 1 THEN FaultList = FaultList + "C2EvapExvMtrFault, "
+    IF C2FailedPumpdown = 1 THEN FaultList = FaultList + "C2FailedPumpdown, "
+    IF C2GroundFault = 1 THEN FaultList = FaultList + "C2GroundFault, "
+    IF C2InhbtLoadCondPressHi = 1 THEN FaultList = FaultList + "C2InhbtLoadCondPressHi, "
+    IF C2InhbtLoadEvapPressLo = 1 THEN FaultList = FaultList + "C2InhbtLoadEvapPressLo, "
+    IF C2RestartDelayPwrLRun = 1 THEN FaultList = FaultList + "C2RestartDelayPwrLRun, "
+
+    ' === Finalize ===
+    IF FaultList = "" THEN
+        ChillerFaultDesc = "No Active Faults"
+    ELSE
+        ' Remove trailing comma + space
+        ChillerFaultDesc = LEFT(FaultList, LEN(FaultList) - 2)
+    ENDIF
+
+    GOTO WAIT_LOOP
+
+WAIT_LOOP:
+    IF TS > 10 THEN GOTO CHECK_FAULTS

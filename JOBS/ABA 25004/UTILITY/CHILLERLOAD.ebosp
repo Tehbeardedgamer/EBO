@@ -1,0 +1,133 @@
+'=====================================================================
+' Script: CHILLER_SYSTEM_N01VG_LOAD
+' Purpose: Average system load (%) across all ACTIVE chillers.
+'          Each chiller provides STATUS (0/1), CAP (percent 0–100),
+'          and COM_STATUS (0=offline, 1=online).
+'          LOAD_X = CAP_X if (Status=1 AND Com=1) else 0.
+'=====================================================================
+
+'-----------------------
+' INPUTS
+'-----------------------
+NUMERIC INPUT CAP_N01, STATUS_N01, COM_N01
+NUMERIC INPUT CAP_N02, STATUS_N02, COM_N02
+NUMERIC INPUT CAP_N03, STATUS_N03, COM_N03
+NUMERIC INPUT CAP_N04, STATUS_N04, COM_N04
+NUMERIC INPUT CAP_N05, STATUS_N05, COM_N05
+NUMERIC INPUT CAP_N06, STATUS_N06, COM_N06
+NUMERIC INPUT CAP_N07, STATUS_N07, COM_N07
+NUMERIC INPUT CAP_N08, STATUS_N08, COM_N08
+NUMERIC INPUT CAP_N09, STATUS_N09, COM_N09
+NUMERIC INPUT CAP_N10, STATUS_N10, COM_N10
+NUMERIC INPUT CAP_N11, STATUS_N11, COM_N11
+NUMERIC INPUT CAP_N12, STATUS_N12, COM_N12
+NUMERIC INPUT CAP_N13, STATUS_N13, COM_N13
+NUMERIC INPUT CAP_N14, STATUS_N14, COM_N14
+NUMERIC INPUT CAP_N15, STATUS_N15, COM_N15
+NUMERIC INPUT CAP_N16, STATUS_N16, COM_N16
+
+'-----------------------
+' OUTPUTS
+'-----------------------
+NUMERIC OUTPUT AVERAGE_LOAD, TOTAL_LOAD, ACTIVE_CHILLERS
+
+'-----------------------
+' INTERNALS / ARRAYS / PUBLICS
+'-----------------------
+NUMERIC CAP[16], CHILLER_STATUS[16], COM_STATUS[16]
+NUMERIC SYSLOAD[16]
+NUMERIC i
+NUMERIC PUBLIC Scan_Period_s   ' seconds
+
+'-----------------------
+' RUNTIME
+'-----------------------
+GOTO INIT
+
+INIT:
+    '--- Initialize arrays from inputs ---
+    CAP[1]  = CAP_N01
+    CAP[2]  = CAP_N02
+    CAP[3]  = CAP_N03
+    CAP[4]  = CAP_N04
+    CAP[5]  = CAP_N05
+    CAP[6]  = CAP_N06
+    CAP[7]  = CAP_N07
+    CAP[8]  = CAP_N08
+    CAP[9]  = CAP_N09
+    CAP[10] = CAP_N10
+    CAP[11] = CAP_N11
+    CAP[12] = CAP_N12
+    CAP[13] = CAP_N13
+    CAP[14] = CAP_N14
+    CAP[15] = CAP_N15
+    CAP[16] = CAP_N16
+
+    CHILLER_STATUS[1]  = STATUS_N01
+    CHILLER_STATUS[2]  = STATUS_N02
+    CHILLER_STATUS[3]  = STATUS_N03
+    CHILLER_STATUS[4]  = STATUS_N04
+    CHILLER_STATUS[5]  = STATUS_N05
+    CHILLER_STATUS[6]  = STATUS_N06
+    CHILLER_STATUS[7]  = STATUS_N07
+    CHILLER_STATUS[8]  = STATUS_N08
+    CHILLER_STATUS[9]  = STATUS_N09
+    CHILLER_STATUS[10] = STATUS_N10
+    CHILLER_STATUS[11] = STATUS_N11
+    CHILLER_STATUS[12] = STATUS_N12
+    CHILLER_STATUS[13] = STATUS_N13
+    CHILLER_STATUS[14] = STATUS_N14
+    CHILLER_STATUS[15] = STATUS_N15
+    CHILLER_STATUS[16] = STATUS_N16
+
+    COM_STATUS[1]  = COM_N01
+    COM_STATUS[2]  = COM_N02
+    COM_STATUS[3]  = COM_N03
+    COM_STATUS[4]  = COM_N04
+    COM_STATUS[5]  = COM_N05
+    COM_STATUS[6]  = COM_N06
+    COM_STATUS[7]  = COM_N07
+    COM_STATUS[8]  = COM_N08
+    COM_STATUS[9]  = COM_N09
+    COM_STATUS[10] = COM_N10
+    COM_STATUS[11] = COM_N11
+    COM_STATUS[12] = COM_N12
+    COM_STATUS[13] = COM_N13
+    COM_STATUS[14] = COM_N14
+    COM_STATUS[15] = COM_N15
+    COM_STATUS[16] = COM_N16
+
+    ' default scan period if not set elsewhere
+    IF Scan_Period_s = 0 THEN
+        Scan_Period_s = 60
+    ENDIF
+
+    GOTO CALCULATE_LOAD
+
+CALCULATE_LOAD:
+    TOTAL_LOAD = 0
+    ACTIVE_CHILLERS = 0
+
+    FOR i = 1 TO 16
+        ' Require both comms good AND status=1
+        IF (COM_STATUS[i] = 1) AND (CHILLER_STATUS[i] = 1) THEN
+            SYSLOAD[i] = CAP[i]
+            TOTAL_LOAD = TOTAL_LOAD + SYSLOAD[i]
+            ACTIVE_CHILLERS = ACTIVE_CHILLERS + 1
+        ELSE
+            SYSLOAD[i] = 0
+        ENDIF
+    NEXT i
+
+    '--- Calculate Average Load ---
+    IF ACTIVE_CHILLERS > 0 THEN
+        AVERAGE_LOAD = TOTAL_LOAD / ACTIVE_CHILLERS
+    ELSE
+        AVERAGE_LOAD = 0
+    ENDIF
+
+    GOTO WAIT_LOOP
+
+WAIT_LOOP:
+    WAIT Scan_Period_s
+    GOTO INIT

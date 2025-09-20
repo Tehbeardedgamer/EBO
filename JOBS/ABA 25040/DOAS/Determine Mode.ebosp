@@ -1,0 +1,130 @@
+'=========================================================
+' DOAS_MODE_SAFETY
+' Determines operating mode of DOAS unit
+' Evaluates safeties & freeze latch
+'=========================================================
+
+' ------------------------- INPUTS -------------------------
+NUMERIC INPUT SCHED_OCC
+NUMERIC INPUT START_OPT_ENABLE
+NUMERIC INPUT MANUAL_ENABLE
+NUMERIC INPUT MANUAL_DISABLE
+
+NUMERIC INPUT SMOKE_SUPPLY
+NUMERIC INPUT SMOKE_RETURN
+NUMERIC INPUT HIGH_DISCH_PRESS_SW
+NUMERIC INPUT LOW_SUCTION_PRESS_SW
+NUMERIC INPUT FREEZESTAT_TRIP
+NUMERIC INPUT FREEZE_MAN_RESET
+NUMERIC INPUT RA_TEMP
+NUMERIC INPUT SPACE_TEMP_MIN
+
+' ------------------------- OUTPUTS ------------------------
+NUMERIC OUTPUT DOAS_MODE         ' 0=OFF,1=PRESTART,2=WARMUP,3=COOLDOWN,4=OCC,5=UNOCC-PROTECT
+NUMERIC OUTPUT SAFETY_OK         ' 1=OK, 0=Tripped
+NUMERIC OUTPUT FREEZE_LATCH      ' 1=Latched trip
+NUMERIC OUTPUT OCC_REQUEST        ' Effective occupancy request
+
+' ------------------------- PUBLICS ------------------------
+NUMERIC PUBLIC WARMUP_START
+NUMERIC PUBLIC WARMUP_EXIT
+NUMERIC PUBLIC COOLDN_START
+NUMERIC PUBLIC COOLDN_EXIT
+
+NUMERIC PUBLIC UNOCC_LOW_START
+NUMERIC PUBLIC UNOCC_LOW_STOP
+NUMERIC PUBLIC UNOCC_HI_START
+NUMERIC PUBLIC UNOCC_HI_STOP
+
+' ------------------------- INTERNALS ----------------------
+NUMERIC ANY_SMOKE
+NUMERIC ANY_PRESS_TRIP
+NUMERIC REF_TEMP
+
+'===========================================================
+GOTO INI
+
+INI:
+  IF WARMUP_START <= 0 THEN WARMUP_START = 60
+  IF WARMUP_EXIT  <= 0 THEN WARMUP_EXIT  = 70
+  IF COOLDN_START <= 0 THEN COOLDN_START = 80
+  IF COOLDN_EXIT  <= 0 THEN COOLDN_EXIT  = 70
+
+  IF UNOCC_LOW_START <= 0 THEN UNOCC_LOW_START = 60
+  IF UNOCC_LOW_STOP  <= 0 THEN UNOCC_LOW_STOP  = 64
+  IF UNOCC_HI_START  <= 0 THEN UNOCC_HI_START  = 80
+  IF UNOCC_HI_STOP   <= 0 THEN UNOCC_HI_STOP   = 76
+
+  FREEZE_LATCH = 0
+  DOAS_MODE    = 0
+  SAFETY_OK    = 1
+  OCC_REQUEST  = 0
+
+GOTO MAIN
+
+'===========================================================
+MAIN:
+  ' ---------- Safeties ----------
+  ANY_SMOKE = (SMOKE_SUPPLY OR SMOKE_RETURN)
+  ANY_PRESS_TRIP = (HIGH_DISCH_PRESS_SW OR LOW_SUCTION_PRESS_SW)
+
+  IF FREEZESTAT_TRIP = 1 THEN
+      FREEZE_LATCH = 1
+  ENDIF
+  IF FREEZE_MAN_RESET = 1 THEN
+      FREEZE_LATCH = 0
+  ENDIF
+
+  IF (ANY_SMOKE = 1) OR (ANY_PRESS_TRIP = 1) OR (FREEZE_LATCH = 1) THEN
+      SAFETY_OK = 0
+  ELSE
+      SAFETY_OK = 1
+  ENDIF
+
+  ' ---------- Occupancy Request ----------
+  IF MANUAL_DISABLE = 1 THEN
+      OCC_REQUEST = 0
+  ELSE
+      IF (MANUAL_ENABLE = 1) OR (START_OPT_ENABLE = 1) OR (SCHED_OCC = 1) THEN
+          OCC_REQUEST = 1
+      ELSE
+          OCC_REQUEST = 0
+      ENDIF
+  ENDIF
+
+  ' ---------- Mode Decision ----------
+  IF SAFETY_OK = 0 THEN
+      DOAS_MODE = 0
+  ELSE
+      IF OCC_REQUEST = 1 THEN
+          ' Occupied startup checks
+          IF RA_TEMP < WARMUP_START THEN
+              DOAS_MODE = 2   ' WARMUP
+          ELSE
+              IF RA_TEMP > COOLDN_START THEN
+                  DOAS_MODE = 3   ' COOLDOWN
+              ELSE
+                  DOAS_MODE = 4   ' OCCUPIED
+              ENDIF
+          ENDIF
+      ELSE
+          ' Unoccupied protection
+          REF_TEMP = RA_TEMP
+          IF SPACE_TEMP_MIN > 0 THEN
+              REF_TEMP = SPACE_TEMP_MIN
+          ENDIF
+
+          IF REF_TEMP < UNOCC_LOW_START THEN
+              DOAS_MODE = 5   ' UNOCC-PROTECT (Warmup posture)
+          ELSE
+              IF REF_TEMP > UNOCC_HI_START THEN
+                  DOAS_MODE = 5   ' UNOCC-PROTECT (Cooldown posture)
+              ELSE
+                  DOAS_MODE = 0   ' Fully unoccupied
+              ENDIF
+          ENDIF
+      ENDIF
+  ENDIF
+
+  WAIT 1
+GOTO MAIN

@@ -1,0 +1,44 @@
+'------------------------------------------------------------------------------
+' RTU1_Mode_Manager
+' Determines whether RTU-1 operates in Normal or Night Setback Mode
+'------------------------------------------------------------------------------
+
+
+'=======================
+'      INPUTS
+'=======================
+NUMERIC INPUT NSB_Schedule          ' 1 = Night Setback active by schedule, 0 = Normal
+NUMERIC INPUT Override_Timer_Rem    ' Remaining override time in hours (adj.)
+
+'=======================
+'     OUTPUTS
+'=======================
+NUMERIC OUTPUT Is_Night_Setback     ' 1 = NSB active, 0 = Normal mode
+
+'=======================
+'     INTERNALS
+'=======================
+NUMERIC Active_NSB
+
+
+'=======================
+'     INITIALIZATION
+'=======================
+GOTO MAIN
+
+'=======================
+'       MAIN LOGIC
+'=======================
+MAIN:
+  ' Default to Normal mode
+  Is_Night_Setback = 0
+
+  ' If NSB schedule is active AND override timer is expired
+  IF ((NSB_Schedule = 1) AND (Override_Timer_Rem <= 0)) THEN
+    Is_Night_Setback = 1
+  ENDIF
+
+  ' If override timer is running, remain in Normal Mode
+  IF (Override_Timer_Rem > 0) THEN
+    Is_Night_Setback = 0
+  ENDIF

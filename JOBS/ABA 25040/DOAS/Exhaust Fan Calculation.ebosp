@@ -1,0 +1,67 @@
+'=========================================================
+' EF_PID_CTRL
+' Exhaust Fan PID controller
+' Tracks exhaust CFM to follow supply CFM minus offset
+'=========================================================
+
+' ------------------------- INPUTS -------------------------
+NUMERIC INPUT DOAS_MODE            ' From DOAS_MODE_SAFETY
+NUMERIC INPUT SAFETY_OK            ' 1=OK, 0=Trip
+NUMERIC INPUT FREEZE_LATCH         ' 1=Latched freeze trip
+
+NUMERIC INPUT SUP_CFM              ' Supply airflow (measured via AFMS)
+NUMERIC INPUT EXH_CFM              ' Exhaust airflow (measured via AFMS)
+NUMERIC INPUT CFM_OFFSET           ' Offset (CFM), tunable public or input
+
+' ------------------------- OUTPUTS ------------------------
+NUMERIC OUTPUT EF_PROPOSED_CMD     ' Proposed VFD speed (0–100%)
+NUMERIC OUTPUT EXH_CFM_SP       ' Exhaust airflow setpoint (for visibility)
+
+' ------------------------- PUBLICS / TUNABLES -------------
+NUMERIC PUBLIC I_TERM              ' Integral storage
+NUMERIC PUBLIC OLD_ERR             ' Previous error
+NUMERIC PUBLIC KP                  ' Proportional gain
+NUMERIC PUBLIC KI                  ' Integral gain
+NUMERIC PUBLIC KD                  ' Derivative gain
+FUNCTION PID_LOOP
+'===========================================================
+GOTO INI
+
+INI:
+  IF KP <= 0 THEN KP = 1
+  IF KI < 0 THEN KI = 0.1
+  IF KD < 0 THEN KD = 0
+
+  I_TERM = 0
+  OLD_ERR = 0
+  EF_PROPOSED_CMD = 0
+  EXH_CFM_SP = 0
+
+GOTO MAIN
+
+'===========================================================
+MAIN:
+  ' ---------- Safety & Mode Check ----------
+  IF (SAFETY_OK = 0) OR (FREEZE_LATCH = 1) THEN
+      EF_PROPOSED_CMD = 0
+      WAIT 1
+      GOTO MAIN
+  ENDIF
+
+  ' If DOAS_MODE = OFF (0) or PRESTART (1) → no fan speed
+  IF (DOAS_MODE = 0) OR (DOAS_MODE = 1) THEN
+      EF_PROPOSED_CMD = 0
+      WAIT 1
+      GOTO MAIN
+  ENDIF
+
+  ' ---------- Calculate exhaust setpoint ----------
+  EXH_CFM_SP = SUP_CFM - CFM_OFFSET
+  IF EXH_CFM_SP < 0 THEN EXH_CFM_SP = 0
+
+  ' ---------- PID loop ----------
+  ' ReverseActing = 0 → Higher exhaust CFM needs higher fan speed
+  EF_PROPOSED_CMD = PID_LOOP(0, EXH_CFM, EXH_CFM_SP, I_TERM, KP, KI, KD, OLD_ERR)
+
+  WAIT 10
+GOTO MAIN
