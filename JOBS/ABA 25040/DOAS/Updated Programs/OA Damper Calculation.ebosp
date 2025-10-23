@@ -1,0 +1,144 @@
+'=========================================================
+' SPENCER WENNERMARK AUSTIN TEXAS AUG 2025 SPENCER.WENNERMARK@ENTECHSALES.COM
+' DOAS_OA_Damper_Module
+' Outdoor-Air Damper – min OA per mode, optional CO₂ DCV trim
+' Outputs a proposed OA position; Main script writes the real AO.
+' Wiring & tuning notes
+' Inputs: use the same DOAS_MODE, SAFETY_OK, and FREEZE_LATCH you already produce.
+' If the job’s sequence doesn’t call for DCV, just leave ENABLE_DCV = 0 and it will hold the per-mode minimums.
+' Main Orchestrator maps: OA_DPR_CMD ← OA_DPR_CALC. Alarm/trend ALM_CO2_HIGH, OA_DPR_CALC, and (if used) CO2, CO2_SP.
+' Defaults are conservative (20% min OA in run modes; 10% in protect). Set these to the project’s actual minimums before commissioning.
+'=========================================================
+
+' ------------------------- INPUTS -------------------------
+NUMERIC INPUT DOAS_MODE            ' 0=OFF,1=PRE,2=WARMUP,3=COOLDOWN,4=OCC,5=UNOCC-PROTECT
+NUMERIC INPUT SAFETY_OK            ' 1=OK, 0=Trip
+NUMERIC INPUT FREEZE_LATCH         ' 1=latched freeze (hardware)
+
+' Optional DCV
+NUMERIC INPUT CO2                  ' ppm (tie to 0 if unused)
+NUMERIC INPUT CO2_SP               ' ppm (tie to 0 if unused)
+
+' ------------------------- OUTPUTS ------------------------
+NUMERIC OUTPUT OA_DPR_CALC         ' 0–100% proposed damper command
+NUMERIC OUTPUT OA_READY            ' 1=available/healthy
+NUMERIC OUTPUT OA_FAIL             ' 1=module-level fault (non-latching)
+NUMERIC OUTPUT ALM_CO2_HIGH        ' 1=CO2 > SP (advisory)
+
+' ------------------------- PUBLICS / TUNABLES -------------
+' Per-mode minimum OA (percent open)
+NUMERIC PUBLIC OA_MIN_WARMUP
+NUMERIC PUBLIC OA_MIN_COOLDN
+NUMERIC PUBLIC OA_MIN_OCC
+NUMERIC PUBLIC OA_MIN_PROTECT
+
+' Physical max
+NUMERIC PUBLIC OA_MAX_POS
+
+' Optional DCV
+NUMERIC PUBLIC ENABLE_DCV          ' 1=enable DCV trim, 0=min-only
+NUMERIC PUBLIC CO2_BAND            ' ppm range to scale from min->max
+
+' Slew / deadband (matches fan modules style)
+NUMERIC PUBLIC RATE_UP_PCT_S
+NUMERIC PUBLIC RATE_DN_PCT_S
+NUMERIC PUBLIC CMD_DEADBAND
+
+' ------------------------- INTERNALS ----------------------
+NUMERIC base_min, target, last_cmd, OA_DAMPER_CALC
+
+'=========================================================
+GOTO INI
+
+INI:
+    ' Defaults
+    IF OA_MIN_WARMUP <= 0 THEN OA_MIN_WARMUP = 20
+    IF OA_MIN_COOLDN <= 0 THEN OA_MIN_COOLDN = 20
+    IF OA_MIN_OCC <= 0 THEN OA_MIN_OCC = 20
+    IF OA_MIN_PROTECT <= 0 THEN OA_MIN_PROTECT = 10
+    IF OA_MAX_POS <= 0 THEN OA_MAX_POS = 100
+
+    IF ENABLE_DCV <> 1 THEN ENABLE_DCV = 0
+    IF CO2_BAND <= 0 THEN CO2_BAND = 400
+
+    IF RATE_UP_PCT_S <= 0 THEN RATE_UP_PCT_S = 15
+    IF RATE_DN_PCT_S <= 0 THEN RATE_DN_PCT_S = 20
+    IF CMD_DEADBAND < 0 THEN CMD_DEADBAND = 0.5
+
+    OA_DPR_CALC = 0
+    OA_READY = 1
+    OA_FAIL = 0
+    ALM_CO2_HIGH = 0
+    last_cmd = 0
+    GOTO MAIN
+
+    '=========================================================
+MAIN:
+    OA_FAIL = 0
+    ALM_CO2_HIGH = 0
+    OA_READY = 1
+
+    ' Safety / freeze clamp closed
+    IF (SAFETY_OK = 0) OR (FREEZE_LATCH = 1) THEN
+        OA_DAMPER_CALC = 0
+        GOTO APPLY_SLEW
+    ENDIF
+
+    ' OFF/PRE -> closed
+    IF (DOAS_MODE = 0) OR (DOAS_MODE = 1) THEN
+        OA_DAMPER_CALC = 0
+        GOTO APPLY_SLEW
+    ENDIF
+
+    ' Base minimum by mode
+    IF DOAS_MODE = 2 THEN
+        base_min = OA_MIN_WARMUP
+    ELSE
+        IF DOAS_MODE = 3 THEN
+            base_min = OA_MIN_COOLDN
+        ELSE
+            IF DOAS_MODE = 4 THEN
+                base_min = OA_MIN_OCC
+            ELSE
+                ' UNOCC-PROTECT
+                base_min = OA_MIN_PROTECT
+            ENDIF
+        ENDIF
+    ENDIF
+
+    ' Start from min
+    target = base_min
+
+    ' Optional DCV trim (only increases opening; never below base_min)
+    IF ENABLE_DCV = 1 THEN
+        IF (CO2_SP > 0) AND (CO2 > CO2_SP) THEN
+            ALM_CO2_HIGH = 1
+            target = base_min + (OA_MAX_POS - base_min) * (CO2 - CO2_SP) / CO2_BAND
+        ENDIF
+    ENDIF
+
+    ' Bounds
+    IF target < base_min THEN target = base_min
+    IF target > OA_MAX_POS THEN target = OA_MAX_POS
+
+    OA_DAMPER_CALC = target
+
+APPLY_SLEW:
+    ' Slew and deadband (assumes ~1s scan; adjust if different)
+    IF OA_DAMPER_CALC > last_cmd + RATE_UP_PCT_S THEN
+        OA_DPR_CALC = last_cmd + RATE_UP_PCT_S
+    ELSE
+        IF OA_DAMPER_CALC < last_cmd - RATE_DN_PCT_S THEN
+            OA_DPR_CALC = last_cmd - RATE_DN_PCT_S
+        ELSE
+            OA_DPR_CALC = OA_DAMPER_CALC
+        ENDIF
+    ENDIF
+
+    IF ABS(OA_DPR_CALC - last_cmd) < CMD_DEADBAND THEN
+        OA_DPR_CALC = last_cmd
+    ENDIF
+    last_cmd = OA_DPR_CALC
+
+    WAIT 1
+    GOTO MAIN

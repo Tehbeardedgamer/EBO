@@ -1,0 +1,47 @@
+'=========================================================
+' DOAS_ERV_Wheel_Module
+' Enables ERV wheel when safe and useful ΔT exists.
+'=========================================================
+
+NUMERIC INPUT DOAS_MODE, SAFETY_OK, FREEZE_LATCH
+NUMERIC INPUT OA_TEMP, RA_TEMP
+
+NUMERIC OUTPUT ERW_ENABLE_CALC     ' 0/1
+NUMERIC OUTPUT ERW_READY
+NUMERIC OUTPUT ERW_FAIL
+
+NUMERIC PUBLIC DT_ENABLE           ' °F minimum |OA-RA| to enable (e.g., 5°F)
+
+GOTO INI
+
+INI:
+  IF DT_ENABLE <= 0 THEN DT_ENABLE = 5
+  ERW_ENABLE_CALC = 0
+  ERW_READY = 1
+  ERW_FAIL = 0
+GOTO MAIN
+
+MAIN:
+  ERW_FAIL = 0
+
+  IF (SAFETY_OK = 0) OR (FREEZE_LATCH = 1) THEN
+    ERW_ENABLE_CALC = 0
+    WAIT 1 
+    GOTO MAIN
+  ENDIF
+
+  IF (DOAS_MODE = 0) OR (DOAS_MODE = 1) THEN
+    ERW_ENABLE_CALC = 0
+    WAIT 1 
+    GOTO MAIN
+  ENDIF
+
+  IF ABS(OA_TEMP - RA_TEMP) >= DT_ENABLE THEN
+    ERW_ENABLE_CALC = 1
+  ELSE
+    ERW_ENABLE_CALC = 0
+  ENDIF
+
+  ERW_READY = 1
+  WAIT 1
+GOTO MAIN

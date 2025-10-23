@@ -1,0 +1,76 @@
+'=========================================================
+' DOAS_CHW_Valve_Module
+' Reverse-acting valve to maintain SA_SP in cooling modes.
+'=========================================================
+
+NUMERIC INPUT DOAS_MODE, SAFETY_OK, FREEZE_LATCH
+NUMERIC INPUT SA_TEMP              ' °F (supply air temp)
+NUMERIC INPUT SA_SP                ' °F (from SAT_SP module)
+
+NUMERIC OUTPUT CHW_CMD_CALC        ' 0–100%
+NUMERIC OUTPUT CHW_READY
+NUMERIC OUTPUT CHW_FAIL
+
+' PID tunables
+NUMERIC PUBLIC KP, KI, KD
+NUMERIC PUBLIC I_TERM, OLD_ERR
+
+' Deadband
+NUMERIC PUBLIC DBAND               ' °F neutral band around SP
+
+FUNCTION PID_LOOP
+
+NUMERIC i
+
+GOTO INI
+
+INI:
+    IF KP <= 0 THEN KP = 1.0
+    IF KI < 0 THEN KI = 0.10
+    IF KD < 0 THEN KD = 0.00
+    IF DBAND < 0 THEN DBAND = 0.5
+    I_TERM = 0
+    OLD_ERR = 0
+    CHW_CMD_CALC = 0
+    CHW_READY = 1
+    CHW_FAIL = 0
+    GOTO MAIN
+
+    '=========================================================
+MAIN:
+    CHW_FAIL = 0
+
+    ' ---- Global safety gates ----
+    IF (SAFETY_OK = 0) OR (FREEZE_LATCH = 1) THEN
+        CHW_CMD_CALC = 0
+        I_TERM = 0
+        OLD_ERR = 0
+        WAIT 1
+        GOTO MAIN
+    ENDIF
+
+    ' ---- Mode enable ----
+    ' Cooling allowed in COOLDOWN (3) and OCCUPIED (4)
+    IF (DOAS_MODE = 3) OR (DOAS_MODE = 4) THEN
+        i = SA_SP - SA_TEMP
+        IF ABS(i) <= DBAND THEN
+            ' Hold current position (no new PID update)
+            CHW_CMD_CALC = CHW_CMD_CALC
+        ELSE
+            ' Reverse acting: hotter than SP → open valve
+            CHW_CMD_CALC = PID_LOOP(1, SA_TEMP, SA_SP, I_TERM, KP, KI, KD, OLD_ERR)
+        ENDIF
+    ELSE
+        ' All other modes → valve closed
+        CHW_CMD_CALC = 0
+        I_TERM = 0
+        OLD_ERR = 0
+    ENDIF
+
+    ' Clamp 0–100 %
+    IF CHW_CMD_CALC < 0 THEN CHW_CMD_CALC = 0
+    IF CHW_CMD_CALC > 100 THEN CHW_CMD_CALC = 100
+
+    CHW_READY = 1
+    WAIT 1
+    GOTO MAIN

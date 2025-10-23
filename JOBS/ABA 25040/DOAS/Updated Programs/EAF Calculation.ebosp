@@ -1,0 +1,221 @@
+'=========================================================
+' DOAS_EF_Module
+' Exhaust/Return Fan – CFM tracking of Supply (SUP_CFM - CFM_OFFSET)
+' Notes to keep everything aligned with your SF module & the DOAS sequence
+' This module only does what’s on the DOAS sheets (fan command by measured variable to setpoint, proofs/faults, safety/mode gating). No stagger logic or extra behaviors.
+' EXH_CFM_SP = SUP_CFM - CFM_OFFSET gives the classic balanced relief target. 
+' Bind in the Main Orchestrator exactly like the supply:
+' RF_SS (or EF_SS) ← EF_SS_CALC
+' RF_SPEED_CMD (or EF_SPEED_CMD) ← EF_SPEED_CALC
+' Alarm/Trend: EF_FAIL, ALM_LOW_EXH, EXH_CFM_SP, EXH_CFM, EF_SPEED_CALC.
+'=========================================================
+
+' ------------------------- INPUTS -------------------------
+NUMERIC INPUT DOAS_MODE            ' 0=OFF,1=PRE,2=WARMUP,3=COOLDOWN,4=OCC,5=UNOCC-PROTECT
+NUMERIC INPUT SAFETY_OK            ' 1=OK, 0=Trip
+NUMERIC INPUT FREEZE_LATCH         ' 1=latched freeze trip (from hardware)
+
+NUMERIC INPUT SUP_CFM              ' supply airflow (measured)
+NUMERIC INPUT EXH_CFM              ' exhaust airflow (measured)
+NUMERIC INPUT CFM_OFFSET           ' exhaust below supply by this amount (CFM)
+
+NUMERIC INPUT EF_STATUS            ' fan proof (1=proved); tie 1 if not available
+NUMERIC INPUT EF_FAULT             ' VFD/drive fault bit; tie 0 if not available
+
+' ------------------------- OUTPUTS ------------------------
+NUMERIC OUTPUT EF_SS_CALC          ' proposed start/stop (0/1)
+NUMERIC OUTPUT EF_SPEED_CALC       ' proposed speed (0–100%)
+NUMERIC OUTPUT EF_READY            ' 1=available/healthy
+NUMERIC OUTPUT EF_FAIL             ' 1=module-level fail (non-latching)
+NUMERIC OUTPUT EXH_CFM_SP          ' visible exhaust CFM setpoint (SUP_CFM - OFFSET)
+NUMERIC OUTPUT ALM_LOW_EXH         ' at ceiling with large error for a period
+
+' ------------------------- PUBLICS / TUNABLES -------------
+' PID
+NUMERIC PUBLIC KP, KI, KD
+NUMERIC PUBLIC I_TERM, OLD_ERR
+
+' Speed limits by mode (match SF style)
+NUMERIC PUBLIC MIN_WARMUP
+NUMERIC PUBLIC MIN_COOLDN
+NUMERIC PUBLIC MIN_OCC
+NUMERIC PUBLIC MIN_PROTECT
+NUMERIC PUBLIC MAX_SPEED
+
+' Slew / deadband
+NUMERIC PUBLIC RATE_UP_PCT_S
+NUMERIC PUBLIC RATE_DN_PCT_S
+NUMERIC PUBLIC CMD_DEADBAND
+
+' Proof & diagnostics
+NUMERIC PUBLIC PROVE_TIMEOUT_S
+NUMERIC PUBLIC LOW_EXH_ERR_THR     ' CFM error threshold considered "low"
+NUMERIC PUBLIC LOW_EXH_TIME_S      ' seconds at MAX + big error before alarm/fail
+
+FUNCTION PID_LOOP
+
+' ------------------------- INTERNALS ----------------------
+NUMERIC last_cmd, t_prove, t_low
+NUMERIC min_speed, EAF_CALC, e_sp
+
+'=========================================================
+GOTO INI
+
+INI:
+    ' PID defaults
+    IF KP <= 0 THEN KP = 1
+    IF KI < 0 THEN KI = 0.1
+    IF KD < 0 THEN KD = 0
+
+    ' Limits defaults (align with SF)
+    IF MAX_SPEED <= 0 THEN MAX_SPEED = 100
+    IF MIN_WARMUP <= 0 THEN MIN_WARMUP = 25
+    IF MIN_COOLDN <= 0 THEN MIN_COOLDN = 25
+    IF MIN_OCC <= 0 THEN MIN_OCC = 20
+    IF MIN_PROTECT <= 0 THEN MIN_PROTECT = 15
+
+    ' Dynamics
+    IF RATE_UP_PCT_S <= 0 THEN RATE_UP_PCT_S = 10
+    IF RATE_DN_PCT_S <= 0 THEN RATE_DN_PCT_S = 15
+    IF CMD_DEADBAND < 0 THEN CMD_DEADBAND = 0.5
+
+    ' Proof/diagnostics
+    IF PROVE_TIMEOUT_S <= 0 THEN PROVE_TIMEOUT_S = 20
+    IF LOW_EXH_ERR_THR <= 0 THEN LOW_EXH_ERR_THR = 150   ' CFM
+    IF LOW_EXH_TIME_S <= 0 THEN LOW_EXH_TIME_S = 60
+
+    I_TERM = 0
+    OLD_ERR = 0
+    last_cmd = 0
+    t_prove = 0
+    t_low = 0
+    EF_SS_CALC = 0
+    EF_SPEED_CALC = 0
+    EF_READY = 1
+    EF_FAIL = 0
+    ALM_LOW_EXH = 0
+    EXH_CFM_SP = 0
+    GOTO MAIN
+
+    '=========================================================
+MAIN:
+    ' ---------- Global gating ----------
+    EF_FAIL = 0
+    ALM_LOW_EXH = 0
+    EF_READY = 1
+
+    IF (SAFETY_OK = 0) OR (FREEZE_LATCH = 1) THEN
+        EF_SS_CALC = 0
+        EF_SPEED_CALC = 0
+        last_cmd = 0
+        I_TERM = 0
+        t_prove = 0
+        t_low = 0
+        WAIT 1
+        GOTO MAIN
+    ENDIF
+
+    ' Decide minimum speed by mode
+    IF (DOAS_MODE = 2) THEN ' WARMUP
+        min_speed = MIN_WARMUP
+    ELSE
+        IF (DOAS_MODE = 3) THEN ' COOLDOWN
+            min_speed = MIN_COOLDN
+        ELSE
+            IF (DOAS_MODE = 4) THEN ' OCC
+                min_speed = MIN_OCC
+            ELSE
+                IF (DOAS_MODE = 5) THEN ' UNOCC-PROTECT
+                    min_speed = MIN_PROTECT
+                ELSE ' OFF or PRE
+                    EF_SS_CALC = 0
+                    EF_SPEED_CALC = 0
+                    last_cmd = 0
+                    I_TERM = 0
+                    t_prove = 0
+                    t_low = 0
+                    WAIT 1
+                    GOTO MAIN
+                ENDIF
+            ENDIF
+        ENDIF
+    ENDIF
+
+    ' Running modes (2/3/4/5):
+    EF_SS_CALC = 1
+
+    ' ---------- Exhaust CFM setpoint ----------
+    EXH_CFM_SP = SUP_CFM - CFM_OFFSET
+    IF EXH_CFM_SP < 0 THEN EXH_CFM_SP = 0
+
+    ' ---------- PID compute (Reverse=0: higher error -> higher speed) ----------
+    EAF_CALC = PID_LOOP(0, EXH_CFM, EXH_CFM_SP, I_TERM, KP, KI, KD, OLD_ERR)
+
+    ' Clamp & simple anti-windup
+    IF EAF_CALC > MAX_SPEED THEN
+        EAF_CALC = MAX_SPEED
+        e_sp = (EXH_CFM_SP - EXH_CFM)
+        IF e_sp > 0 THEN I_TERM = I_TERM - (KI * e_sp)
+    ENDIF
+    IF EAF_CALC < 0 THEN
+        EAF_CALC = 0
+        e_sp = (EXH_CFM_SP - EXH_CFM)
+        IF e_sp < 0 THEN I_TERM = I_TERM - (KI * e_sp)
+    ENDIF
+
+    ' Enforce mode minimum
+    IF EAF_CALC < min_speed THEN EAF_CALC = min_speed
+
+    ' ---------- Rate limit / deadband ----------
+    IF EAF_CALC > last_cmd + RATE_UP_PCT_S THEN
+        EF_SPEED_CALC = last_cmd + RATE_UP_PCT_S
+    ELSE
+        IF EAF_CALC < last_cmd - RATE_DN_PCT_S THEN
+            EF_SPEED_CALC = last_cmd - RATE_DN_PCT_S
+        ELSE
+            EF_SPEED_CALC = EAF_CALC
+        ENDIF
+    ENDIF
+    IF ABS(EF_SPEED_CALC - last_cmd) < CMD_DEADBAND THEN
+        EF_SPEED_CALC = last_cmd
+    ENDIF
+    last_cmd = EF_SPEED_CALC
+
+    ' ---------- Proof & diagnostics ----------
+    IF EF_SS_CALC = 1 THEN
+        IF EF_STATUS = 1 THEN
+            t_prove = 0
+        ELSE
+            IF t_prove < PROVE_TIMEOUT_S THEN
+                t_prove = t_prove + 1
+            ELSE
+                EF_FAIL = 1   ' no proof
+            ENDIF
+        ENDIF
+    ELSE
+        t_prove = 0
+    ENDIF
+
+    ' Low exhaust at max: at ceiling with large CFM error for long
+    IF (EF_SPEED_CALC >= (MAX_SPEED - 0.5)) THEN
+        IF (EXH_CFM_SP - EXH_CFM) >= LOW_EXH_ERR_THR THEN
+            IF t_low < LOW_EXH_TIME_S THEN
+                t_low = t_low + 1
+            ELSE
+                ALM_LOW_EXH = 1
+                EF_FAIL = 1
+            ENDIF
+        ELSE
+            t_low = 0
+        ENDIF
+    ELSE
+        t_low = 0
+    ENDIF
+
+    ' Drive fault input forces module fail
+    IF EF_FAULT = 1 THEN
+        EF_FAIL = 1
+    ENDIF
+
+    WAIT 1
+    GOTO MAIN

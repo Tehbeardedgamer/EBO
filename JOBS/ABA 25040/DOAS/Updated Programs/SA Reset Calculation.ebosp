@@ -1,0 +1,60 @@
+'=========================================================
+' DOAS_SAT_SP_Module
+' Computes a single SA temperature setpoint from mode.
+'=========================================================
+
+NUMERIC INPUT DOAS_MODE            ' 0=OFF,1=PRE,2=WARMUP,3=COOLDOWN,4=OCC,5=UNOCC-PROTECT
+NUMERIC INPUT SAFETY_OK
+NUMERIC INPUT FREEZE_LATCH
+
+NUMERIC OUTPUT SA_SP               ' °F
+NUMERIC OUTPUT SAT_READY
+NUMERIC OUTPUT SAT_FAIL
+
+NUMERIC PUBLIC SA_SP_WARMUP        ' e.g., 95°F (or your DOAS value)
+NUMERIC PUBLIC SA_SP_COOLDN        ' e.g., 55°F
+NUMERIC PUBLIC SA_SP_OCC           ' e.g., 60°F
+NUMERIC PUBLIC SA_SP_PROTECT       ' e.g., 65°F (light conditioning during protect)
+
+GOTO INI
+
+INI:
+    IF SA_SP_WARMUP <= 0 THEN SA_SP_WARMUP = 95
+    IF SA_SP_COOLDN <= 0 THEN SA_SP_COOLDN = 55
+    IF SA_SP_OCC <= 0 THEN SA_SP_OCC = 60
+    IF SA_SP_PROTECT <= 0 THEN SA_SP_PROTECT = 65
+    SA_SP = SA_SP_OCC
+    SAT_READY = 1
+    SAT_FAIL = 0
+    GOTO MAIN
+
+MAIN:
+    SAT_FAIL = 0
+    IF (SAFETY_OK = 0) OR (FREEZE_LATCH = 1) THEN
+        SA_SP = SA_SP_OCC   ' value won’t be acted on; valves are gated separately
+        SAT_READY = 1
+        WAIT 1
+        GOTO MAIN
+    ENDIF
+
+    IF DOAS_MODE = 2 THEN ' WARMUP
+        SA_SP = SA_SP_WARMUP
+    ELSE
+        IF DOAS_MODE = 3 THEN ' COOLDOWN
+            SA_SP = SA_SP_COOLDN
+        ELSE
+            IF DOAS_MODE = 4 THEN ' OCCUPIED
+                SA_SP = SA_SP_OCC
+            ELSE
+                IF DOAS_MODE = 5 THEN ' UNOCC-PROTECT
+                    SA_SP = SA_SP_PROTECT
+                ELSE ' OFF/PRE
+                    SA_SP = SA_SP_OCC
+                ENDIF
+            ENDIF
+        ENDIF
+    ENDIF
+
+    SAT_READY = 1
+    WAIT 1
+    GOTO MAIN

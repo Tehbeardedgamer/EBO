@@ -1,0 +1,154 @@
+'=========================================================
+' DOAS_MODE_SAFETY (nested IF/ELSE, hysteresis + occ fix)
+'=========================================================
+
+' ------------------------- INPUTS -------------------------
+NUMERIC INPUT SCHED_OCC
+NUMERIC INPUT MAINTENANCE
+NUMERIC INPUT SMOKE_SUPPLY
+NUMERIC INPUT SMOKE_RETURN
+NUMERIC INPUT HIGH_DP_SW
+NUMERIC INPUT LOW_SP_SW
+NUMERIC INPUT FREEZE_STAT
+NUMERIC INPUT RA_TEMP
+NUMERIC INPUT SPACE_TEMP_MIN
+
+' ------------------------- OUTPUTS ------------------------
+' 0=OFF,1=PRESTART,2=WARMUP,3=COOLDOWN,4=OCC,5=UNOCC-PROTECT
+NUMERIC OUTPUT DOAS_MODE
+NUMERIC OUTPUT SAFETY_OK
+NUMERIC OUTPUT FREEZE_LATCH
+NUMERIC OUTPUT OCC_REQUEST
+
+' ------------------------- PUBLICS ------------------------
+NUMERIC PUBLIC WARMUP_START
+NUMERIC PUBLIC WARMUP_EXIT
+NUMERIC PUBLIC COOLDN_START
+NUMERIC PUBLIC COOLDN_EXIT
+
+NUMERIC PUBLIC UNOCC_LOW_START
+NUMERIC PUBLIC UNOCC_LOW_STOP
+NUMERIC PUBLIC UNOCC_HI_START
+NUMERIC PUBLIC UNOCC_HI_STOP
+
+' ------------------------- INTERNALS ----------------------
+NUMERIC ANY_SMOKE
+NUMERIC ANY_PRESS_TRIP
+NUMERIC REF_TEMP
+NUMERIC prev_mode       ' for hysteresis
+
+'===========================================================
+GOTO INI
+
+INI:
+  IF WARMUP_START <= 0 THEN WARMUP_START = 60
+  IF WARMUP_EXIT  <= 0 THEN WARMUP_EXIT  = 70
+  IF COOLDN_START <= 0 THEN COOLDN_START = 80
+  IF COOLDN_EXIT  <= 0 THEN COOLDN_EXIT  = 70
+
+  IF UNOCC_LOW_START <= 0 THEN UNOCC_LOW_START = 60
+  IF UNOCC_LOW_STOP  <= 0 THEN UNOCC_LOW_STOP  = 64
+  IF UNOCC_HI_START  <= 0 THEN UNOCC_HI_START  = 80
+  IF UNOCC_HI_STOP   <= 0 THEN UNOCC_HI_STOP   = 76
+
+  FREEZE_LATCH = 0
+  DOAS_MODE    = 0
+  SAFETY_OK    = 1
+  OCC_REQUEST  = 0
+  prev_mode    = DOAS_MODE
+
+GOTO MAIN
+
+'===========================================================
+MAIN:
+  ' ---------- Safeties ----------
+  ANY_SMOKE = (SMOKE_SUPPLY OR SMOKE_RETURN)
+  ANY_PRESS_TRIP = (HIGH_DP_SW OR LOW_SP_SW)
+
+  ' Mirror hardware-latched freezestat
+  IF FREEZE_STAT = 1 THEN
+      FREEZE_LATCH = 1
+  ENDIF
+  IF FREEZE_STAT = 0 THEN
+      FREEZE_LATCH = 0
+  ENDIF
+
+  IF (ANY_SMOKE = 1) OR (ANY_PRESS_TRIP = 1) OR (FREEZE_LATCH = 1) THEN
+      SAFETY_OK = 0
+  ELSE
+      SAFETY_OK = 1
+  ENDIF
+
+  ' ---------- Occupancy Request (AND gating) ----------
+  IF (MAINTENANCE = 0) AND (SCHED_OCC = 1) THEN
+      OCC_REQUEST = 1
+  ELSE
+      OCC_REQUEST = 0
+  ENDIF
+
+  ' ---------- Mode Decision with hysteresis ----------
+  IF SAFETY_OK = 0 THEN
+      DOAS_MODE = 0
+
+  ELSE
+      IF OCC_REQUEST = 1 THEN
+          ' Occupied hysteresis
+          IF prev_mode = 2 THEN
+              ' WARMUP -> remain until exit
+              IF RA_TEMP >= WARMUP_EXIT THEN
+                  DOAS_MODE = 4
+              ELSE
+                  DOAS_MODE = 2
+              ENDIF
+
+          ELSE
+              IF prev_mode = 3 THEN
+                  ' COOLDOWN -> remain until exit
+                  IF RA_TEMP <= COOLDN_EXIT THEN
+                      DOAS_MODE = 4
+                  ELSE
+                      DOAS_MODE = 3
+                  ENDIF
+
+              ELSE
+                  ' Decide entry state by START thresholds
+                  IF RA_TEMP < WARMUP_START THEN
+                      DOAS_MODE = 2
+                  ELSE
+                      IF RA_TEMP > COOLDN_START THEN
+                          DOAS_MODE = 3
+                      ELSE
+                          DOAS_MODE = 4
+                      ENDIF
+                  ENDIF
+              ENDIF
+          ENDIF
+
+      ELSE
+          ' Unoccupied protection with start/stop bands
+          REF_TEMP = RA_TEMP
+          IF SPACE_TEMP_MIN > 0 THEN
+              REF_TEMP = SPACE_TEMP_MIN
+          ENDIF
+
+          IF prev_mode = 5 THEN
+              ' In protect -> leave only when back inside stop band
+              IF (REF_TEMP >= UNOCC_LOW_STOP) AND (REF_TEMP <= UNOCC_HI_STOP) THEN
+                  DOAS_MODE = 0
+              ELSE
+                  DOAS_MODE = 5
+              ENDIF
+          ELSE
+              ' Not in protect
+              IF (REF_TEMP < UNOCC_LOW_START) OR (REF_TEMP > UNOCC_HI_START) THEN
+                  DOAS_MODE = 5
+              ELSE
+                  DOAS_MODE = 0
+              ENDIF
+          ENDIF
+      ENDIF
+  ENDIF
+
+  prev_mode = DOAS_MODE
+  WAIT 1
+GOTO MAIN

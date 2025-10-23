@@ -7,7 +7,7 @@
 ' ------------------------- INPUTS -------------------------
 NUMERIC INPUT DOAS_MODE          ' From DOAS_MODE_SAFETY
 NUMERIC INPUT SAFETY_OK          ' 1 = OK, 0 = Trip
-NUMERIC INPUT FREEZE_LATCH       ' 1 = Latched freeze trip
+NUMERIC INPUT FREEZE_STAT       ' 1 = Latched freeze trip
 NUMERIC INPUT DUCT_STATIC        ' Measured Supply Static Pressure
 NUMERIC INPUT DUCT_STATIC_SP       ' Setpoint from VAV Reset Script
 
@@ -39,7 +39,7 @@ GOTO MAIN
 '===========================================================
 MAIN:
   ' ---------- Safety & Mode Check ----------
-  IF (SAFETY_OK = 0) OR (FREEZE_LATCH = 1) THEN
+  IF (SAFETY_OK = 0) OR (FREEZE_STAT = 1) THEN
       SF_PROPOSED_CMD = 0
       WAIT 1
       GOTO MAIN

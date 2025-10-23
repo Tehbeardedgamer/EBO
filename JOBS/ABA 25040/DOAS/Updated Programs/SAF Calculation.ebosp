@@ -1,0 +1,222 @@
+'=========================================================
+' DOAS_SF_Module
+' Supply Fan speed proposal + health for Main Orchestrator
+' - Uses external PID_LOOP(Reverse, PV, SP, I, Kp, Ki, Kd, OldErr)
+'Notes / wiring
+'Keep your existing Main Orchestrator as the only writer to real outputs. Bind:
+'SF_SS ← SF_SS_CALC
+'SF_SPEED_CMD ← SF_SPEED_CALC
+'Use SF_READY=1 by default (you can split READY vs AVAILABLE later if you add maintenance gating here).
+'If you don’t have SF_STATUS or SF_FAULT, tie them to 1 and 0 respectively.
+'Tune MIN_* floors to your commissioning plan; set MAX_SPEED to your safe ceiling.
+'If your scan time isn’t ~1 s, adjust RATE_UP_PCT_S / RATE_DN_PCT_S to keep real-world slew reasonable.
+'=========================================================
+
+' ------------------------- INPUTS -------------------------
+NUMERIC INPUT DOAS_MODE            ' 0=OFF,1=PRE,2=WARMUP,3=COOLDOWN,4=OCC,5=UNOCC-PROTECT
+NUMERIC INPUT SAFETY_OK            ' 1=OK, 0=Trip
+NUMERIC INPUT FREEZE_STAT          ' hardware-latched freezestat
+NUMERIC INPUT DUCT_STATIC          ' measured SP
+NUMERIC INPUT DUCT_STATIC_SP       ' target SP (may be reset by VAV logic)
+NUMERIC INPUT SF_STATUS            ' fan proof (1=proved), optional (tie 1 if N/A)
+NUMERIC INPUT SF_FAULT             ' VFD/drive fault bit, optional (tie 0 if N/A)
+
+' ------------------------- OUTPUTS ------------------------
+NUMERIC OUTPUT SF_SS_CALC          ' proposed start/stop (0/1)
+NUMERIC OUTPUT SF_SPEED_CALC       ' proposed speed 0-100%
+NUMERIC OUTPUT SF_READY            ' 1=available/healthy
+NUMERIC OUTPUT SF_FAIL             ' 1=local module fail (non-latching)
+NUMERIC OUTPUT ALM_LOW_STATIC      ' diagnostic alarm (non-latching)
+
+' ------------------------- PUBLICS / TUNABLES -------------
+' PID
+NUMERIC PUBLIC KP, KI, KD
+NUMERIC PUBLIC I_TERM, OLD_ERR
+
+' Speed limits by mode
+NUMERIC PUBLIC MIN_WARMUP
+NUMERIC PUBLIC MIN_COOLDN
+NUMERIC PUBLIC MIN_OCC
+NUMERIC PUBLIC MIN_PROTECT
+NUMERIC PUBLIC MAX_SPEED
+
+' Ramp & guard rails
+NUMERIC PUBLIC RATE_UP_PCT_S       ' %/s up slew limit
+NUMERIC PUBLIC RATE_DN_PCT_S       ' %/s down slew limit
+NUMERIC PUBLIC CMD_DEADBAND        ' %; suppress tiny movements
+
+' Proof & diagnostics
+NUMERIC PUBLIC PROVE_TIMEOUT_S     ' sec to see proof after start (if SF_STATUS used)
+NUMERIC PUBLIC LOW_STATIC_ERR_THR  ' in.w.c error threshold considered "low"
+NUMERIC PUBLIC LOW_STATIC_TIME_S   ' sec at MAX with big error before ALM/SF_FAIL
+
+' Function
+FUNCTION PID_LOOP
+
+' ------------------------- INTERNALS ----------------------
+NUMERIC last_cmd, t_prove, t_lowstatic
+NUMERIC min_speed, SAF_CALC, e_sp
+
+'=========================================================
+GOTO INI
+
+INI:
+    ' PID defaults
+    IF KP <= 0 THEN KP = 1
+    IF KI < 0 THEN KI = 0.1
+    IF KD < 0 THEN KD = 0
+
+    ' Limits defaults
+    IF MAX_SPEED <= 0 THEN MAX_SPEED = 100
+    IF MIN_WARMUP <= 0 THEN MIN_WARMUP = 25
+    IF MIN_COOLDN <= 0 THEN MIN_COOLDN = 25
+    IF MIN_OCC <= 0 THEN MIN_OCC = 20
+    IF MIN_PROTECT <= 0 THEN MIN_PROTECT = 15
+
+    ' Dynamics
+    IF RATE_UP_PCT_S <= 0 THEN RATE_UP_PCT_S = 10
+    IF RATE_DN_PCT_S <= 0 THEN RATE_DN_PCT_S = 15
+    IF CMD_DEADBAND < 0 THEN CMD_DEADBAND = 0.5
+
+    ' Proof/diagnostics
+    IF PROVE_TIMEOUT_S <= 0 THEN PROVE_TIMEOUT_S = 20
+    IF LOW_STATIC_ERR_THR <= 0 THEN LOW_STATIC_ERR_THR = 0.15   ' in.w.c
+    IF LOW_STATIC_TIME_S <= 0 THEN LOW_STATIC_TIME_S = 60
+
+    I_TERM = 0
+    OLD_ERR = 0
+    last_cmd = 0
+    t_prove = 0
+    t_lowstatic = 0
+    SF_SS_CALC = 0
+    SF_SPEED_CALC = 0
+    SF_READY = 1
+    SF_FAIL = 0
+    ALM_LOW_STATIC = 0
+    GOTO MAIN
+
+    '=========================================================
+MAIN:
+    ' ---------- Global gating ----------
+    SF_FAIL = 0
+    ALM_LOW_STATIC = 0
+    SF_READY = 1
+
+    IF (SAFETY_OK = 0) OR (FREEZE_STAT = 1) THEN
+        SF_SS_CALC = 0
+        SF_SPEED_CALC = 0
+        last_cmd = 0
+        I_TERM = 0
+        t_prove = 0
+        t_lowstatic = 0
+        WAIT 1
+        GOTO MAIN
+    ENDIF
+
+    ' Decide minimum speed by mode
+    IF (DOAS_MODE = 2) THEN ' WARMUP
+        min_speed = MIN_WARMUP
+    ELSE
+        IF (DOAS_MODE = 3) THEN ' COOLDOWN
+            min_speed = MIN_COOLDN
+        ELSE
+            IF (DOAS_MODE = 4) THEN ' OCC
+                min_speed = MIN_OCC
+            ELSE
+                IF (DOAS_MODE = 5) THEN ' UNOCC-PROTECT
+                    min_speed = MIN_PROTECT
+                ELSE ' OFF or PRESTART
+                    SF_SS_CALC = 0
+                    SF_SPEED_CALC = 0
+                    last_cmd = 0
+                    I_TERM = 0
+                    t_prove = 0
+                    t_lowstatic = 0
+                    WAIT 1
+                    GOTO MAIN
+                ENDIF
+            ENDIF
+        ENDIF
+    ENDIF
+
+    ' Running modes (2/3/4/5):
+    SF_SS_CALC = 1
+
+    ' ---------- PID compute (Reverse=0: higher error -> higher speed) ----------
+    SAF_CALC = PID_LOOP(0, DUCT_STATIC, DUCT_STATIC_SP, I_TERM, KP, KI, KD, OLD_ERR)
+
+    ' Clamp & anti-windup
+    IF SAF_CALC > MAX_SPEED THEN
+        SAF_CALC = MAX_SPEED
+        ' simple anti-windup: trim integrator when pegged high and error > 0
+        e_sp = (DUCT_STATIC_SP - DUCT_STATIC)
+        IF e_sp > 0 THEN I_TERM = I_TERM - (KI * e_sp)
+    ENDIF
+    IF SAF_CALC < 0 THEN
+        SAF_CALC = 0
+        ' trim integrator when pegged low and error < 0
+        e_sp = (DUCT_STATIC_SP - DUCT_STATIC)
+        IF e_sp < 0 THEN I_TERM = I_TERM - (KI * e_sp)
+    ENDIF
+
+    ' Enforce mode minimum while running
+    IF SAF_CALC < min_speed THEN SAF_CALC = min_speed
+
+    ' ---------- Rate limit / bumpless ----------
+    ' assume MAIN calls this every ~1s; if faster/slower, scale RATE_* accordingly
+    IF SAF_CALC > last_cmd + RATE_UP_PCT_S THEN
+        SF_SPEED_CALC = last_cmd + RATE_UP_PCT_S
+    ELSE
+        IF SAF_CALC < last_cmd - RATE_DN_PCT_S THEN
+            SF_SPEED_CALC = last_cmd - RATE_DN_PCT_S
+        ELSE
+            SF_SPEED_CALC = SAF_CALC
+        ENDIF
+    ENDIF
+
+    ' Deadband small movements
+    IF ABS(SF_SPEED_CALC - last_cmd) < CMD_DEADBAND THEN
+        SF_SPEED_CALC = last_cmd
+    ENDIF
+    last_cmd = SF_SPEED_CALC
+
+    ' ---------- Proof & diagnostics ----------
+    ' Proof after start (optional: tie SF_STATUS=1 if not available)
+    IF SF_SS_CALC = 1 THEN
+        IF SF_STATUS = 1 THEN
+            t_prove = 0
+        ELSE
+            IF t_prove < PROVE_TIMEOUT_S THEN
+                t_prove = t_prove + 1
+            ELSE
+                SF_FAIL = 1   ' no proof
+            ENDIF
+        ENDIF
+    ELSE
+        t_prove = 0
+    ENDIF
+
+    ' Low static at max: if at ceiling and error remains large for LONG -> alarm/fail
+    IF (SF_SPEED_CALC >= (MAX_SPEED - 0.5)) THEN
+        IF (DUCT_STATIC_SP - DUCT_STATIC) >= LOW_STATIC_ERR_THR THEN
+            IF t_lowstatic < LOW_STATIC_TIME_S THEN
+                t_lowstatic = t_lowstatic + 1
+            ELSE
+                ALM_LOW_STATIC = 1
+                ' Do not force a shutdown here; let Main decide. Mark module failed:
+                SF_FAIL = 1
+            ENDIF
+        ELSE
+            t_lowstatic = 0
+        ENDIF
+    ELSE
+        t_lowstatic = 0
+    ENDIF
+
+    ' Drive fault input forces module fail (Main will arbitrate actual outputs)
+    IF SF_FAULT = 1 THEN
+        SF_FAIL = 1
+    ENDIF
+
+    WAIT 1
+    GOTO MAIN
