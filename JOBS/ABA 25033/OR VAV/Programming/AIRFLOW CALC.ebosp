@@ -1,0 +1,52 @@
+'===========================================================
+'  PROGRAM: VAV_AIRFLOW_CALC
+'  PURPOSE: Calculate airflow (CFM) from differential pressure
+'           for a round-inlet VAV box using K-factor correction.
+'
+'  AUTHOR : SPENCER WENNERMARK
+'  COMPANY: ENTECH SALES & SERVICE – AUSTIN, TX
+'  DATE   : 10/2025
+'===========================================================
+
+'---------------------- INPUTS -----------------------------
+NUMERIC INPUT AIRFLOW_DP           ' Differential Pressure (in.w.c.), scaled & filtered
+NUMERIC INPUT VAV_BOX_SIZE       ' Box inlet diameter (inches)
+NUMERIC INPUT K_FACTOR          ' Flow correction multiplier (from submittal/TAB)
+NUMERIC INPUT DP_FLOOR          ' Noise floor (e.g., 0.01 in.w.c.)
+
+'---------------------- OUTPUTS ----------------------------
+NUMERIC OUTPUT CFM              ' Calculated Airflow (CFM)
+
+'---------------------- INTERNALS --------------------------
+NUMERIC VAV_AREA, DP_USED, VEL_FPM
+
+'===========================================================
+' MAIN LOOP
+'===========================================================
+GOTO LOOP
+
+LOOP:
+
+  '--- 1. Apply noise floor to differential pressure ---
+  IF AIRFLOW_DP < DP_FLOOR THEN
+      DP_USED = 0
+  ELSE
+      DP_USED = AIRFLOW_DP
+  ENDIF
+
+  '--- 2. Calculate VAV throat area (round inlet) ---
+  ' Area(ft²) = π/4 × (Diameter(ft))²
+  VAV_AREA = 3.14159 / 4.0 * (VAV_BOX_SIZE / 12.0) * (VAV_BOX_SIZE / 12.0)
+
+  '--- 3. Calculate velocity and airflow ---
+  ' Velocity (fpm) = 4005 × √ΔP
+  ' Flow (cfm) = Velocity × Area × K-Factor
+  VEL_FPM = 4005.0 * SQRT(DP_USED)
+  CFM = VEL_FPM * VAV_AREA * K_FACTOR
+
+  WAIT 1
+  GOTO LOOP
+
+'===========================================================
+'  END OF PROGRAM
+'===========================================================
