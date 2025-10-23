@@ -1,0 +1,99 @@
+'=========================================================
+' DOAS_VAV_CFM_Aggregator
+' For up to 8 VAVs:
+'   - Computes each VAV's % of its MAX: VAV_##_PCT (0–100)
+'   - Publishes MAX_CFM_PCT across all boxes
+'   - Publishes sequence booleans for 12(i):
+'       ANY_VAV_AT_MAX   (max_pct >= AT_MAX_THR_PCT)
+'       NONE_ABOVE_75PC  (max_pct <= ABOVE_75_THR_PCT)
+'=========================================================
+
+' --------- INPUTS ----------
+NUMERIC INPUT VAV_01_CFM, VAV_02_CFM, VAV_03_CFM, VAV_04_CFM
+NUMERIC INPUT VAV_05_CFM, VAV_06_CFM, VAV_07_CFM, VAV_08_CFM
+
+' --------- PUBLICS (set from schedule) ----------
+NUMERIC PUBLIC VAV_01_MAX, VAV_02_MAX, VAV_03_MAX, VAV_04_MAX
+NUMERIC PUBLIC VAV_05_MAX, VAV_06_MAX, VAV_07_MAX, VAV_08_MAX
+
+' Thresholds for 12(i)
+NUMERIC PUBLIC AT_MAX_THR_PCT        ' default 100 (%)
+NUMERIC PUBLIC ABOVE_75_THR_PCT      ' default 75  (%)
+
+' --------- OUTPUTS ----------
+NUMERIC OUTPUT VAV_01_PCT, VAV_02_PCT, VAV_03_PCT, VAV_04_PCT
+NUMERIC OUTPUT VAV_05_PCT, VAV_06_PCT, VAV_07_PCT, VAV_08_PCT
+NUMERIC OUTPUT MAX_CFM_PCT           ' max of the eight %
+NUMERIC OUTPUT ANY_VAV_AT_MAX        ' 0/1
+NUMERIC OUTPUT NONE_ABOVE_75PC       ' 0/1
+
+' --------- INTERNALS ----------
+NUMERIC PCT[8], CFM[8], MAXCFM[8]
+NUMERIC i, maxpct
+
+GOTO INI
+
+INI:
+  ' Defaults for thresholds
+  IF AT_MAX_THR_PCT    <= 0 THEN AT_MAX_THR_PCT    = 100
+  IF ABOVE_75_THR_PCT  <= 0 THEN ABOVE_75_THR_PCT  = 75
+
+  ' Initialize MAX from schedule before enabling this block:
+  '  e.g. VAV_01_MAX=430, VAV_07_MAX=1390, VAV_08_MAX=1255, etc.
+
+GOTO MAIN
+
+MAIN:
+  ' Load arrays
+  CFM[1]=VAV_01_CFM 
+  CFM[2]=VAV_02_CFM 
+  CFM[3]=VAV_03_CFM 
+  CFM[4]=VAV_04_CFM
+  CFM[5]=VAV_05_CFM 
+  CFM[6]=VAV_06_CFM 
+  CFM[7]=VAV_07_CFM 
+  CFM[8]=VAV_08_CFM
+
+  MAXCFM[1]=VAV_01_MAX 
+  MAXCFM[2]=VAV_02_MAX 
+  MAXCFM[3]=VAV_03_MAX 
+  MAXCFM[4]=VAV_04_MAX
+  MAXCFM[5]=VAV_05_MAX 
+  MAXCFM[6]=VAV_06_MAX 
+  MAXCFM[7]=VAV_07_MAX 
+  MAXCFM[8]=VAV_08_MAX
+
+  ' Compute % of max for each (guard divide-by-zero)
+  FOR i = 1 TO 8
+    IF MAXCFM[i] > 0 THEN
+      PCT[i] = (CFM[i] * 100.0) / MAXCFM[i]
+      IF PCT[i] < 0 THEN P[i] = 0
+      IF PCT[i] > 999 THEN P[i] = 999   ' sanity cap
+    ELSE
+      PCT[i] = 0
+    ENDIF
+  NEXT i
+
+  ' Publish per-VAV %
+  VAV_01_PCT=P[1] 
+  VAV_02_PCT=P[2] 
+  VAV_03_PCT=P[3] 
+  VAV_04_PCT=P[4]
+  VAV_05_PCT=P[5] 
+  VAV_06_PCT=P[6] 
+  VAV_07_PCT=P[7] 
+  VAV_08_PCT=P[8]
+
+  ' Find maximum %
+  maxpct = 0
+  FOR i = 1 TO 8
+    IF PCT[i] > maxpct THEN maxpct = PCT[i]
+  NEXT i
+  MAX_CFM_PCT = maxpct
+
+  ' Sequence booleans for 12(i)
+  ANY_VAV_AT_MAX   = (MAX_CFM_PCT >= AT_MAX_THR_PCT)
+  NONE_ABOVE_75PC  = (MAX_CFM_PCT <= ABOVE_75_THR_PCT)
+
+  WAIT 5
+GOTO MAIN

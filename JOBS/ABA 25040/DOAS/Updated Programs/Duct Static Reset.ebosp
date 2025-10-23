@@ -1,0 +1,74 @@
+'=========================================================
+' DOAS_StaticSP_Reset_MaxOnly  (Seq 12h)
+' Resets DUCT_STATIC_SP using only MAX_DAMPER_POS (0–100%).
+' Rules:
+'   - If MAX_DAMPER_POS > 95% → increase SP
+'   - If MAX_DAMPER_POS ≤ 85% → decrease SP
+'   - Else (between 85–95%) → hold SP
+'=========================================================
+
+' ---------- INPUTS ----------
+NUMERIC INPUT OCC_REQUEST             ' 1=occupied request
+NUMERIC INPUT MAX_DAMPER_POS          ' % (max of all served VAV dampers)
+
+' ---------- OUTPUTS ----------
+NUMERIC OUTPUT DUCT_STATIC_SP         ' in.w.c setpoint to Supply Fan PID
+
+' ---------- PUBLICS ----------
+NUMERIC PUBLIC SP_MIN                 ' in.w.c
+NUMERIC PUBLIC SP_MAX                 ' in.w.c
+NUMERIC PUBLIC STEP_UP                ' in.w.c per adjustment
+NUMERIC PUBLIC STEP_DN                ' in.w.c per adjustment
+NUMERIC PUBLIC ADJUST_PERIOD_S        ' seconds between adjustments
+
+' ---------- INTERNAL ----------
+NUMERIC t
+
+GOTO INI
+INI:
+    IF SP_MIN <= 0 THEN SP_MIN = 0.50
+    IF SP_MAX <= 0 THEN SP_MAX = 2.00
+    IF STEP_UP <= 0 THEN STEP_UP = 0.05
+    IF STEP_DN <= 0 THEN STEP_DN = 0.05
+    IF ADJUST_PERIOD_S <= 0 THEN ADJUST_PERIOD_S = 15
+    IF DUCT_STATIC_SP <= 0 THEN DUCT_STATIC_SP = SP_MIN
+    t = 0
+    GOTO MAIN
+
+MAIN:
+    ' Only act during occupied request; otherwise hold conservative minimum
+    IF OCC_REQUEST = 0 THEN
+        DUCT_STATIC_SP = SP_MIN
+        t = 0
+        WAIT 1
+        GOTO MAIN
+    ENDIF
+
+    ' Rate-limit adjustments
+    IF t < ADJUST_PERIOD_S THEN
+        t = t + 1
+        WAIT 1
+        GOTO MAIN
+    ENDIF
+    t = 0
+
+    ' --- 12(h) logic using only MAX_DAMPER_POS ---
+    IF MAX_DAMPER_POS > 95 THEN
+        DUCT_STATIC_SP = DUCT_STATIC_SP + STEP_UP
+    ELSE
+        IF MAX_DAMPER_POS <= 85 THEN
+            DUCT_STATIC_SP = DUCT_STATIC_SP - STEP_DN
+        ELSE
+            ' 85% < MAX ≤ 95% → hold
+            DUCT_STATIC_SP = DUCT_STATIC_SP
+        ENDIF
+    ENDIF
+
+
+
+    ' Clamp to limits
+    IF DUCT_STATIC_SP < SP_MIN THEN DUCT_STATIC_SP = SP_MIN
+    IF DUCT_STATIC_SP > SP_MAX THEN DUCT_STATIC_SP = SP_MAX
+
+    WAIT 1
+    GOTO MAIN
