@@ -1,0 +1,51 @@
+' Supply Air Temp Reset Script
+
+' INPUTS
+STRING INPUT RTU_MODE                    ' "NORMAL", "NIGHT_SETBACK"
+NUMERIC INPUT OR_TEMP, OR_HUMIDITY       ' Operating Room Temp & Humidity
+NUMERIC  TIME_IN_VIOLATION          ' Accumulated time in violation (minutes)
+
+' OUTPUT
+NUMERIC OUTPUT DAT_SP                    ' Discharge Air Temp Setpoint
+
+' INTERNAL VARIABLES
+NUMERIC NORMAL_SP, NIGHT_SP, TEMP_LIMIT, RH_LIMIT
+NUMERIC MAX_RESET_DROP, RESET_STEP, RESET_INTERVAL, RESET_TIMER
+NUMERIC CURRENT_SP
+
+' INITIALIZATION
+GOTO INIT
+
+INIT:
+NORMAL_SP = 51                          ' Normal operation setpoint
+NIGHT_SP = 55                            ' Night setback starting point
+TEMP_LIMIT = 70                          ' Upper temperature limit
+RH_LIMIT = 60                            ' Upper humidity limit
+MAX_RESET_DROP = 9                       ' Max drop from NIGHT_SP to NORMAL_SP
+RESET_STEP = 1                           ' 1°F drop per step
+RESET_INTERVAL = 5                       ' Drop every 5 minutes
+RESET_TIMER = 0
+CURRENT_SP = NIGHT_SP
+
+GOTO LOGIC
+
+LOGIC:
+IF RTU_MODE = "NIGHT_SETBACK" THEN
+    ' Start with higher setpoint
+    IF OR_TEMP >= TEMP_LIMIT OR OR_HUMIDITY >= RH_LIMIT THEN
+        ' Drop setpoint every 5 mins if OR temp or humidity too high
+        IF TIME_IN_VIOLATION >= RESET_INTERVAL THEN
+            IF CURRENT_SP > (NIGHT_SP - MAX_RESET_DROP) THEN
+                CURRENT_SP = CURRENT_SP - RESET_STEP
+                TIME_IN_VIOLATION = 0                         ' Reset timer after adjustment
+            ENDIF
+        ENDIF
+    ENDIF
+ELSE
+    CURRENT_SP = NORMAL_SP
+ENDIF
+
+DAT_SP = CURRENT_SP
+
+WAIT 60
+GOTO LOGIC

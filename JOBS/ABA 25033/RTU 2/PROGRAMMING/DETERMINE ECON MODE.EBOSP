@@ -1,0 +1,45 @@
+NUMERIC INPUT OA_TEMP, ALARM_TEMP_LOW, OA_ENTHALPY, RA_ENTHALPY, SAFE_SHUTDOWN, RA_HUMIDITY
+NUMERIC INPUT DAT_SP
+STRING OUTPUT ECON_MODE
+
+GOTO DETERMINE_ECONOMIZER
+
+DETERMINE_ECONOMIZER:
+    ' --- FREEZE PROTECTION CHECK ---
+    ' If outdoor temp alarm active OR system in safe shutdown ? freeze protection mode
+    IF ALARM_TEMP_LOW = 1 OR SAFE_SHUTDOWN = 1 THEN
+        ECON_MODE = "FREEZE PROTECTION"
+
+    ELSE
+        ' --- NO ECONOMIZER CONDITION ---
+        ' OA enthalpy >= RA enthalpy (OA is not “cooler” energy-wise)
+        ' OR OA temp >= 70°F (too warm)
+        ' OR RA humidity <= 40% (too dry) ? disable economizer
+        IF (OA_ENTHALPY >= RA_ENTHALPY) OR (OA_TEMP >= 70) OR (RA_HUMIDITY <= 40) THEN
+            ECON_MODE = "NO ECONOMIZER"
+
+        ELSE
+            ' --- 100% ECONOMIZER CONDITION ---
+            ' OA enthalpy <= RA enthalpy AND DAT_SP < OA_TEMP AND OA_TEMP < 70°F ? full economizer
+            IF (OA_ENTHALPY <= RA_ENTHALPY) AND (DAT_SP < OA_TEMP) AND (OA_TEMP < 70) THEN
+                ECON_MODE = "FULL ECONOMIZER"
+
+            ELSE
+                ' --- MODULATING ECONOMIZER CONDITION ---
+                ' OA temp <= supply air setpoint ? modulate via PID
+                IF (OA_TEMP <= DAT_SP) THEN
+                    ECON_MODE = "MOD ECONOMIZER"
+                ELSE
+                    ' --- DEFAULT / FALLBACK ---
+                    ' No condition matched; set to NO ECONOMIZER
+                    ECON_MODE = "NO ECONOMIZER"
+                ENDIF
+
+            ENDIF
+        ENDIF
+    ENDIF
+
+GOTO WAIT_LOOP
+WAIT_LOOP:
+    ' Loop delay: recheck when TS > 5 seconds
+    IF TS > 5 THEN GOTO DETERMINE_ECONOMIZER

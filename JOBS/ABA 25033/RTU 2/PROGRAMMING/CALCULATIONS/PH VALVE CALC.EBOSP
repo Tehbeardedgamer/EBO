@@ -1,0 +1,48 @@
+'===========================================================
+' MODULE: RTU2_PH_VALVE_CALC
+' PURPOSE: Preheat valve modulation per mode
+'===========================================================
+
+STRING INPUT RTU_MODE, MODE
+NUMERIC INPUT SA_TEMP, SA_TEMP_SP
+NUMERIC OUTPUT PH_VALVE_CALC, PH_COIL_ENABLE
+
+NUMERIC OLDERR, PK, IK, DK, I_VALVE
+FUNCTION PID_CTRL
+
+GOTO INITIALIZE
+
+INITIALIZE:
+    OLDERR = 0
+    PK = 0.25
+    IK = 0.01
+    DK = 0.0
+    I_VALVE = 50
+
+    GOTO LOGIC
+
+LOGIC:
+    SELECT CASE MODE
+    CASE "FREEZE PROTECTION"
+        PH_VALVE_CALC = 100
+        PH_COIL_ENABLE = 1
+
+    CASE "HEATING"
+        PH_VALVE_CALC = PID_CTRL(0, SA_TEMP, SA_TEMP_SP, I_VALVE, PK, IK, DK, OLDERR)
+        IF PH_VALVE_CALC < 0 THEN PH_VALVE_CALC = 0
+        IF PH_VALVE_CALC > 100 THEN PH_VALVE_CALC = 100
+        PH_COIL_ENABLE = (PH_VALVE_CALC > 0)
+
+    CASE "COOLING"
+        IF RTU_MODE = "NIGHT_SETBACK" THEN
+            PH_VALVE_CALC = 0
+            PH_COIL_ENABLE = 0
+        ELSE
+            PH_VALVE_CALC = 0
+            PH_COIL_ENABLE = 0
+        ENDIF
+
+    CASE ELSE
+        PH_VALVE_CALC = 0
+        PH_COIL_ENABLE = 0
+    ENDSELECT

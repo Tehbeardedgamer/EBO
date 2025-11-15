@@ -1,27 +1,31 @@
 '=========================================================
-' DOAS_SAT_SP_Module
-' Computes a single SA temperature setpoint from mode.
+' DOAS_SAT_SP_Module  (with Occupied trim input)
+' Computes a single SA temperature setpoint from mode,
+' and applies SA_SP_TRIM during Occupied only (Seq 12i).
 '=========================================================
 
 NUMERIC INPUT DOAS_MODE            ' 0=OFF,1=PRE,2=WARMUP,3=COOLDOWN,4=OCC,5=UNOCC-PROTECT
 NUMERIC INPUT SAFETY_OK
 NUMERIC INPUT FREEZE_LATCH
 
+' ---- tie this from DOAS_SA_Temp_Reset_ByCFM_MaxOnly ----
+NUMERIC INPUT SA_SP_TRIM           ' °F (can be negative/positive)
+
 NUMERIC OUTPUT SA_SP               ' °F
 NUMERIC OUTPUT SAT_READY
 NUMERIC OUTPUT SAT_FAIL
 
-NUMERIC PUBLIC SA_SP_WARMUP        ' e.g., 95°F (or your DOAS value)
+NUMERIC PUBLIC SA_SP_WARMUP        ' e.g., 95°F (or per warmup curve if you add it)
 NUMERIC PUBLIC SA_SP_COOLDN        ' e.g., 55°F
-NUMERIC PUBLIC SA_SP_OCC           ' e.g., 60°F
-NUMERIC PUBLIC SA_SP_PROTECT       ' e.g., 65°F (light conditioning during protect)
+NUMERIC PUBLIC SA_SP_OCC           ' e.g., 74°F per sequence
+NUMERIC PUBLIC SA_SP_PROTECT       ' e.g., 65°F
 
 GOTO INI
 
 INI:
     IF SA_SP_WARMUP <= 0 THEN SA_SP_WARMUP = 95
     IF SA_SP_COOLDN <= 0 THEN SA_SP_COOLDN = 55
-    IF SA_SP_OCC <= 0 THEN SA_SP_OCC = 60
+    IF SA_SP_OCC <= 0 THEN SA_SP_OCC = 74   ' sequence cites 74°F cooling target
     IF SA_SP_PROTECT <= 0 THEN SA_SP_PROTECT = 65
     SA_SP = SA_SP_OCC
     SAT_READY = 1
@@ -30,13 +34,16 @@ INI:
 
 MAIN:
     SAT_FAIL = 0
+
+    ' Safety gating (valves have their own gates too)
     IF (SAFETY_OK = 0) OR (FREEZE_LATCH = 1) THEN
-        SA_SP = SA_SP_OCC   ' value won’t be acted on; valves are gated separately
+        SA_SP = SA_SP_OCC
         SAT_READY = 1
         WAIT 1
         GOTO MAIN
     ENDIF
 
+    ' Base setpoint by mode
     IF DOAS_MODE = 2 THEN ' WARMUP
         SA_SP = SA_SP_WARMUP
     ELSE
@@ -44,7 +51,8 @@ MAIN:
             SA_SP = SA_SP_COOLDN
         ELSE
             IF DOAS_MODE = 4 THEN ' OCCUPIED
-                SA_SP = SA_SP_OCC
+                ' Apply trim from 12(i) here
+                SA_SP = SA_SP_OCC + SA_SP_TRIM
             ELSE
                 IF DOAS_MODE = 5 THEN ' UNOCC-PROTECT
                     SA_SP = SA_SP_PROTECT

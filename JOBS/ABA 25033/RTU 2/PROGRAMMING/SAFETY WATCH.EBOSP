@@ -1,0 +1,62 @@
+'===========================================================
+' MODULE: RTU2_SAFETY_WATCH
+' PURPOSE: Aggregate safety inputs and maintain freeze latch
+'===========================================================
+
+NUMERIC INPUT FSD_SUPPLY_TRIP, FSD_RETURN_TRIP, FSD_OA_TRIP
+NUMERIC INPUT HIGH_STATIC_TRIP, RA_TEMP, SA_TEMP, MA_TEMP
+NUMERIC INPUT FREEZESTAT_TRIP_1, FREEZESTAT_TRIP_2, EMERGENCY_OFF
+NUMERIC OUTPUT RTU_SAFETY_OK, FREEZE_LATCH
+NUMERIC PUBLIC MANUAL_RESET_CMD
+STRING OUTPUT SAFETY_DESC
+
+NUMERIC ANY_TRIP
+
+GOTO WATCHING
+
+
+WATCHING:
+'-----------------------------------------------------------
+' FREEZE LATCH CONTROL
+'-----------------------------------------------------------
+IF (FREEZESTAT_TRIP_1 = TRUE) OR (FREEZESTAT_TRIP_2 = TRUE) OR (RA_TEMP < 35) OR (SA_TEMP < 35) OR (MA_TEMP < 35) THEN
+    FREEZE_LATCH = TRUE
+ENDIF
+
+IF MANUAL_RESET_CMD = TRUE THEN
+    WAIT 5
+    FREEZE_LATCH = FALSE
+    MANUAL_RESET_CMD = FALSE
+ENDIF
+
+'-----------------------------------------------------------
+' AGGREGATE SAFETY STATUS
+'-----------------------------------------------------------
+IF (FSD_SUPPLY_TRIP = TRUE) OR (FSD_RETURN_TRIP = TRUE) OR (HIGH_STATIC_TRIP = TRUE) OR (EMERGENCY_OFF = TRUE) OR (FREEZE_LATCH = TRUE) THEN
+    ANY_TRIP = TRUE
+ELSE
+    ANY_TRIP = FALSE
+ENDIF
+
+
+'-----------------------------------------------------------
+' OUTPUT RESULTS
+'-----------------------------------------------------------
+IF ANY_TRIP = 1 THEN
+    RTU_SAFETY_OK = FALSE
+    IF FSD_OA_TRIP = 1 THEN SAFETY_DESC = SAFETY_DESC & "OA FSD; "
+    IF FSD_SUPPLY_TRIP = 1 THEN SAFETY_DESC = SAFETY_DESC & "Supply FSD; "
+    IF FSD_RETURN_TRIP = 1 THEN SAFETY_DESC = SAFETY_DESC & "Return FSD; "
+    IF HIGH_STATIC_TRIP = 1 THEN SAFETY_DESC = SAFETY_DESC & "High Static; "
+    IF EMERGENCY_OFF = 1 THEN SAFETY_DESC = SAFETY_DESC & "EPO; "
+    IF FREEZE_LATCH = 1 THEN SAFETY_DESC = SAFETY_DESC & "Freeze Latch; "
+
+    IF (RA_TEMP < 35) OR (SA_TEMP < 35) OR (MA_TEMP < 35) THEN
+        SAFETY_DESC = "FREEZE STAT FAILED - LOW TEMP DETECTED"
+    ENDIF
+ELSE
+    RTU_SAFETY_OK = TRUE
+    SAFETY_DESC = "OK"
+ENDIF
+
+WAIT 1

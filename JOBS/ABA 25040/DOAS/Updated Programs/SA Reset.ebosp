@@ -1,0 +1,90 @@
+'=========================================================
+' DOAS_SA_Temp_Reset_ByCFM_MaxOnly   (Seq 12i)
+' Uses MAX_CFM_PCT from VAV aggregator to trim SA setpoint.
+'=========================================================
+
+' ---------- INPUTS ----------
+NUMERIC INPUT OCC_REQUEST           ' 1=occupied request
+NUMERIC INPUT MAX_CFM_PCT           ' max(VAV_i_CFM / VAV_i_MAX)*100
+
+' ---------- OUTPUTS ----------
+NUMERIC OUTPUT SA_SP_TRIM           ' °F (additive)
+NUMERIC OUTPUT SA_SP_EFFECTIVE      ' °F (base + trim)
+
+' ---------- PUBLICS ----------
+NUMERIC PUBLIC SA_SP_BASE           ' °F base OCC setpoint (e.g., 74)
+NUMERIC PUBLIC TRIM_STEP_F          ' °F per poll (default 0.25)
+NUMERIC PUBLIC TRIM_MIN_F           ' °F lower bound (e.g., -5)
+NUMERIC PUBLIC TRIM_MAX_F           ' °F upper bound (e.g., +5)
+NUMERIC PUBLIC START_DELAY_S        ' s after OCC start (3600)
+NUMERIC PUBLIC POLL_PERIOD_S        ' s between polls (900)
+
+' Thresholds (percent of max CFM)
+NUMERIC PUBLIC HIGH_CFM_PCT       ' default 100
+NUMERIC PUBLIC LOW_CMF_PCT     ' default 75
+
+' ---------- INTERNALS ----------
+NUMERIC occ_timer_s
+NUMERIC t_poll
+NUMERIC armed
+
+GOTO INI
+
+INI:
+  IF SA_SP_BASE     <= 0 THEN SA_SP_BASE     = 74
+  IF TRIM_STEP_F    <= 0 THEN TRIM_STEP_F    = 0.25
+  IF TRIM_MIN_F      = 0 THEN TRIM_MIN_F     = -5.0
+  IF TRIM_MAX_F      = 0 THEN TRIM_MAX_F     =  5.0
+  IF START_DELAY_S  <= 0 THEN START_DELAY_S  = 3600
+  IF POLL_PERIOD_S  <= 0 THEN POLL_PERIOD_S  = 900
+  IF HIGH_CFM_PCT <= 0 THEN HIGH_CFM_PCT = 100
+  IF LOW_CMF_PCT <= 0 THEN LOW_CMF_PCT = 75
+
+  SA_SP_TRIM = 0
+  SA_SP_EFFECTIVE = SA_SP_BASE
+  occ_timer_s = 0
+  t_poll = 0
+  armed = 0
+GOTO MAIN
+
+MAIN:
+  ' Track time since OCC start (internal)
+  IF OCC_REQUEST = 1 THEN
+    IF occ_timer_s < 86400 THEN occ_timer_s = occ_timer_s + 1 ' cap at a day
+  ELSE
+    occ_timer_s = 0
+    t_poll = 0
+  ENDIF
+
+  ' Arm after start delay
+  IF (OCC_REQUEST = 1) AND (occ_timer_s >= START_DELAY_S) THEN
+    armed = 1
+  ELSE
+    armed = 0
+  ENDIF
+
+  ' Polling timer
+  IF armed = 1 THEN
+    IF t_poll < POLL_PERIOD_S THEN
+      t_poll = t_poll + 1
+    ELSE
+      t_poll = 0
+      ' ---- 12(i) adjustments ----
+      IF MAX_CFM_PCT >= HIGH_CFM_PCT THEN
+        SA_SP_TRIM = SA_SP_TRIM - TRIM_STEP_F   ' lower SA temp
+      ELSE
+      IF MAX_CFM_PCT <= LOW_CMF_PCT THEN
+        SA_SP_TRIM = SA_SP_TRIM + TRIM_STEP_F   ' raise SA temp
+      ENDIF
+
+      ' Clamp trim
+      IF SA_SP_TRIM < TRIM_MIN_F THEN SA_SP_TRIM = TRIM_MIN_F
+      IF SA_SP_TRIM > TRIM_MAX_F THEN SA_SP_TRIM = TRIM_MAX_F
+    ENDIF
+  ENDIF
+  ENDIF
+
+  SA_SP_EFFECTIVE = SA_SP_BASE + SA_SP_TRIM
+
+  WAIT 1
+GOTO MAIN

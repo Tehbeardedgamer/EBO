@@ -1,0 +1,36 @@
+' Purpose: Modulates humidifier to maintain supply air dew point
+' Dew Point is calculated from SA temp and RH
+' Output: HUMIDIFIER_CMD_CALC (%)
+' Safety: Disabled when MA temp ? 45°F
+
+NUMERIC INPUT SA_TEMP, SA_RH, MA_TEMP, DEWPOINT_SP
+NUMERIC OUTPUT HUMIDIFIER_CMD_CALC
+
+NUMERIC PK, IK, DK, OLDERR, I_HUM
+NUMERIC PUBLIC DEWPOINT
+FUNCTION PID_CTRL
+
+GOTO INIT
+
+INIT:
+    PK = 1.0
+    IK = 0.10
+    DK = 0.01	
+    OLDERR = 0
+    I_HUM = 0
+    GOTO CONTROL_LOOP
+
+CONTROL_LOOP:
+' Calculate dew point (°F)
+    DEWPOINT = SA_TEMP - ((100 - SA_RH) / 5)
+
+' Enable control only if MA temp is safe
+    IF MA_TEMP > 45 THEN
+        HUMIDIFIER_CMD_CALC = PID_CTRL(0,DEWPOINT, DEWPOINT_SP, I_HUM, PK, IK, DK,OLDERR)
+    ELSE
+        HUMIDIFIER_CMD_CALC = 0
+        I_HUM = 0
+    ENDIF
+
+    WAIT 30
+    GOTO CONTROL_LOOP

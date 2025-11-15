@@ -1,0 +1,13 @@
+'===========================================================
+' MODULE: RTU2_PH_PUMP_CALC
+' PURPOSE: Run preheat pump when valve enabled or freeze
+'===========================================================
+
+NUMERIC INPUT PH_COIL_ENABLE, FREEZE_TRIP
+NUMERIC OUTPUT PH_PUMP_SS
+
+IF (PH_COIL_ENABLE = 1) OR (FREEZE_TRIP = 1) THEN
+    PH_PUMP_SS = 1
+ELSE
+    PH_PUMP_SS = 0
+ENDIF

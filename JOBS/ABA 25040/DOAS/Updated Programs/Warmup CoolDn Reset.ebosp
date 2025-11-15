@@ -1,0 +1,87 @@
+'=========================================================
+' DOAS_WarmCool_Reset
+' - Warm-Up: SA_SP resets linearly 80->70°F as RA 60->70°F
+' - Cool-Down: SA_SP fixed at 55°F (adj.)
+' - Publishes RETURN_ONLY_REQ = 1 during modes 2 & 3
+'=========================================================
+
+' ------------------------- INPUTS -------------------------
+NUMERIC INPUT DOAS_MODE          ' 0=OFF,1=PRE,2=WARMUP,3=COOLDOWN,4=OCC,5=UNOCC-PROTECT
+NUMERIC INPUT RA_TEMP            ' °F
+
+' ------------------------- OUTPUTS ------------------------
+NUMERIC OUTPUT SA_SP_WARMUP_CALC ' °F (linear result for mode 2)
+NUMERIC OUTPUT SA_SP_COOLDN_CALC ' °F (fixed result for mode 3)
+NUMERIC OUTPUT WARMUP_ACTIVE     ' 1 when mode=2
+NUMERIC OUTPUT COOLDN_ACTIVE     ' 1 when mode=3
+NUMERIC OUTPUT RETURN_ONLY_REQ   ' 1 when mode=2 or 3 (100% return air per seq)
+
+' ------------------------- PUBLICS (ADJ) ------------------
+' Warm-Up thresholds & targets
+NUMERIC PUBLIC WARMUP_START        ' RA at which warm-up begins (default 60)
+NUMERIC PUBLIC WARMUP_EXIT         ' RA at which warm-up ends   (default 70)
+NUMERIC PUBLIC WARMUP_HIGH_SP        ' SA_SP at RA=WU_ENTER (default 80)
+NUMERIC PUBLIC WARMUP_LOW_SP        ' SA_SP at RA=WU_EXIT  (default 70)
+
+' Cool-Down thresholds & target
+NUMERIC PUBLIC COOLDN_START        ' RA at which cool-down begins (default 80)
+NUMERIC PUBLIC COOLDN_EXIT         ' RA at which cool-down ends   (default 70)
+NUMERIC PUBLIC COOLDN_SP           ' SA_SP during cool-down (default 55)
+
+' ------------------------- INTERNALS ----------------------
+NUMERIC span_ra, span_sp, ratio, sp_lin
+
+GOTO INI
+
+INI:
+  ' Defaults per sequence text
+  IF WARMUP_START <= 0 THEN WARMUP_START = 60
+  IF WARMUP_EXIT  <= 0 THEN WARMUP_EXIT  = 70
+  IF WARMUP_HIGH_SP <= 0 THEN WARMUP_HIGH_SP = 80
+  IF WARMUP_LOW_SP <= 0 THEN WARMUP_LOW_SP = 70
+
+  IF COOLDN_START <= 0 THEN COOLDN_START = 80
+  IF COOLDN_EXIT  <= 0 THEN COOLDN_EXIT  = 70
+  IF COOLDN_SP    <= 0 THEN COOLDN_SP    = 55
+
+  SA_SP_WARMUP_CALC = WARMUP_HIGH_SP
+  SA_SP_COOLDN_CALC = COOLDN_SP
+  WARMUP_ACTIVE = 0
+  COOLDN_ACTIVE = 0
+  RETURN_ONLY_REQ = 0
+GOTO MAIN
+
+MAIN:
+  ' Status flags
+  WARMUP_ACTIVE = (DOAS_MODE = 2)
+  COOLDN_ACTIVE = (DOAS_MODE = 3)
+  RETURN_ONLY_REQ = (WARMUP_ACTIVE = 1) OR (COOLDN_ACTIVE = 1)
+
+  ' ---------- Warm-Up linear reset (mode 2) ----------
+  span_ra = (WARMUP_EXIT - WARMUP_START)
+  span_sp = (WARMUP_HIGH_SP - WARMUP_LOW_SP)  ' amount to reduce across the band
+
+  IF span_ra <= 0 THEN
+    ' invalid config; fall back to high setpoint
+    SA_SP_WARMUP_CALC = WARMUP_HIGH_SP
+  ELSE
+    IF RA_TEMP <= WARMUP_START THEN
+      SA_SP_WARMUP_CALC = WARMUP_HIGH_SP
+    ELSE
+    IF RA_TEMP >= WARMUP_EXIT THEN
+      SA_SP_WARMUP_CALC = WARMUP_LOW_SP
+    ELSE
+      ' Linear interpolation: 80 -> 70 as RA 60 -> 70
+      ratio = (RA_TEMP - WARMUP_START) / span_ra   ' 0..1
+      sp_lin = WARMUP_HIGH_SP - (span_sp * ratio)
+      SA_SP_WARMUP_CALC = sp_lin
+    ENDIF
+  ENDIF
+  ENDIF
+
+
+  ' ---------- Cool-Down fixed target (mode 3) ----------
+  SA_SP_COOLDN_CALC = COOLDN_SP
+
+  WAIT 1
+GOTO MAIN

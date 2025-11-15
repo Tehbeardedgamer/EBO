@@ -1,0 +1,24 @@
+'===========================================================
+' MODULE: ENTHALPY_CALC
+' PURPOSE: Calculate OA and RA enthalpy (Btu/lb)
+'===========================================================
+
+NUMERIC INPUT OA_TEMP, OA_HUMIDITY, RA_TEMP, RA_HUMIDITY
+NUMERIC OUTPUT OA_ENTHALPY, RA_ENTHALPY
+
+FUNCTION ENTHALPY_FCT
+
+NUMERIC T
+
+GOTO INITIALIZE
+
+INITIALIZE:
+
+GOTO LOGIC
+LOGIC:
+
+
+  OA_ENTHALPY = ENTHALPY_FCT(OA_TEMP, OA_HUMIDITY)
+  RA_ENTHALPY = ENTHALPY_FCT(RA_TEMP, RA_HUMIDITY)
+  
+

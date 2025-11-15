@@ -1,0 +1,35 @@
+' Purpose: Determines operational mode: COOLING, HEATING, ECONOMIZER, or FREEZE PROTECTION
+' Dependencies: Requires OA_TEMP, MA_TEMP, RA_TEMP, SA_TEMP, and FREEZESTATs
+' Safety: Prioritizes freeze protection
+
+NUMERIC INPUT OA_TEMP, SA_TEMP, RA_TEMP, FREEZESTAT_1, FREEZESTAT_2
+STRING OUTPUT MODE
+
+GOTO DETERMINEMODE
+
+DETERMINEMODE:
+' Freeze Protection – Highest Priority
+    IF (FREEZESTAT_1 = 1 OR FREEZESTAT_2 = 1) THEN
+        MODE = "FREEZE PROTECTION"
+        GOTO WAIT_LOOP
+    ENDIF
+
+' Cooling Mode – OA hotter than RA by 2°F
+    IF (OA_TEMP > RA_TEMP + 2) THEN
+        MODE = "COOLING"
+        GOTO WAIT_LOOP
+    ENDIF
+
+' Heating Mode – OA is significantly cooler than SA setpoint
+    IF (OA_TEMP < SA_TEMP - 2) THEN
+        MODE = "HEATING"
+        GOTO WAIT_LOOP
+    ENDIF
+
+' Default Fallback
+    MODE = "OFF"
+    GOTO WAIT_LOOP
+
+WAIT_LOOP:
+    WAIT 60
+    GOTO DETERMINEMODE

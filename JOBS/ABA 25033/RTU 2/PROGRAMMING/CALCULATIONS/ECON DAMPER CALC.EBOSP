@@ -1,0 +1,56 @@
+'===========================================================
+' MODULE: RTU2_ECON_DAMPER_CALC
+' PURPOSE: Modulate shared OA/MA economizer damper
+' NOTES :
+'   - OA and MA dampers are mechanically linked (single actuator)
+'   - Direct-acting control (0% = closed, 100% = full OA)
+'   - PID loop maintains Mixed Air Temp (MA_TEMP) at DAT_SP
+'===========================================================
+
+STRING INPUT ECON_MODE
+NUMERIC INPUT MA_TEMP, DAT_SP, OA_DAMPER_MIN
+NUMERIC OUTPUT ECON_DAMPER_CALC
+
+NUMERIC OLDERR, PK, IK, DK, I_DMP
+FUNCTION PID_CTRL
+
+GOTO INITIALIZE
+
+INITIALIZE:
+    '-----------------------------------------------------------
+    ' PID parameter initialization
+    '-----------------------------------------------------------
+    OLDERR = 0
+    PK = 0.10        ' Proportional gain
+    IK = 0.01        ' Integral gain
+    DK = 0.00        ' Derivative gain (optional)
+    I_DMP = 50       ' Starting integral bias (%)
+    '-----------------------------------------------------------
+
+    GOTO LOGIC
+
+LOGIC:
+    SELECT CASE ECON_MODE
+
+    CASE "FREEZE PROTECTION"
+        ECON_DAMPER_CALC = 0
+
+    CASE "NO ECONOMIZER"
+        ECON_DAMPER_CALC = OA_DAMPER_MIN
+
+    CASE "FULL ECONOMIZER"
+        ECON_DAMPER_CALC = 100
+
+    CASE "MOD ECONOMIZER"
+        '-------------------------------------------------------
+        ' Direct-acting PID: opens damper as MA_TEMP > DAT_SP,
+        ' closes damper as MA_TEMP < DAT_SP.
+        '-------------------------------------------------------
+        ECON_DAMPER_CALC = PID_CTRL(0, MA_TEMP, DAT_SP, I_DMP, PK, IK, DK, OLDERR)
+        IF ECON_DAMPER_CALC < OA_DAMPER_MIN THEN ECON_DAMPER_CALC = OA_DAMPER_MIN
+        IF ECON_DAMPER_CALC > 100 THEN ECON_DAMPER_CALC = 100
+
+    CASE ELSE
+        ECON_DAMPER_CALC = OA_DAMPER_MIN
+
+    ENDSELECT

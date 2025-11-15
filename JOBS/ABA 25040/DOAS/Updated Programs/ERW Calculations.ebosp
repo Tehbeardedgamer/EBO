@@ -1,0 +1,170 @@
+'=========================================================
+' DOAS_ERV_Wheel_Module
+' - Modulates ERV wheel VFD to maintain SA_TEMP at SA_SP
+'   (first stage of heating/cooling per sequence)
+' - Disables during Warm-Up / Cool-Down (return-only)
+' - Frost protection: run 10s every 30min when OAT below setpoint;
+'   otherwise wheel stopped during frost mode.
+'=========================================================
+
+' ------------------------- INPUTS -------------------------
+NUMERIC INPUT DOAS_MODE              ' 0=OFF,1=PRE,2=WARMUP,3=COOLDOWN,4=OCC,5=UNOCC-PROTECT
+NUMERIC INPUT SAFETY_OK
+NUMERIC INPUT FREEZE_LATCH
+
+NUMERIC INPUT SA_TEMP                ' °F (discharge/supply air temp)
+NUMERIC INPUT SA_SP                  ' °F (from SAT module)
+
+NUMERIC INPUT OA_TEMP                ' °F (for frost protection threshold)
+' (optional economizer availability; set to 0 if unused)
+NUMERIC INPUT ECON_AVAILABLE         ' 1=OA enthalpy < RA enthalpy AND OA DB < 65°F
+
+' ------------------------- OUTPUTS ------------------------
+NUMERIC OUTPUT ERW_ENABLE_CALC       ' 0/1
+NUMERIC OUTPUT ERW_SPEED_CALC        ' 0–100 %
+NUMERIC OUTPUT ERW_READY
+NUMERIC OUTPUT ERW_FAIL
+
+' ------------------------- PUBLICS / TUNABLES -------------
+' PID tuning (DAT control)
+NUMERIC PUBLIC KP, KI, KD
+NUMERIC PUBLIC I_TERM, OLD_ERR
+
+' Mode limits
+NUMERIC INPUT MAX_SPEED             ' cap (%)
+NUMERIC INPUT MIN_SPEED_ACTIVE      ' floor when actively modulating (%)
+
+' Frost protection
+NUMERIC INPUT FROST_OAT_SP          ' °F; if OA_TEMP < this, frost mode active
+NUMERIC INPUT FROST_RUN_SEC         ' seconds to run each cycle (default 10)
+NUMERIC INPUT FROST_PERIOD_SEC      ' period between runs (default 1800 = 30min)
+
+' Slew (optional but keeps it smooth)
+NUMERIC PUBLIC RATE_UP_PCT_S
+NUMERIC PUBLIC RATE_DN_PCT_S
+NUMERIC PUBLIC CMD_DEADBAND
+
+FUNCTION PID_LOOP
+
+' ------------------------- INTERNALS ----------------------
+NUMERIC last_cmd, ERW_CALC, i
+NUMERIC frost_timer, defrost
+NUMERIC in_frost
+
+GOTO INI
+
+INI:
+  ' PID defaults
+  IF KP <= 0 THEN KP = 1.0
+  IF KI < 0 THEN KI = 0.10
+  IF KD < 0 THEN KD = 0.00
+
+
+  ' Slew
+  IF RATE_UP_PCT_S <= 0 THEN RATE_UP_PCT_S = 10
+  IF RATE_DN_PCT_S <= 0 THEN RATE_DN_PCT_S = 15
+  IF CMD_DEADBAND  <  0 THEN CMD_DEADBAND  = 0.5
+
+  I_TERM = 0 
+  OLD_ERR = 0
+  ERW_ENABLE_CALC = 0
+  ERW_SPEED_CALC = 0
+  ERW_READY = 1
+  ERW_FAIL = 0
+  last_cmd = 0
+  frost_timer = 0
+  defrost = 0
+  in_frost = 0
+GOTO MAIN
+
+MAIN:
+  ERW_FAIL = 0
+  ERW_READY = 1
+
+  ' ---------- Global gates ----------
+  IF (SAFETY_OK = 0) OR (FREEZE_LATCH = 1) THEN
+    ERW_ENABLE_CALC = 0
+    ERW_SPEED_CALC = 0
+    last_cmd = 0
+    I_TERM = 0
+    WAIT 1 
+    GOTO MAIN
+  ENDIF
+
+  ' ---------- Warm-Up / Cool-Down -> return-only (sequence says 100% RA) ----------
+  IF (DOAS_MODE = 2) OR (DOAS_MODE = 3) THEN
+    ERW_ENABLE_CALC = 0
+    ERW_SPEED_CALC = 0
+    last_cmd = 0
+    I_TERM = 0
+    WAIT 1 
+    GOTO MAIN
+  ENDIF
+
+  ' ---------- Frost protection logic ----------
+  in_frost = (OA_TEMP < FROST_OAT_SP)
+
+  IF in_frost = 1 THEN
+    ' Periodic short run to clear frost; otherwise stop
+    frost_timer = frost_timer + 1
+    IF frost_timer >= FROST_PERIOD_SEC THEN
+      frost_timer = 0
+      defrost = FROST_RUN_SEC
+    ENDIF
+
+    IF defrost > 0 THEN
+      defrost = defrost - 1
+      ERW_ENABLE_CALC = 1
+      ERW_SPEED_CALC = MAX_SPEED      ' brief full run to shed frost
+      last_cmd = ERW_SPEED_CALC
+    ELSE
+      ERW_ENABLE_CALC = 0
+      ERW_SPEED_CALC = 0
+      last_cmd = 0
+    ENDIF
+
+    WAIT 1 
+    GOTO MAIN
+  ENDIF
+
+  ' ---------- Normal modulation (Occupied / Protect) ----------
+  IF (DOAS_MODE = 4) OR (DOAS_MODE = 5) THEN
+    ' First stage to meet SA_SP
+    ERW_ENABLE_CALC = 1
+
+    ' PID on DAT to SA_SP; reverse/dir: hotter than SP => want more cooling via wheel
+    ' Treat as reverse-acting for cooling side and direct-acting for heating; a simple
+    ' approach is to let PID run as reverse-acting on SA_TEMP error sign.
+    ' Use reverse-acting flag=1 so higher SA_TEMP -> higher wheel speed.
+    ERW_CALC = PID_LOOP(1, SA_TEMP, SA_SP, I_TERM, KP, KI, KD, OLD_ERR)
+
+    ' Clamp & floor when active
+    IF ERW_CALC > MAX_SPEED THEN ERW_CALC = MAX_SPEED
+    IF ERW_CALC < 0 THEN ERW_CALC = 0
+    IF ERW_CALC > 0 AND ERW_CALC < MIN_SPEED_ACTIVE THEN ERW_CALC = MIN_SPEED_ACTIVE
+
+    ' Slew
+    IF ERW_CALC > last_cmd + RATE_UP_PCT_S THEN
+      ERW_SPEED_CALC = last_cmd + RATE_UP_PCT_S
+    ELSE
+    IF ERW_CALC < last_cmd - RATE_DN_PCT_S THEN
+      ERW_SPEED_CALC = last_cmd - RATE_DN_PCT_S
+    ELSE
+      ERW_SPEED_CALC = ERW_CALC
+    ENDIF
+ENDIF
+    IF ABS(ERW_SPEED_CALC - last_cmd) < CMD_DEADBAND THEN
+      ERW_SPEED_CALC = last_cmd
+    ENDIF
+    last_cmd = ERW_SPEED_CALC
+
+  ELSE
+    ' OFF/PRE fall-through safety
+    ERW_ENABLE_CALC = 0
+    ERW_SPEED_CALC = 0
+    last_cmd = 0
+    I_TERM = 0
+  ENDIF
+
+  WAIT 1
+GOTO MAIN
