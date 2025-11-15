@@ -1,0 +1,183 @@
+' =========================================================
+' PROGRAM: FCU_SPACE_TEMP_CONTROL
+' PURPOSE: Space temperature control using external PIDControl()
+'          - PID #1 = Cooling (CHW Valve)
+'          - PID #2 = Heating (HW Valve)
+'          - Stage 2 = Electric Reheat added after HW PID saturates
+' NOTES:
+'   - Uses loop-based structure: INIT runs once, then MAIN/WAITLOOP.
+'   - PIDControl() is defined externally and expects:
+'        PIDControl(ReverseActing, PV, SP, Integral, PK, IK, DK, OldError)
+' =========================================================
+
+' ======================== INPUTS ==========================
+NUMERIC INPUT SPACE_TEMP            ' Space temperature °F
+NUMERIC INPUT OCCUPIED_CMD          ' 0/1 – From Mode Manager (effective occupied)
+NUMERIC INPUT SPACE_SP_OCC          ' Space temperature setpoint (occupied)
+
+' ---- Cooling PID Tunables ----
+NUMERIC INPUT CLG_PK                ' Cooling proportional gain
+NUMERIC INPUT CLG_IK                ' Cooling integral gain
+NUMERIC INPUT CLG_DK                ' Cooling derivative gain
+
+' ---- Heating PID Tunables ----
+NUMERIC INPUT HTG_PK                ' Heating proportional gain
+NUMERIC INPUT HTG_IK                ' Heating integral gain
+NUMERIC INPUT HTG_DK                ' Heating derivative gain
+
+' ---- Electric Heat Gain ----
+NUMERIC INPUT EDH_GAIN              ' %/°F - Gain for stage-2 electric heat
+
+' ---- Deadband ----
+NUMERIC INPUT DBAND                 ' °F - Deadband around setpoint
+
+' ======================== OUTPUTS =========================
+NUMERIC OUTPUT CHW_VALVE_CMD        ' 0–100% Cooling (CHW valve) command
+NUMERIC OUTPUT HW_VALVE_CMD         ' 0–100% Heating Stage #1 (HW valve) command
+NUMERIC OUTPUT EDH_CMD              ' 0–100% Heating Stage #2 (EDH) command
+NUMERIC OUTPUT ACTIVE_SP            ' Current control setpoint for graphic/trend
+
+' ======================== INTERNALS ========================
+' PID #1 – Cooling internal state
+NUMERIC CLG_I                       ' Cooling integral term storage
+NUMERIC CLG_OLDERR                  ' Prior error used for derivative term
+
+' PID #2 – Heating internal state
+NUMERIC HTG_I                       ' Heating integral term storage
+NUMERIC HTG_OLDERR                  ' Prior error used for derivative term
+
+' PID error magnitudes (for reference / logic)
+NUMERIC cool_err
+NUMERIC heat_err
+NUMERIC extra_heat_err
+
+' External PIDControl declaration (implementation is global)
+Function PIDControl
+
+' ========================= PROGRAM =========================
+' Loop-based structure:
+'  - First entry: GOTO INIT
+'  - INIT initializes variables and jumps to MAIN
+'  - MAIN executes once per loop, then flows to WAITLOOP
+'  - WAITLOOP watches TS and jumps back to MAIN when TS > 10
+
+GOTO INIT
+
+INIT:
+    ' Initialize outputs and PID internals on first run
+    ACTIVE_SP = SPACE_SP_OCC
+    CHW_VALVE_CMD = 0
+    HW_VALVE_CMD = 0
+    EDH_CMD = 0
+
+    CLG_I = 0
+    CLG_OLDERR = 0
+
+    HTG_I = 0
+    HTG_OLDERR = 0
+
+    ' After one-time init, jump directly into MAIN control loop
+    GOTO MAIN
+
+' ========================= MAIN LOOP =======================
+MAIN:
+
+    ' ----------- If not occupied: Fully off -----------------
+    ' If the mode manager says not occupied, shut down all
+    ' temperature-driven outputs but preserve PID state for when
+    ' the unit comes back.
+    IF OCCUPIED_CMD = 0 THEN
+        ACTIVE_SP = SPACE_SP_OCC
+        CHW_VALVE_CMD = 0
+        HW_VALVE_CMD = 0
+        EDH_CMD = 0
+        GOTO WAITLOOP
+    ENDIF
+
+    ' Active setpoint is currently just the occupied SP, but this
+    ' is broken out so future logic (e.g. reset) can adjust it.
+    ACTIVE_SP = SPACE_SP_OCC
+
+    ' =========================================================
+    '                        COOLING MODE
+    ' Condition: Space is warmer than SP + DBAND
+    ' =========================================================
+    IF SPACE_TEMP > (ACTIVE_SP + DBAND) THEN
+
+        ' Error is how far above the upper deadband edge we are
+        cool_err = SPACE_TEMP - (ACTIVE_SP + DBAND)
+        IF cool_err < 0 THEN cool_err = 0
+
+        ' External PIDControl (Cooling)
+        ' ReverseActing = 0 (We want output ↑ when Temp > SP)
+        CHW_VALVE_CMD = PIDControl(0, SPACE_TEMP, (ACTIVE_SP + DBAND),CLG_I, CLG_PK, CLG_IK, CLG_DK, CLG_OLDERR)
+
+        ' Clamp for safety to 0–100%
+        IF CHW_VALVE_CMD < 0 THEN CHW_VALVE_CMD = 0
+        IF CHW_VALVE_CMD > 100 THEN CHW_VALVE_CMD = 100
+
+        ' When cooling, all heating stages are off
+        HW_VALVE_CMD = 0
+        EDH_CMD = 0
+
+        GOTO WAITLOOP
+    ENDIF
+
+    ' =========================================================
+    '                        HEATING MODE
+    ' Condition: Space is cooler than SP - DBAND
+    ' =========================================================
+    IF SPACE_TEMP < (ACTIVE_SP - DBAND) THEN
+
+        ' Error is how far below the lower deadband edge we are
+        heat_err = (ACTIVE_SP - DBAND) - SPACE_TEMP
+        IF heat_err < 0 THEN heat_err = 0
+
+        ' External PIDControl (Heating)
+        ' ReverseActing = 1 (We want output ↑ when Temp < SP)
+        HW_VALVE_CMD = PIDControl(1, SPACE_TEMP, (ACTIVE_SP - DBAND), HTG_I, HTG_PK, HTG_IK, HTG_DK, HTG_OLDERR)
+
+        ' Clamp for safety to 0–100%
+        IF HW_VALVE_CMD < 0 THEN HW_VALVE_CMD = 0
+        IF HW_VALVE_CMD > 100 THEN HW_VALVE_CMD = 100
+
+        ' Cooling is off in heating mode
+        CHW_VALVE_CMD = 0
+
+        ' ----------- Stage 2 Electric Heat (EDH) --------------
+        ' EDH only comes in when HW valve is essentially maxed out.
+        IF HW_VALVE_CMD >= 98 THEN
+
+            ' Remaining "uncovered" error (beyond what full HW can do)
+            extra_heat_err = heat_err - (HW_VALVE_CMD / HTG_PK)
+            IF extra_heat_err < 0 THEN extra_heat_err = 0
+
+            ' EDH proportional gain on extra error
+            EDH_CMD = extra_heat_err * EDH_GAIN
+            IF EDH_CMD > 100 THEN EDH_CMD = 100
+
+        ELSE
+            ' HW not maxed yet, EDH off
+            EDH_CMD = 0
+        ENDIF
+
+        GOTO WAITLOOP
+    ENDIF
+
+    ' =========================================================
+    '                      WITHIN DEADBAND
+    ' Condition: SP - DBAND <= SPACE_TEMP <= SP + DBAND
+    ' All stages off and let the space coast.
+    ' =========================================================
+    CHW_VALVE_CMD = 0
+    HW_VALVE_CMD = 0
+    EDH_CMD = 0
+
+' =========================================================
+' WAIT LOOP
+' This implements your loop-based timing. TS is assumed to be
+' a timer increasing with script runtime. When TS is > 10,
+' MAIN is re-entered to execute control logic again.
+' =========================================================
+WAITLOOP:
+    IF TS > 10 THEN GOTO MAIN
