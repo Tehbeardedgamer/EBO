@@ -1,0 +1,170 @@
+'=========================================================
+' DOAS_CHW_VALVE_CALC  (GOLD / SEQUENCE-CORRECT)
+'
+' PURPOSE:
+'   Calculate chilled water valve command for DOAS unit.
+'
+' SEQUENCE BASIS:
+'   - CHW is LAST stage of cooling
+'   - CHW disabled whenever economizer is available
+'   - CHW modulates to maintain SA temperature setpoint
+'
+' ECONOMIZER INTERFACE:
+'   - Uses ECON_AVAILABLE (0/1)
+'   - Does NOT use ECON_STATE
+'
+'=========================================================
+
+
+' ------------------------- INPUTS -------------------------
+NUMERIC INPUT SA_TEMP
+' Linked from: Supply Air Temperature sensor (EBO AI)
+
+NUMERIC INPUT SA_SP
+' Linked from: DOAS_SAT_SP_Module (final supply air setpoint)
+
+NUMERIC INPUT DOAS_MODE
+' Linked from: DETERMINE_MODE script
+
+NUMERIC INPUT SAFETY_OK
+' Linked from: Safety / Mode script (1 = OK)
+
+NUMERIC INPUT FREEZE_LATCH
+' Linked from: Freeze logic (1 = freeze active)
+
+NUMERIC INPUT ECON_AVAILABLE
+' Linked from: DETERMINE_ECONOMIZER (1 = economizer allowed)
+
+
+' ------------------------- OUTPUT -------------------------
+NUMERIC OUTPUT CHW_CMD_CALC
+' Linked to: MAIN_DOAS_ORCHESTRATOR → CHW_VLV_CMD → AO
+
+
+' ------------------------- PUBLIC TUNABLES ----------------
+NUMERIC PUBLIC KP
+' Proportional gain (e.g. 4–8)
+
+NUMERIC PUBLIC KI
+' Integral gain (e.g. 0.05–0.15)
+
+NUMERIC PUBLIC COOL_DB
+' Cooling deadband (°F), e.g. 0.5
+
+NUMERIC PUBLIC MAX_CMD
+' Max valve command (normally 100)
+
+
+' ------------------------- INTERNALS ----------------------
+NUMERIC ERR
+NUMERIC PID_OUT
+NUMERIC I_TERM
+NUMERIC OLD_ERR
+
+FUNCTION PID_LOOP
+
+
+'=========================================================
+GOTO INIT
+
+
+'=========================================================
+INIT:
+
+    IF KP <= 0 THEN
+        KP = 6
+    ENDIF
+
+    IF KI < 0 THEN
+        KI = 0.1
+    ENDIF
+
+    IF COOL_DB <= 0 THEN
+        COOL_DB = 0.5
+    ENDIF
+
+    IF MAX_CMD <= 0 THEN
+        MAX_CMD = 100
+    ENDIF
+
+    I_TERM = 0
+    OLD_ERR = 0
+    CHW_CMD_CALC = 0
+
+    GOTO MAIN
+
+
+    '=========================================================
+MAIN:
+
+    '---------------------------------------------------------
+    ' 1) HARD DISABLE CONDITIONS
+    '---------------------------------------------------------
+    IF SAFETY_OK = 0 THEN
+        CHW_CMD_CALC = 0
+        I_TERM = 0
+        WAIT 1
+        GOTO MAIN
+    ENDIF
+
+    IF FREEZE_LATCH = 1 THEN
+        CHW_CMD_CALC = 0
+        I_TERM = 0
+        WAIT 1
+        GOTO MAIN
+    ENDIF
+
+    '---------------------------------------------------------
+    ' 2) MODE CHECK (cooling-capable modes only)
+    '---------------------------------------------------------
+    IF DOAS_MODE <> 3 THEN
+        IF DOAS_MODE <> 4 THEN
+            CHW_CMD_CALC = 0
+            I_TERM = 0
+            WAIT 1
+            GOTO MAIN
+        ENDIF
+    ENDIF
+
+    '---------------------------------------------------------
+    ' 3) ECONOMIZER OVERRIDE (key patch)
+    '---------------------------------------------------------
+    IF ECON_AVAILABLE = 1 THEN
+        CHW_CMD_CALC = 0
+        I_TERM = 0
+        WAIT 1
+        GOTO MAIN
+    ENDIF
+
+    '---------------------------------------------------------
+    ' 4) TEMPERATURE ERROR
+    '---------------------------------------------------------
+    ERR = SA_TEMP - SA_SP
+
+    '---------------------------------------------------------
+    ' 5) DEADBAND HANDLING (NO CHATTER)
+    '---------------------------------------------------------
+    IF ERR <= COOL_DB THEN
+        CHW_CMD_CALC = 0
+        WAIT 1
+        GOTO MAIN
+    ENDIF
+
+    '---------------------------------------------------------
+    ' 6) PID MODULATION
+    '---------------------------------------------------------
+    PID_OUT = PID_LOOP(0, SA_TEMP, SA_SP, I_TERM, KP, KI, 0, OLD_ERR)
+
+    ' Clamp output
+    IF PID_OUT < 0 THEN
+        PID_OUT = 0
+    ENDIF
+
+    IF PID_OUT > MAX_CMD THEN
+        PID_OUT = MAX_CMD
+    ENDIF
+
+    CHW_CMD_CALC = PID_OUT
+
+    WAIT 1
+    GOTO MAIN

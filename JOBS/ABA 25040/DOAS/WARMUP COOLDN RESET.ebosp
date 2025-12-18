@@ -1,0 +1,201 @@
+'=========================================================
+' DOAS_WU_CD_SAT_RESET_GOLD
+'
+' PURPOSE:
+'   Determines the BASE Supply Air Temperature Setpoint (SAT_BASE_SP)
+'   for the DOAS unit based on operating mode and return air temperature.
+'
+'   This script implements ONLY the logic explicitly defined in the
+'   DOAS sequence for Warm-Up and Cool-Down.
+'
+' MODE BEHAVIOR:
+'   - WARMUP (Mode 2):
+'       * SAT resets LINEARLY from 80°F → 70°F
+'       * As RA temperature rises from 60°F → 70°F
+'       * All VAVs are requested to open to MAX airflow
+'
+'   - COOLDOWN (Mode 3):
+'       * SAT is forced to a fixed cold value (55°F typical)
+'       * All VAVs are requested to open to MAX airflow
+'
+'   - All other modes:
+'       * SAT = SAT_OCC_BASE (normal occupied baseline)
+'       * No VAV override
+'
+' SAFETY BEHAVIOR:
+'   - On SAFETY trip or FREEZE latch:
+'       * Warm-up / cool-down logic is bypassed
+'       * SAT reverts to SAT_OCC_BASE
+'
+' IMPORTANT NOTES:
+'   - This script DOES NOT trim SAT dynamically.
+'   - This script DOES NOT control valves or dampers.
+'   - This script feeds downstream SAT trim, economizer,
+'     and HW/CHW valve logic.
+'
+'=========================================================
+'
+' INPUT LINKING:
+'   DOAS_MODE     ← DOAS_DETERMINE_MODE_GOLD
+'   SAFETY_OK     ← Safety aggregation script
+'   FREEZE_LATCH  ← Freeze stat latch (manual reset)
+'   RA_TEMP       ← EBO Analog Input (Return Air Temp)
+'
+' OUTPUT LINKING:
+'   SAT_BASE_SP   → SAT trim / economizer / HW & CHW valves
+'   VAV_MAX_REQ   → VAV programs (if implemented)
+'
+'=========================================================
+
+
+'---------------------- INPUTS ----------------------------
+NUMERIC INPUT DOAS_MODE
+' DOAS operating mode
+' 0 = OFF
+' 1 = PRESTART
+' 2 = WARMUP
+' 3 = COOLDOWN
+' 4 = OCCUPIED
+' 5 = UNOCC-PROTECT
+
+NUMERIC INPUT SAFETY_OK
+' 1 = all safeties normal
+' 0 = any safety active (smoke, pressure, etc.)
+
+NUMERIC INPUT FREEZE_LATCH
+' 1 = freeze stat tripped (manual reset required)
+' 0 = normal
+
+NUMERIC INPUT RA_TEMP
+' Return Air Temperature (°F)
+' Used ONLY during warm-up linear reset
+
+
+'---------------------- OUTPUTS ---------------------------
+NUMERIC OUTPUT SAT_BASE_SP
+' Base Supply Air Temperature Setpoint (°F)
+' Downstream logic may trim this value
+
+NUMERIC OUTPUT VAV_MAX_REQ
+' Boolean request:
+' 1 = request all VAV boxes to drive open
+' 0 = normal VAV operation
+
+
+'---------------------- PUBLIC TUNABLES -------------------
+NUMERIC PUBLIC SAT_OCC_BASE
+' Normal occupied SAT baseline (°F)
+' Typical: 74°F
+
+NUMERIC PUBLIC WU_RA_LO
+' Warm-up start RA temperature (°F)
+' Typical: 60°F
+
+NUMERIC PUBLIC WU_RA_HI
+' Warm-up exit RA temperature (°F)
+' Typical: 70°F
+
+NUMERIC PUBLIC WU_SAT_LO
+' SAT at start of warm-up (°F)
+' Typical: 80°F
+
+NUMERIC PUBLIC WU_SAT_HI
+' SAT at end of warm-up (°F)
+' Typical: 70°F
+
+NUMERIC PUBLIC CD_SAT
+' Fixed cool-down SAT (°F)
+' Typical: 55°F
+
+
+'---------------------- INTERNALS --------------------------
+NUMERIC x
+' Clamped RA temperature used for interpolation
+
+
+'=========================================================
+GOTO INIT
+
+
+'=========================================================
+INIT:
+
+    ' ---- Default values if not set in database ----
+    IF SAT_OCC_BASE <= 0 THEN SAT_OCC_BASE = 74
+    IF WU_RA_LO <= 0 THEN WU_RA_LO = 60
+    IF WU_RA_HI <= 0 THEN WU_RA_HI = 70
+    IF WU_SAT_LO <= 0 THEN WU_SAT_LO = 80
+    IF WU_SAT_HI <= 0 THEN WU_SAT_HI = 70
+    IF CD_SAT <= 0 THEN CD_SAT = 55
+
+    ' ---- Initialize outputs ----
+    SAT_BASE_SP = SAT_OCC_BASE
+    VAV_MAX_REQ = 0
+
+    GOTO MAIN
+
+
+    '=========================================================
+MAIN:
+
+    ' Default: no VAV override
+    VAV_MAX_REQ = 0
+
+
+    '-----------------------------------------------------
+    ' SAFETY OVERRIDE
+    '-----------------------------------------------------
+    IF (SAFETY_OK = 0) OR (FREEZE_LATCH = 1) THEN
+        ' Do NOT perform warm-up or cool-down reset
+        ' SAT falls back to normal occupied baseline
+        SAT_BASE_SP = SAT_OCC_BASE
+
+        WAIT 1
+        GOTO MAIN
+    ENDIF
+
+
+    '-----------------------------------------------------
+    ' WARM-UP MODE (Mode = 2)
+    '-----------------------------------------------------
+    IF DOAS_MODE = 2 THEN
+
+        ' Request all VAV boxes to open
+        VAV_MAX_REQ = 1
+
+        ' Clamp RA temperature to defined warm-up range
+        x = RA_TEMP
+        IF x < WU_RA_LO THEN x = WU_RA_LO
+        IF x > WU_RA_HI THEN x = WU_RA_HI
+
+        ' Linear interpolation:
+        '   RA 60°F → SAT 80°F
+        '   RA 70°F → SAT 70°F
+        SAT_BASE_SP = WU_SAT_LO + ((x - WU_RA_LO) * (WU_SAT_HI - WU_SAT_LO) / (WU_RA_HI - WU_RA_LO))
+
+
+        '-----------------------------------------------------
+        ' COOL-DOWN MODE (Mode = 3)
+        '-----------------------------------------------------
+    ELSE
+        IF DOAS_MODE = 3 THEN
+
+            ' Request all VAV boxes to open
+            VAV_MAX_REQ = 1
+
+            ' Fixed cool-down SAT
+            SAT_BASE_SP = CD_SAT
+
+
+            '-------------------------------------------------
+            ' ALL OTHER MODES
+            '-------------------------------------------------
+        ELSE
+            ' Normal occupied or unoccupied-protect operation
+            SAT_BASE_SP = SAT_OCC_BASE
+        ENDIF
+    ENDIF
+
+
+    WAIT 1
+    GOTO MAIN

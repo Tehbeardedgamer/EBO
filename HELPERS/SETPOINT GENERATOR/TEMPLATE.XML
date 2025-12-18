@@ -1,0 +1,58 @@
+<Component Clip="False" ContentHeight="13.41" ContentWidth="163.0"
+    Height="13.41" Left="86.0" Top="235.0" Width="163.0">
+
+    <Text Decimals="1" Fill="None" FontFamily="Arial" FontSize="12"
+        FontStyle="Normal" FontWeight="Bold" HorizontalAlign="Right"
+        Left="163.00527954101562"
+        Name="DynamicValueU"
+        Stroke="#4A9AFB"
+        TextDecoration="None"
+        Top="-0.004180908203125"
+        VerticalAlign="Top">
+
+        <Expose ExposedAttribute="Decimals" Name="Decimals"/>
+        <Expose ExposedAttribute="Content" Name="EditModeText"/>
+
+        <!-- VALUE BIND -->
+        <Bind Attribute="Content" Name="RmTmpClgSpt">
+            <Expose ExposedAttribute="Name" Name="BindName"/>
+            <Script OnDocumentLoad="" OnSignalChange="signal"><![CDATA[
+function signal(evt)
+{
+  var text = evt.getTarget().getParentNode();
+
+  var decimals = parseInt(text.getAttribute("Decimals"));
+  if (decimals > 6) decimals = 6;
+  if (decimals < 0) decimals = 0;
+
+  var value = new Number(evt.getValue());
+  var unit = evt.getUnit();
+
+  if (unit)
+    text.setAttribute("Content", value.toFixed(decimals) + " " + unit);
+  else
+    text.setAttribute("Content", value.toFixed(decimals));
+}
+            ]]></Script>
+        </Bind>
+
+        <!-- STATUS COLOR BIND -->
+        <Bind Attribute="Stroke" Name="RmTmpClgSpt">
+            <Expose ExposedAttribute="Name" Name="BindName"/>
+            <ConvertStatus Error="#C00000" Forced="#FFD100" Stored="#0000FF"/>
+        </Bind>
+
+        <![CDATA[LOADING]]>
+    </Text>
+
+    <!-- MODE LABEL -->
+    <Text Fill="None" FontFamily="Arial" FontSize="12"
+        FontStyle="Normal" FontWeight="Bold"
+        HorizontalAlign="Left"
+        Stroke="#E8F7FF"
+        VerticalAlign="Top">
+        COOLING
+        <Expose ExposedAttribute="Content" Name="Label"/>
+    </Text>
+
+</Component>

@@ -1,0 +1,144 @@
+'=========================================================
+' DOAS_DETERMINE_MODE_GOLD
+'
+' PURPOSE:
+'   - Evaluate unit safeties
+'   - Create FREEZE_LATCH that requires BMS manual reset
+'   - Output DOAS_MODE used by all other modules
+'
+' LINKING (Inputs):
+'   SCHED_OCC            <- EBO schedule (0/1)
+'   MAINTENANCE          <- EBO maintenance switch (0/1)
+'   MANUAL_OCC_CMD       <- EBO HOA/override (0/1) (tie 0 if unused)
+'   SMOKE_SUPPLY         <- Field DI (0/1)
+'   SMOKE_RETURN         <- Field DI (0/1)
+'   HIGH_DISCH_PRESS_SW  <- Field DI (0/1)
+'   LOW_SUCTION_PRESS_SW <- Field DI (0/1)
+'   FREEZE_STAT          <- Field DI (0/1)
+'   FREEZE_RESET_CMD     <- EBO momentary command/button (0/1)
+'   LEAK_ALARM           <- Field DI (0/1)
+'   RA_TEMP              <- EBO AI (°F)
+'   SPACE_TEMP_MIN       <- From space/VAV aggregator (°F) (tie 0 if not available)
+'
+' LINKING (Outputs):
+'   DOAS_MODE            -> To all modules
+'   SAFETY_OK            -> To all modules (general trips)
+'   FREEZE_LATCH         -> To all modules (special freeze behavior)
+'   OCC_REQUEST          -> Optional UI/monitoring
+'=========================================================
+
+NUMERIC INPUT SCHED_OCC
+NUMERIC INPUT MAINTENANCE
+NUMERIC INPUT MANUAL_OCC_CMD
+
+NUMERIC INPUT SMOKE_SUPPLY
+NUMERIC INPUT SMOKE_RETURN
+NUMERIC INPUT HIGH_DISCH_PRESS_SW
+NUMERIC INPUT LOW_SUCTION_PRESS_SW
+NUMERIC INPUT FREEZE_STAT
+NUMERIC INPUT FREEZE_RESET_CMD
+NUMERIC INPUT LEAK_ALARM
+
+NUMERIC INPUT RA_TEMP
+NUMERIC INPUT SPACE_TEMP_MIN
+
+NUMERIC OUTPUT DOAS_MODE
+NUMERIC OUTPUT SAFETY_OK
+NUMERIC OUTPUT FREEZE_LATCH
+NUMERIC OUTPUT OCC_REQUEST
+
+NUMERIC PUBLIC WARMUP_START
+NUMERIC PUBLIC COOLDN_START
+NUMERIC PUBLIC UNOCC_LOW_START
+NUMERIC PUBLIC UNOCC_HI_START
+
+NUMERIC ANY_SMOKE
+NUMERIC ANY_PRESS_TRIP
+NUMERIC REF_TEMP
+NUMERIC OCC_RAW
+NUMERIC TRIP_ANY
+
+GOTO INIT
+
+INIT:
+    IF WARMUP_START <= 0 THEN WARMUP_START = 60
+    IF COOLDN_START <= 0 THEN COOLDN_START = 80
+    IF UNOCC_LOW_START <= 0 THEN UNOCC_LOW_START = 60
+    IF UNOCC_HI_START <= 0 THEN UNOCC_HI_START = 80
+
+    DOAS_MODE = 0
+    SAFETY_OK = 1
+    FREEZE_LATCH = 0
+    OCC_REQUEST = 0
+
+    GOTO MAIN
+
+MAIN:
+    ANY_SMOKE = (SMOKE_SUPPLY OR SMOKE_RETURN)
+    ANY_PRESS_TRIP = (HIGH_DISCH_PRESS_SW OR LOW_SUCTION_PRESS_SW)
+
+    ' Freeze latch: latch on trip, clear only when freezestat is normal AND BMS reset pressed
+    IF FREEZE_STAT = 1 THEN
+        FREEZE_LATCH = 1
+    ENDIF
+
+    IF FREEZE_LATCH = 1 THEN
+        IF (FREEZE_STAT = 0) AND (FREEZE_RESET_CMD = 1) THEN
+            FREEZE_LATCH = 0
+        ENDIF
+    ENDIF
+
+    TRIP_ANY = 0
+    IF ANY_SMOKE = 1 THEN TRIP_ANY = 1
+    IF ANY_PRESS_TRIP = 1 THEN TRIP_ANY = 1
+    IF LEAK_ALARM = 1 THEN TRIP_ANY = 1
+    IF FREEZE_LATCH = 1 THEN TRIP_ANY = 1
+
+    IF TRIP_ANY = 1 THEN
+        SAFETY_OK = 0
+    ELSE
+        SAFETY_OK = 1
+    ENDIF
+
+    ' OCC request
+    OCC_RAW = 0
+    IF (SCHED_OCC = 1) OR (MANUAL_OCC_CMD = 1) THEN
+        OCC_RAW = 1
+    ENDIF
+
+    IF MAINTENANCE = 1 THEN
+        OCC_REQUEST = 0
+    ELSE
+        OCC_REQUEST = OCC_RAW
+    ENDIF
+
+    ' Mode
+    IF SAFETY_OK = 0 THEN
+        DOAS_MODE = 0
+        WAIT 1
+        GOTO MAIN
+    ENDIF
+
+    IF OCC_REQUEST = 1 THEN
+        IF RA_TEMP < WARMUP_START THEN
+            DOAS_MODE = 2
+        ELSE
+            IF RA_TEMP > COOLDN_START THEN
+                DOAS_MODE = 3
+            ELSE
+                DOAS_MODE = 4
+            ENDIF
+        ENDIF
+    ELSE
+        REF_TEMP = RA_TEMP
+        IF SPACE_TEMP_MIN > 0 THEN REF_TEMP = SPACE_TEMP_MIN
+
+        IF (REF_TEMP < UNOCC_LOW_START) OR (REF_TEMP > UNOCC_HI_START) THEN
+            DOAS_MODE = 5
+        ELSE
+            DOAS_MODE = 0
+        ENDIF
+    ENDIF
+
+    WAIT 1
+    GOTO MAIN

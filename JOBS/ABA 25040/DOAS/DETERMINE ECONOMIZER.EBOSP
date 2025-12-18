@@ -1,0 +1,115 @@
+'=========================================================
+' DETERMINE_ECONOMIZER  (MINIMAL / GOLD)
+'
+' PURPOSE:
+'   Determine if economizer operation is permitted.
+'
+' OUTPUTS:
+'   ECON_AVAILABLE = 1 when OA conditions allow free cooling
+'
+' NOTE:
+'   This script does NOT modulate dampers or valves.
+'   It only grants or denies permission.
+'=========================================================
+
+
+' ------------------------- INPUTS -------------------------
+NUMERIC INPUT OA_TEMP          ' Outdoor Air Dry Bulb (°F) – from sensor
+NUMERIC INPUT OA_RH            ' Outdoor Air RH (%) – from sensor
+NUMERIC INPUT RA_TEMP          ' Return / Exhaust Air Temp (°F) – from sensor
+NUMERIC INPUT RA_RH            ' Return / Exhaust Air RH (%) – from sensor
+
+NUMERIC INPUT DOAS_MODE        ' From DETERMINE MODE script
+NUMERIC INPUT SAFETY_OK        ' From SAFETY / MODE logic
+
+NUMERIC INPUT OA_DB_LIMIT      ' Typically 65°F (adjustable)
+
+
+' ------------------------- OUTPUTS ------------------------
+NUMERIC OUTPUT ECON_AVAILABLE  ' 1 = Economizer allowed, 0 = not allowed
+
+
+' ------------------------- INTERNALS ----------------------
+NUMERIC P_ATM
+NUMERIC Psat_OA, Psat_RA
+NUMERIC Pv_OA, Pv_RA
+NUMERIC W_OA, W_RA
+NUMERIC H_OA, H_RA
+
+
+'=========================================================
+GOTO INIT
+
+
+'=========================================================
+INIT:
+
+    ECON_AVAILABLE = 0
+
+    ' Standard atmospheric pressure (psia)
+    P_ATM = 14.696
+
+    GOTO MAIN
+
+
+    '=========================================================
+MAIN:
+
+    '-----------------------------------------
+    ' Default: economizer NOT available
+    '-----------------------------------------
+    ECON_AVAILABLE = 0
+
+
+    '-----------------------------------------
+    ' Basic gating
+    '-----------------------------------------
+    IF SAFETY_OK = 0 THEN
+        WAIT 1
+        GOTO MAIN
+    ENDIF
+
+    IF DOAS_MODE <> 3 THEN
+        IF DOAS_MODE <> 4 THEN
+            WAIT 1
+            GOTO MAIN
+        ENDIF
+    ENDIF
+
+    IF OA_TEMP >= OA_DB_LIMIT THEN
+        WAIT 1
+        GOTO MAIN
+    ENDIF
+
+
+    '-----------------------------------------
+    ' Enthalpy calculation
+    '-----------------------------------------
+
+    ' Saturation vapor pressure (psia)
+    Psat_OA = EXP(18.6686 - (4030.183 / (OA_TEMP + 235)))
+    Psat_RA = EXP(18.6686 - (4030.183 / (RA_TEMP + 235)))
+
+    ' Vapor pressure
+    Pv_OA = (OA_RH / 100) * Psat_OA
+    Pv_RA = (RA_RH / 100) * Psat_RA
+
+    ' Humidity ratio (lb water / lb dry air)
+    W_OA = 0.62198 * Pv_OA / (P_ATM - Pv_OA)
+    W_RA = 0.62198 * Pv_RA / (P_ATM - Pv_RA)
+
+    ' Enthalpy (BTU / lb dry air)
+    H_OA = 0.24 * OA_TEMP + W_OA * (1061 + 0.444 * OA_TEMP)
+    H_RA = 0.24 * RA_TEMP + W_RA * (1061 + 0.444 * RA_TEMP)
+
+
+    '-----------------------------------------
+    ' Economizer permission
+    '-----------------------------------------
+    IF H_OA < H_RA THEN
+        ECON_AVAILABLE = 1
+    ENDIF
+
+
+    WAIT 5
+    GOTO MAIN

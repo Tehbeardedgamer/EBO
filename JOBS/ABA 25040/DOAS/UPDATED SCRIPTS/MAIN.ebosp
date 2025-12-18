@@ -1,0 +1,347 @@
+'=========================================================
+' MAIN_DOAS_ORCHESTRATOR (EBO-SAFE VERSION)
+'=========================================================
+
+
+' ------------------------- INPUTS -------------------------
+NUMERIC INPUT DOAS_MODE
+NUMERIC INPUT SAFETY_OK
+NUMERIC INPUT FREEZE_LATCH
+
+NUMERIC INPUT OA_DPR_CALC, RA_DPR_CALC, EA_DPR_CALC
+NUMERIC INPUT OA_BYP_CALC, RA_BYP_CALC
+
+NUMERIC INPUT SF_SS_CALC, SF_SPEED_CALC, SF_FAIL
+NUMERIC INPUT EF_SS_CALC, EF_SPEED_CALC, EF_FAIL
+NUMERIC INPUT ERW_SS_CALC, ERW_SPEED_CALC, ERW_FAIL
+
+NUMERIC INPUT CHW_CMD_CALC, CHW_FAIL
+NUMERIC INPUT HW_CMD_CALC, HW_FAIL
+
+NUMERIC INPUT DPR_END_SW_ALL
+
+
+' ------------------------- OUTPUTS ------------------------
+NUMERIC OUTPUT OA_DPR_CMD, RA_DPR_CMD, EA_DPR_CMD
+NUMERIC OUTPUT OA_BYP_CMD, RA_BYP_CMD
+
+NUMERIC OUTPUT SF_SS_CMD, SF_SPEED_CMD
+NUMERIC OUTPUT EF_SS_CMD, EF_SPEED_CMD
+
+NUMERIC OUTPUT ERW_SS_CMD, ERW_SPEED_CMD
+
+NUMERIC OUTPUT CHW_VLV_CMD
+NUMERIC OUTPUT HW_VLV_CMD
+
+NUMERIC OUTPUT DOAS_RUN
+NUMERIC OUTPUT DOAS_STATE
+NUMERIC OUTPUT DOAS_FAIL
+
+STRING OUTPUT DOAS_MODE_TEXT
+STRING OUTPUT DOAS_STATE_TEXT
+STRING OUTPUT DOAS_STATUS_TEXT
+
+
+' ------------------------- PUBLICS ------------------------
+NUMERIC PUBLIC DAMPER_PROVE_TIMEOUT_S
+
+
+' ------------------------- INTERNALS ----------------------
+NUMERIC ANY_FAIL
+NUMERIC RUN_REQUEST
+NUMERIC T_DPR_WAIT
+NUMERIC MODE
+NUMERIC D_STATE
+
+
+'=========================================================
+GOTO INIT
+
+
+'=========================================================
+INIT:
+
+    IF DAMPER_PROVE_TIMEOUT_S <= 0 THEN
+        DAMPER_PROVE_TIMEOUT_S = 60
+    ENDIF
+
+    T_DPR_WAIT = 0
+    DOAS_RUN = 0
+    DOAS_STATE = 0
+    DOAS_FAIL = 0
+
+    OA_DPR_CMD = 0
+    RA_DPR_CMD = 0
+    EA_DPR_CMD = 0
+
+    OA_BYP_CMD = 0
+    RA_BYP_CMD = 0
+
+    SF_SS_CMD = 0
+    SF_SPEED_CMD = 0
+
+    EF_SS_CMD = 0
+    EF_SPEED_CMD = 0
+
+    ERW_SS_CMD = 0
+    ERW_SPEED_CMD = 0
+
+    CHW_VLV_CMD = 0
+    HW_VLV_CMD = 0
+
+    GOTO EVALUATE_FAILS
+
+
+    '=========================================================
+EVALUATE_FAILS:
+
+    ANY_FAIL = 0
+
+    IF SF_FAIL = 1 THEN
+        ANY_FAIL = 1
+    ENDIF
+
+    IF EF_FAIL = 1 THEN
+        ANY_FAIL = 1
+    ENDIF
+
+    IF ERW_FAIL = 1 THEN
+        ANY_FAIL = 1
+    ENDIF
+
+    IF CHW_FAIL = 1 THEN
+        ANY_FAIL = 1
+    ENDIF
+
+    IF HW_FAIL = 1 THEN
+        ANY_FAIL = 1
+    ENDIF
+
+    DOAS_FAIL = ANY_FAIL
+
+    GOTO DETERMINE_RUN_REQUEST
+
+
+    '=========================================================
+DETERMINE_RUN_REQUEST:
+
+    RUN_REQUEST = 0
+
+    IF DOAS_MODE = 2 THEN
+        RUN_REQUEST = 1
+    ELSE
+        IF DOAS_MODE = 3 THEN
+            RUN_REQUEST = 1
+        ELSE
+            IF DOAS_MODE = 4 THEN
+                RUN_REQUEST = 1
+            ELSE
+                IF DOAS_MODE = 5 THEN
+                    RUN_REQUEST = 1
+                ENDIF
+            ENDIF
+        ENDIF
+    ENDIF
+
+    DOAS_RUN = RUN_REQUEST
+
+    IF (SAFETY_OK = 0) OR (FREEZE_LATCH = 1) THEN
+        GOTO SAFETY_HANDLER
+    ENDIF
+
+    IF RUN_REQUEST = 0 THEN
+        GOTO UNIT_OFF
+    ENDIF
+
+    GOTO STARTUP_SEQUENCE
+
+
+    '=========================================================
+SAFETY_HANDLER:
+
+    DOAS_STATE = 4   ' SAFE_OFF
+
+    SF_SS_CMD = 0
+    SF_SPEED_CMD = 0
+
+    EF_SS_CMD = 0
+    EF_SPEED_CMD = 0
+
+    ERW_SS_CMD = 0
+    ERW_SPEED_CMD = 0
+
+    OA_DPR_CMD = OA_DPR_CALC
+    RA_DPR_CMD = RA_DPR_CALC
+    EA_DPR_CMD = EA_DPR_CALC
+
+    OA_BYP_CMD = OA_BYP_CALC
+    RA_BYP_CMD = RA_BYP_CALC
+
+    CHW_VLV_CMD = 0
+    HW_VLV_CMD = HW_CMD_CALC
+
+    T_DPR_WAIT = 0
+
+    GOTO UI_TEXT
+
+
+    '=========================================================
+UNIT_OFF:
+
+    DOAS_STATE = 0
+
+    SF_SS_CMD = 0
+    SF_SPEED_CMD = 0
+
+    EF_SS_CMD = 0
+    EF_SPEED_CMD = 0
+
+    ERW_SS_CMD = 0
+    ERW_SPEED_CMD = 0
+
+    OA_DPR_CMD = OA_DPR_CALC
+    RA_DPR_CMD = RA_DPR_CALC
+    EA_DPR_CMD = EA_DPR_CALC
+
+    OA_BYP_CMD = OA_BYP_CALC
+    RA_BYP_CMD = RA_BYP_CALC
+
+    CHW_VLV_CMD = CHW_CMD_CALC
+    HW_VLV_CMD = HW_CMD_CALC
+
+    T_DPR_WAIT = 0
+
+    GOTO UI_TEXT
+
+
+    '=========================================================
+STARTUP_SEQUENCE:
+
+    ' Dampers & valves pass-through
+    OA_DPR_CMD = OA_DPR_CALC
+    RA_DPR_CMD = RA_DPR_CALC
+    EA_DPR_CMD = EA_DPR_CALC
+
+    OA_BYP_CMD = OA_BYP_CALC
+    RA_BYP_CMD = RA_BYP_CALC
+
+    CHW_VLV_CMD = CHW_CMD_CALC
+    HW_VLV_CMD = HW_CMD_CALC
+
+    IF DPR_END_SW_ALL = 1 THEN
+        GOTO UNIT_RUNNING
+    ENDIF
+
+    GOTO WAITING_FOR_DAMPERS
+
+
+    '=========================================================
+UNIT_RUNNING:
+
+    DOAS_STATE = 2
+
+    SF_SS_CMD = SF_SS_CALC
+    SF_SPEED_CMD = SF_SPEED_CALC
+
+    EF_SS_CMD = EF_SS_CALC
+    EF_SPEED_CMD = EF_SPEED_CALC
+
+    ERW_SS_CMD = ERW_SS_CALC
+    ERW_SPEED_CMD = ERW_SPEED_CALC
+
+    T_DPR_WAIT = 0
+
+    GOTO UI_TEXT
+
+
+    '=========================================================
+WAITING_FOR_DAMPERS:
+
+    DOAS_STATE = 3
+
+    SF_SS_CMD = 0
+    SF_SPEED_CMD = 0
+
+    EF_SS_CMD = 0
+    EF_SPEED_CMD = 0
+
+    ERW_SS_CMD = 0
+    ERW_SPEED_CMD = 0
+
+    IF T_DPR_WAIT < DAMPER_PROVE_TIMEOUT_S THEN
+        T_DPR_WAIT = T_DPR_WAIT + 1
+    ELSE
+        DOAS_FAIL = 1
+    ENDIF
+
+    GOTO UI_TEXT
+
+
+    '=========================================================
+UI_TEXT:
+
+    ' ----- MODE TEXT -----
+    MODE = DOAS_MODE
+
+    IF MODE = 0 THEN
+        DOAS_MODE_TEXT = "OFF"
+    ELSE
+        IF MODE = 1 THEN
+            DOAS_MODE_TEXT = "PRESTART"
+        ELSE
+            IF MODE = 2 THEN
+                DOAS_MODE_TEXT = "WARM-UP"
+            ELSE
+                IF MODE = 3 THEN
+                    DOAS_MODE_TEXT = "COOL-DOWN"
+                ELSE
+                    IF MODE = 4 THEN
+                        DOAS_MODE_TEXT = "OCCUPIED"
+                    ELSE
+                        IF MODE = 5 THEN
+                            DOAS_MODE_TEXT = "UNOCC-PROTECT"
+                        ELSE
+                            DOAS_MODE_TEXT = "INVALID MODE"
+                        ENDIF
+                    ENDIF
+                ENDIF
+            ENDIF
+        ENDIF
+    ENDIF
+
+
+    ' ----- STATE TEXT -----
+    D_STATE = DOAS_STATE
+
+    IF D_STATE = 0 THEN
+        DOAS_STATE_TEXT = "OFF"
+    ELSE
+        IF D_STATE = 1 THEN
+            DOAS_STATE_TEXT = "STARTUP"
+        ELSE
+            IF D_STATE = 2 THEN
+                DOAS_STATE_TEXT = "RUNNING"
+            ELSE
+                IF D_STATE = 3 THEN
+                    DOAS_STATE_TEXT = "WAITING FOR DAMPERS"
+                ELSE
+                    IF D_STATE = 4 THEN
+                        DOAS_STATE_TEXT = "SAFE SHUTDOWN"
+                    ELSE
+                        DOAS_STATE_TEXT = "INVALID STATE"
+                    ENDIF
+                ENDIF
+            ENDIF
+        ENDIF
+    ENDIF
+
+
+    ' ----- COMBINED SUMMARY -----
+    IF DOAS_FAIL = 1 THEN
+        DOAS_STATUS_TEXT = DOAS_MODE_TEXT & " / " & DOAS_STATE_TEXT & " / FAULT"
+    ELSE
+        DOAS_STATUS_TEXT = DOAS_MODE_TEXT & " / " & DOAS_STATE_TEXT
+    ENDIF
+
+    WAIT 1
+    GOTO EVALUATE_FAILS

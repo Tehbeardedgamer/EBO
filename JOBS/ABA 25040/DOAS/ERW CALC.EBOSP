@@ -1,0 +1,152 @@
+'=========================================================
+' DOAS_ERW_WHEEL_MODULE_GOLD
+'
+' PURPOSE:
+'   - Enable/disable ERW wheel
+'   - Modulate ERW wheel VFD speed to maintain ERW_DAT_SP
+'   - Frost protection cycle when OA is cold
+'
+' LINKING:
+'   DOAS_MODE, SAFETY_OK, FREEZE_LATCH <- DOAS_DETERMINE_MODE_GOLD
+'   RECOVERY_ENABLE <- DOAS_ECON_STATE_CALC_GOLD
+'   OA_TEMP <- EBO AI (°F)
+'   SA_TEMP <- EBO AI (DAT/SAT; used as control reference if no separate ERW DAT)
+'   SAT_SP <- final setpoint used by unit
+'
+' OUTPUTS:
+'   ERW_SS_CALC, ERW_SPEED_CALC -> Main Orchestrator writes to real wheel outputs
+'=========================================================
+
+NUMERIC INPUT DOAS_MODE
+NUMERIC INPUT SAFETY_OK
+NUMERIC INPUT FREEZE_LATCH
+
+NUMERIC INPUT RECOVERY_ENABLE
+NUMERIC INPUT OA_TEMP
+NUMERIC INPUT SA_TEMP
+NUMERIC INPUT SAT_SP
+
+NUMERIC OUTPUT ERW_SS_CALC
+NUMERIC OUTPUT ERW_SPEED_CALC
+NUMERIC OUTPUT ERW_READY
+NUMERIC OUTPUT ERW_FAIL
+
+NUMERIC PUBLIC ERW_MIN_SPEED
+NUMERIC PUBLIC ERW_MAX_SPEED
+NUMERIC PUBLIC ERW_SP_OFFSET        ' default 2°F above SAT_SP per recovery notes
+NUMERIC PUBLIC DEFROST_ENABLE       ' 0/1
+NUMERIC PUBLIC DEFROST_OA_SP        ' °F
+NUMERIC PUBLIC DEFROST_RUN_S        ' seconds ON
+NUMERIC PUBLIC DEFROST_PERIOD_S     ' seconds period
+
+NUMERIC PUBLIC KP
+NUMERIC PUBLIC KI
+NUMERIC PUBLIC KD
+NUMERIC PUBLIC I_TERM
+NUMERIC PUBLIC OLD_ERR
+
+FUNCTION PID_LOOP
+
+NUMERIC target
+NUMERIC t_def
+
+GOTO INIT
+
+INIT:
+    IF ERW_MIN_SPEED < 0 THEN ERW_MIN_SPEED = 20
+    IF ERW_MAX_SPEED <= 0 THEN ERW_MAX_SPEED = 100
+    IF ERW_SP_OFFSET <= 0 THEN ERW_SP_OFFSET = 2
+
+    IF DEFROST_ENABLE < 0 THEN DEFROST_ENABLE = 1
+    IF DEFROST_OA_SP <= 0 THEN DEFROST_OA_SP = 35
+    IF DEFROST_RUN_S <= 0 THEN DEFROST_RUN_S = 10
+    IF DEFROST_PERIOD_S <= 0 THEN DEFROST_PERIOD_S = 1800
+
+    IF KP <= 0 THEN KP = 1.0
+    IF KI < 0 THEN KI = 0.10
+    IF KD < 0 THEN KD = 0.00
+
+    I_TERM = 0
+    OLD_ERR = 0
+    ERW_SS_CALC = 0
+    ERW_SPEED_CALC = 0
+    ERW_READY = 1
+    ERW_FAIL = 0
+    t_def = 0
+
+    GOTO MAIN
+
+MAIN:
+    ERW_FAIL = 0
+    ERW_READY = 1
+
+    IF (SAFETY_OK = 0) OR (FREEZE_LATCH = 1) THEN
+        ERW_SS_CALC = 0
+        ERW_SPEED_CALC = 0
+        I_TERM = 0
+        OLD_ERR = 0
+        t_def = 0
+        WAIT 1
+        GOTO MAIN
+    ENDIF
+
+    ' Only run when unit is in running modes (2/3/4/5)
+    IF (DOAS_MODE = 0) OR (DOAS_MODE = 1) THEN
+        ERW_SS_CALC = 0
+        ERW_SPEED_CALC = 0
+        t_def = 0
+        WAIT 1
+        GOTO MAIN
+    ENDIF
+
+    ' Run wheel only when recovery is enabled
+    IF RECOVERY_ENABLE <> 1 THEN
+        ERW_SS_CALC = 0
+        ERW_SPEED_CALC = 0
+        t_def = 0
+        WAIT 1
+        GOTO MAIN
+    ENDIF
+
+    ' Frost protection (cycle)
+    IF (DEFROST_ENABLE = 1) AND (OA_TEMP <= DEFROST_OA_SP) THEN
+        ' Cycle: ON for DEFROST_RUN_S each DEFROST_PERIOD_S
+        IF t_def >= DEFROST_PERIOD_S THEN
+            t_def = 0
+        ENDIF
+
+        IF t_def < DEFROST_RUN_S THEN
+            ERW_SS_CALC = 1
+        ELSE
+            ERW_SS_CALC = 0
+        ENDIF
+
+        t_def = t_def + 1
+
+        IF ERW_SS_CALC = 0 THEN
+            ERW_SPEED_CALC = 0
+            I_TERM = 0
+            OLD_ERR = 0
+            WAIT 1
+            GOTO MAIN
+        ENDIF
+    ELSE
+        ERW_SS_CALC = 1
+        t_def = 0
+    ENDIF
+
+    ' Control target: SAT_SP + offset
+    target = SAT_SP + ERW_SP_OFFSET
+
+    ' PID: direct acting (if SA too cold vs target -> increase wheel speed for recovery heating)
+    ERW_SPEED_CALC = PID_LOOP(0, SA_TEMP, target, I_TERM, KP, KI, KD, OLD_ERR)
+
+    IF ERW_SPEED_CALC < 0 THEN ERW_SPEED_CALC = 0
+    IF ERW_SPEED_CALC > ERW_MAX_SPEED THEN ERW_SPEED_CALC = ERW_MAX_SPEED
+
+    IF ERW_SPEED_CALC > 0 THEN
+        IF ERW_SPEED_CALC < ERW_MIN_SPEED THEN ERW_SPEED_CALC = ERW_MIN_SPEED
+    ENDIF
+
+    WAIT 1
+    GOTO MAIN

@@ -1,0 +1,303 @@
+'=========================================================
+' DOAS_ERW_Wheel_Module
+'
+' Energy Recovery Wheel (ERV) speed + start/stop control
+'
+' Features:
+'   - Safety & freeze gating
+'   - Frost protection: when OA_TEMP < DEFROST_SP,
+'       wheel is stopped but jogs DEFROST_RUN_SEC every
+'       DEFROST_PERIOD_MIN minutes
+'   - Enthalpy-based enable:
+'       RA enthalpy > OA enthalpy + DELTA_H_ENABLE → ERW allowed
+'   - Wheel acts as first stage of conditioning by
+'       modulating to SA_SP + ERW_OFFS_F
+'   - Speed clamped by ERW_MAX_CAP from damper module
+'
+' Outputs:
+'   ERW_SS_CALC      (start/stop)
+'   ERW_SPEED_CALC   (0–100 %)
+'   ERW_READY        (1=OK)
+'   ERW_FAIL         (1=module fault)
+'   ERW_FROST_ACTIVE (1=frost-protect mode active)
+'
+'=========================================================
+
+' ------------------------- INPUTS -------------------------
+NUMERIC INPUT DOAS_MODE
+NUMERIC INPUT SAFETY_OK
+NUMERIC INPUT FREEZE_LATCH
+
+NUMERIC INPUT SA_TEMP
+NUMERIC INPUT SA_SP
+
+NUMERIC INPUT OA_TEMP
+NUMERIC INPUT OA_RH
+NUMERIC INPUT RA_TEMP
+NUMERIC INPUT RA_RH
+
+NUMERIC INPUT ERW_MAX_CAP      ' 0–100, from unified damper script
+NUMERIC INPUT ERW_STATUS       ' 1=proved, tie 1 if N/A
+NUMERIC INPUT ERW_FAULT        ' 1=fault, tie 0 if N/A
+
+' ------------------------- OUTPUTS ------------------------
+NUMERIC OUTPUT ERW_SS_CALC
+NUMERIC OUTPUT ERW_SPEED_CALC
+NUMERIC OUTPUT ERW_READY
+NUMERIC OUTPUT ERW_FAIL
+NUMERIC OUTPUT ERW_FROST_ACTIVE
+
+' ------------------------- PUBLICS / TUNABLES -------------
+' PID tunables
+NUMERIC PUBLIC KP, KI, KD
+NUMERIC PUBLIC I_TERM, OLD_ERR
+
+' SAT target offset for wheel control (°F)
+NUMERIC PUBLIC ERW_OFFS_F          ' e.g., +2°F above SA_SP
+
+' Minimum wheel speed when enabled (not in frost)
+NUMERIC PUBLIC MIN_ERW_SPEED       ' e.g., 10 %
+
+' Frost protection settings
+NUMERIC PUBLIC DEFROST_SP          ' OA_TEMP threshold, e.g., 20°F
+NUMERIC PUBLIC DEFROST_PERIOD_MIN  ' jog every N minutes (e.g. 30)
+NUMERIC PUBLIC DEFROST_RUN_SEC     ' jog duration (e.g. 10 sec)
+NUMERIC PUBLIC DEFROST_SPEED       ' jog speed (e.g. 20%)
+
+' Enthalpy enable
+NUMERIC PUBLIC DELTA_H_ENABLE      ' enthalpy differential (BTU/lb)
+
+' Proof timing
+NUMERIC PUBLIC PROVE_TIMEOUT_S     ' seconds to see ERW_STATUS after start
+
+FUNCTION PID_LOOP
+
+' ------------------------- INTERNALS ----------------------
+NUMERIC h_OA, h_RA, W_OA, W_RA
+NUMERIC Psat_OA, Psat_RA, Pv_OA, Pv_RA, P_ATM
+NUMERIC DELTA_H, ERR, SP_TARGET
+NUMERIC t_defrost_period, t_defrost_run
+NUMERIC t_prove
+NUMERIC ERW_CAP, cmd_raw
+
+'=========================================================
+GOTO INI
+
+INI:
+    ' PID defaults
+    IF KP <= 0 THEN KP = 1.0
+    IF KI < 0 THEN KI = 0.10
+    IF KD < 0 THEN KD = 0.00
+
+    ' Offset, minimums, enthalpy defaults
+    IF ERW_OFFS_F <= 0 THEN ERW_OFFS_F = 2.0
+    IF MIN_ERW_SPEED <  0 THEN MIN_ERW_SPEED = 10.0
+
+    IF DELTA_H_ENABLE <= 0 THEN DELTA_H_ENABLE = 3.0   ' small enthalpy diff
+
+    ' Frost defaults
+    IF DEFROST_SP          <= 0 THEN DEFROST_SP          = 20.0
+    IF DEFROST_PERIOD_MIN  <= 0 THEN DEFROST_PERIOD_MIN  = 30.0
+    IF DEFROST_RUN_SEC     <= 0 THEN DEFROST_RUN_SEC     = 10.0
+    IF DEFROST_SPEED       <= 0 THEN DEFROST_SPEED       = 20.0
+
+    ' Proof default
+    IF PROVE_TIMEOUT_S <= 0 THEN PROVE_TIMEOUT_S = 20
+
+    ' Other init
+    I_TERM = 0
+    OLD_ERR = 0
+    ERW_SS_CALC = 0
+    ERW_SPEED_CALC = 0
+    ERW_READY = 1
+    ERW_FAIL = 0
+    ERW_FROST_ACTIVE = 0
+
+    P_ATM = 14.696
+
+    t_defrost_period = 0
+    t_defrost_run = 0
+    t_prove = 0
+
+GOTO MAIN
+
+'=========================================================
+MAIN:
+    ERW_FAIL = 0
+    ERW_READY = 1
+
+    ' ---------- Global safety gating ----------
+    IF (SAFETY_OK = 0) OR (FREEZE_LATCH = 1) THEN
+        ERW_SS_CALC = 0
+        ERW_SPEED_CALC = 0
+        I_TERM = 0
+        OLD_ERR = 0
+        t_defrost_period = 0
+        t_defrost_run = 0
+        t_prove = 0
+        ERW_FROST_ACTIVE = 0
+        WAIT 1
+        GOTO MAIN
+    ENDIF
+
+    ' ---------- Mode gating (no wheel in OFF/PRE) ----------
+    IF (DOAS_MODE = 0) OR (DOAS_MODE = 1) THEN
+        ERW_SS_CALC = 0
+        ERW_SPEED_CALC = 0
+        I_TERM = 0
+        OLD_ERR = 0
+        t_defrost_period = 0
+        t_defrost_run = 0
+        t_prove = 0
+        ERW_FROST_ACTIVE = 0
+        WAIT 1
+        GOTO MAIN
+    ENDIF
+
+    ' Clamp ERW_CAP from ERW_MAX_CAP input
+    ERW_CAP = ERW_MAX_CAP
+    IF ERW_CAP < 0 THEN ERW_CAP = 0
+    IF ERW_CAP > 100 THEN ERW_CAP = 100
+
+    '=====================================================
+    ' FROST PROTECTION: OA below DEFROST_SP
+    '   - Wheel normally stopped
+    '   - Jogs DEFROST_SPEED for DEFROST_RUN_SEC every
+    '     DEFROST_PERIOD_MIN minutes
+    '=====================================================
+    IF OA_TEMP < DEFROST_SP THEN
+        ERW_FROST_ACTIVE = 1
+
+        ' Increment period timer (assumes MAIN runs ~1s)
+        IF t_defrost_period < (DEFROST_PERIOD_MIN * 60) THEN
+            t_defrost_period = t_defrost_period + 1
+        ENDIF
+
+        ' If period elapsed, start/run jog
+        IF t_defrost_period >= (DEFROST_PERIOD_MIN * 60) THEN
+            IF t_defrost_run < DEFROST_RUN_SEC THEN
+                ' Jogging
+                ERW_SS_CALC = 1
+                ERW_SPEED_CALC = DEFROST_SPEED
+                IF ERW_SPEED_CALC > ERW_CAP THEN
+                    ERW_SPEED_CALC = ERW_CAP
+                ENDIF
+                t_defrost_run = t_defrost_run + 1
+            ELSE
+                ' Jog complete: stop wheel, reset counters
+                ERW_SS_CALC = 0
+                ERW_SPEED_CALC = 0
+                t_defrost_period = 0
+                t_defrost_run = 0
+            ENDIF
+        ELSE
+            ' Waiting for next jog window
+            ERW_SS_CALC = 0
+            ERW_SPEED_CALC = 0
+        ENDIF
+
+        ' Proof tracking during jog (optional)
+        IF ERW_SS_CALC = 1 THEN
+            IF ERW_STATUS = 1 THEN
+                t_prove = 0
+            ELSE
+                IF t_prove < PROVE_TIMEOUT_S THEN
+                    t_prove = t_prove + 1
+                ELSE
+                    ERW_FAIL = 1
+                ENDIF
+            ENDIF
+        ELSE
+            t_prove = 0
+        ENDIF
+
+        WAIT 1
+        GOTO MAIN
+    ENDIF
+
+    ' Not in frost protection:
+    ERW_FROST_ACTIVE = 0
+    t_defrost_period = 0
+    t_defrost_run = 0
+
+    '=====================================================
+    ' ENT HALPY-BASED ENABLE: cooling/heating recovery
+    '   h = 0.24*Tdb + W*(1061 + 0.444*Tdb)
+    '   W = 0.62198 * Pv / (P - Pv)
+    '   Pv = (RH/100) * Psat(T)
+    '   Psat(T) ≈ EXP( 18.6686 - 4030.183 / (T + 235) )
+    '=====================================================
+    Psat_OA = EXP( 18.6686 - (4030.183 / (OA_TEMP + 235.0)) )
+    Psat_RA = EXP( 18.6686 - (4030.183 / (RA_TEMP + 235.0)) )
+
+    Pv_OA = (OA_RH / 100.0) * Psat_OA
+    Pv_RA = (RA_RH / 100.0) * Psat_RA
+
+    W_OA = 0.62198 * Pv_OA / (P_ATM - Pv_OA)
+    W_RA = 0.62198 * Pv_RA / (P_ATM - Pv_RA)
+
+    h_OA = 0.24 * OA_TEMP + W_OA * (1061.0 + 0.444 * OA_TEMP)
+    h_RA = 0.24 * RA_TEMP + W_RA * (1061.0 + 0.444 * RA_TEMP)
+
+    DELTA_H = h_RA - h_OA
+
+    ' ERW allowed only when there is useful recovery
+    IF DELTA_H < DELTA_H_ENABLE THEN
+        ERW_SS_CALC = 0
+        ERW_SPEED_CALC = 0
+        I_TERM = 0
+        OLD_ERR = 0
+        t_prove = 0
+        WAIT 1
+        GOTO MAIN
+    ENDIF
+
+    '=====================================================
+    ' NORMAL ENERGY RECOVERY WHEEL CONTROL
+    '   - First stage: modulate to SA_SP + ERW_OFFS_F
+    '   - ERW_CAP (from damper module) limits maximum
+    '=====================================================
+    SP_TARGET = SA_SP + ERW_OFFS_F
+
+    ' Reverse-acting PID: higher SA_TEMP → more wheel speed
+    cmd_raw = PID_LOOP(1, SA_TEMP, SP_TARGET, I_TERM, KP, KI, KD, OLD_ERR)
+
+    ' Clamp 0..ERW_CAP
+    IF cmd_raw < 0 THEN cmd_raw = 0
+    IF cmd_raw > ERW_CAP THEN cmd_raw = ERW_CAP
+
+    ' Enforce min speed when enabled
+    IF cmd_raw > 0 AND cmd_raw < MIN_ERW_SPEED THEN
+        cmd_raw = MIN_ERW_SPEED
+        IF cmd_raw > ERW_CAP THEN cmd_raw = ERW_CAP
+    ENDIF
+
+    ERW_SS_CALC = 0
+    ERW_SPEED_CALC = 0
+
+    IF cmd_raw > 0 THEN
+        ERW_SS_CALC = 1
+        ERW_SPEED_CALC = cmd_raw
+    ENDIF
+
+    ' Proof & fault handling
+    IF ERW_SS_CALC = 1 THEN
+        IF ERW_STATUS = 1 THEN
+            t_prove = 0
+        ELSE
+            IF t_prove < PROVE_TIMEOUT_S THEN
+                t_prove = t_prove + 1
+            ELSE
+                ERW_FAIL = 1
+            ENDIF
+        ENDIF
+    ELSE
+        t_prove = 0
+    ENDIF
+
+    IF ERW_FAULT = 1 THEN
+        ERW_FAIL = 1
+    ENDIF
+
+    WAIT 1
+GOTO MAIN

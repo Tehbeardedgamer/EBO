@@ -1,0 +1,148 @@
+'=========================================================
+' DOAS_SAT_TRIM_GOLD
+'
+' PURPOSE:
+'   Implements SAT trim logic exactly per DOAS sequence 12.i
+'
+'   Every TRIM_INTERVAL:
+'     - If ANY VAV is at MAX airflow:
+'         → Decrease SAT by TRIM_STEP
+'
+'     - If NO VAV is above 75% airflow:
+'         → Increase SAT by TRIM_STEP
+'
+'     - Otherwise:
+'         → Hold SAT
+'
+'   This trim is applied ON TOP OF SAT_BASE_SP.
+'
+' IMPORTANT:
+'   - This is NOT a PID loop
+'   - This is a slow supervisory adjustment
+'   - Trim is suspended outside OCCUPIED mode
+'
+'=========================================================
+'
+' INPUT LINKING:
+'   SAT_BASE_SP        ← DOAS_WU_CD_SAT_RESET_GOLD
+'   DOAS_MODE          ← DOAS_DETERMINE_MODE_GOLD
+'   ANY_VAV_AT_MAX     ← DOAS_VAV_CFM_Aggregator
+'   NONE_ABOVE_75PC    ← DOAS_VAV_CFM_Aggregator
+'
+' OUTPUT LINKING:
+'   SAT_FINAL_SP       → Economizer / CHW / HW logic
+'
+'=========================================================
+
+
+'---------------------- INPUTS ----------------------------
+NUMERIC INPUT SAT_BASE_SP
+' Base SAT setpoint from warm-up / cool-down logic
+
+NUMERIC INPUT DOAS_MODE
+' DOAS operating mode (only trims in OCCUPIED)
+
+NUMERIC INPUT ANY_VAV_AT_MAX
+' 1 = at least one VAV at max airflow
+
+NUMERIC INPUT NONE_ABOVE_75PC
+' 1 = no VAV above 75% of max airflow
+
+NUMERIC INPUT SAT_MIN
+' Minimum allowed SAT (°F)
+
+NUMERIC INPUT SAT_MAX
+' Maximum allowed SAT (°F)
+
+'---------------------- OUTPUT ----------------------------
+NUMERIC OUTPUT SAT_FINAL_SP
+' Final trimmed SAT setpoint
+
+
+'---------------------- PUBLIC TUNABLES -------------------
+NUMERIC PUBLIC TRIM_STEP
+' °F per trim step (sequence: 0.25°F)
+
+NUMERIC PUBLIC TRIM_INTERVAL_S
+' Seconds between trim evaluations (sequence: 900 sec = 15 min)
+
+
+
+
+'---------------------- INTERNALS --------------------------
+NUMERIC TRIM_OFFSET
+' Accumulated trim offset from SAT_BASE_SP
+
+NUMERIC T_TRIM
+' Trim timer
+
+
+'=========================================================
+GOTO INIT
+
+
+'=========================================================
+INIT:
+
+    IF TRIM_STEP <= 0 THEN TRIM_STEP = 0.25
+    IF TRIM_INTERVAL_S <= 0 THEN TRIM_INTERVAL_S = 900
+
+
+    TRIM_OFFSET = 0
+    T_TRIM = 0
+    SAT_FINAL_SP = SAT_BASE_SP
+
+    GOTO MAIN
+
+
+    '=========================================================
+MAIN:
+
+    ' Default output
+    SAT_FINAL_SP = SAT_BASE_SP + TRIM_OFFSET
+
+    ' Only trim in OCCUPIED mode
+    IF DOAS_MODE <> 4 THEN
+        TRIM_OFFSET = 0
+        T_TRIM = 0
+        SAT_FINAL_SP = SAT_BASE_SP
+        WAIT 1
+        GOTO MAIN
+    ENDIF
+
+    ' Accumulate time
+    IF T_TRIM < TRIM_INTERVAL_S THEN
+        T_TRIM = T_TRIM + 1
+        WAIT 1
+        GOTO MAIN
+    ENDIF
+
+    ' Reset timer
+    T_TRIM = 0
+
+    '-----------------------------------------------
+    ' Apply trim logic
+    '-----------------------------------------------
+    IF ANY_VAV_AT_MAX = 1 THEN
+        TRIM_OFFSET = TRIM_OFFSET - TRIM_STEP
+    ELSE
+        IF NONE_ABOVE_75PC = 1 THEN
+            TRIM_OFFSET = TRIM_OFFSET + TRIM_STEP
+        ENDIF
+    ENDIF
+
+    '-----------------------------------------------
+    ' Clamp final SAT
+    '-----------------------------------------------
+    IF (SAT_BASE_SP + TRIM_OFFSET) < SAT_MIN THEN
+        TRIM_OFFSET = SAT_MIN - SAT_BASE_SP
+    ENDIF
+
+    IF (SAT_BASE_SP + TRIM_OFFSET) > SAT_MAX THEN
+        TRIM_OFFSET = SAT_MAX - SAT_BASE_SP
+    ENDIF
+
+    SAT_FINAL_SP = SAT_BASE_SP + TRIM_OFFSET
+
+    WAIT 1
+    GOTO MAIN

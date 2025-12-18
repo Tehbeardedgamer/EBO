@@ -1,0 +1,114 @@
+'=========================================================
+' DOAS_COIL_ENABLE_SUPERVISOR
+'
+' Determines when CHW and HW coils are allowed to modulate
+' based strictly on the DOAS sequence and real hardware:
+'
+' - No mixed air
+' - HW must be enabled during freeze (fans may be off)
+' - CHW only enabled during cooling-capable modes
+'=========================================================
+
+' ------------------------- INPUTS -------------------------
+NUMERIC INPUT DOAS_MODE
+NUMERIC INPUT SAFETY_OK
+NUMERIC INPUT FREEZE_LATCH
+NUMERIC INPUT ECON_STATE
+NUMERIC INPUT OAT
+
+' ------------------------- OUTPUTS ------------------------
+NUMERIC OUTPUT CHW_ENABLE_REQ
+NUMERIC OUTPUT HW_ENABLE_REQ
+
+' ------------------------- PUBLICS ------------------------
+NUMERIC PUBLIC OAT_HEAT_ENABLE_SP     ' e.g. 40°F
+
+'=========================================================
+GOTO INIT
+
+
+'=========================================================
+INIT:
+    IF OAT_HEAT_ENABLE_SP <= 0 THEN
+        OAT_HEAT_ENABLE_SP = 40
+    ENDIF
+
+    CHW_ENABLE_REQ = 0
+    HW_ENABLE_REQ = 0
+
+    GOTO MAIN
+
+
+    '=========================================================
+MAIN:
+
+    '=========================================================
+    ' 1) FREEZE OVERRIDE (highest priority)
+    '=========================================================
+    ' Sequence requires HW valve to maintain 90°F DAT on freeze,
+    ' even though the unit is otherwise disabled.
+    IF FREEZE_LATCH = 1 THEN
+        HW_ENABLE_REQ = 1
+        CHW_ENABLE_REQ = 0
+        WAIT 1
+        GOTO MAIN
+    ENDIF
+
+
+    '=========================================================
+    ' 2) GLOBAL SAFETY SHUTDOWN (non-freeze)
+    '=========================================================
+    IF SAFETY_OK = 0 THEN
+        HW_ENABLE_REQ = 0
+        CHW_ENABLE_REQ = 0
+        WAIT 1
+        GOTO MAIN
+    ENDIF
+
+
+    '=========================================================
+    ' 3) DEFAULT STATE
+    '=========================================================
+    HW_ENABLE_REQ = 0
+    CHW_ENABLE_REQ = 0
+
+
+    '=========================================================
+    ' 4) HEATING ENABLE LOGIC
+    '=========================================================
+    ' Warm-Up Mode
+    IF DOAS_MODE = 2 THEN
+        HW_ENABLE_REQ = 1
+    ENDIF
+
+    ' Unoccupied Protect Mode (45°F preheat requirement)
+    IF DOAS_MODE = 5 THEN
+        HW_ENABLE_REQ = 1
+    ENDIF
+
+    ' Cold OA preheat assist (allowed in any running mode)
+    IF OAT <= OAT_HEAT_ENABLE_SP THEN
+        HW_ENABLE_REQ = 1
+    ENDIF
+
+
+    '=========================================================
+    ' 5) COOLING ENABLE LOGIC
+    '=========================================================
+    ' Cooling only allowed in:
+    ' - Cool-Down
+    ' - Occupied
+    ' - Unoccupied Protect (high-temp protection)
+    IF (DOAS_MODE = 3) OR (DOAS_MODE = 4) OR (DOAS_MODE = 5) THEN
+
+        ' Enable CHW if economizer has progressed to a stage
+        ' where mechanical cooling is required
+        IF ECON_STATE >= 3 THEN
+            CHW_ENABLE_REQ = 1
+        ENDIF
+
+    ENDIF
+
+
+    WAIT 1
+    GOTO MAIN

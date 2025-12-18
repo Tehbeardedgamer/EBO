@@ -1,0 +1,56 @@
+'=========================================================
+' DOAS_VAV_Aggregator
+' Computes MAX damper position and sequence booleans:
+'   ANY_VAV_GT95  (any box >95% open)
+'   NO_VAV_GT85   (no box >85% open)
+'=========================================================
+
+' --------- INPUTS (0–100%) ---------
+NUMERIC INPUT VAV_01_POS, VAV_02_POS, VAV_03_POS, VAV_04_POS
+NUMERIC INPUT VAV_05_POS, VAV_06_POS, VAV_07_POS, VAV_08_POS
+
+' --------- OUTPUTS ----------
+NUMERIC OUTPUT MAX_DAMPER_POS      ' %
+NUMERIC OUTPUT ANY_VAV_GT95        ' 0/1
+NUMERIC OUTPUT NO_VAV_GT85         ' 0/1
+
+' --------- INTERNALS ----------
+NUMERIC VAV_DAMPER_POSITIONS[8]
+NUMERIC I, maxpos
+
+GOTO INI
+
+INI:
+    MAX_DAMPER_POS = 0
+    ANY_VAV_GT95 = 0
+    NO_VAV_GT85 = 1
+    GOTO MAIN
+
+MAIN:
+    ' Load array (clamp 0–100 in case of noisy inputs)
+    VAV_DAMPER_POSITIONS[1] = (VAV_01_POS)
+    VAV_DAMPER_POSITIONS[2] = (VAV_02_POS)
+    VAV_DAMPER_POSITIONS[3] = (VAV_03_POS)
+    VAV_DAMPER_POSITIONS[4] = (VAV_04_POS)
+    VAV_DAMPER_POSITIONS[5] = (VAV_05_POS)
+    VAV_DAMPER_POSITIONS[6] = (VAV_06_POS)
+    VAV_DAMPER_POSITIONS[7] = (VAV_07_POS)
+    VAV_DAMPER_POSITIONS[8] = (VAV_08_POS)
+
+    maxpos = 0
+  
+
+    FOR I = 1 TO 8
+        IF VAV_DAMPER_POSITIONS[I] > maxpos THEN
+            maxpos = VAV_DAMPER_POSITIONS[I]
+        ENDIF
+
+    NEXT I
+
+    MAX_DAMPER_POS = maxpos
+   
+
+    WAIT 5
+    GOTO MAIN
+
+    '=========================================================

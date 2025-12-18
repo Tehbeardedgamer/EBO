@@ -1,0 +1,247 @@
+'=========================================================
+' DOAS_HW_VALVE_CALC  (GOLD / SEQUENCE-CORRECT)
+'
+' PURPOSE:
+'   Calculate Hot Water (Preheat) Valve command for DOAS.
+'
+' SEQUENCE BASIS:
+'   - Freeze recovery: maintain PREHEAT_DISCH_TEMP = 90°F
+'   - Unoccupied minimum: maintain PREHEAT_DISCH_TEMP = 45°F
+'   - Occupied heating: maintain SA_SP when discharge temp is low
+'
+' PRIORITY (highest first):
+'   1) SAFETY OFF (SAFETY_OK=0) -> valve closed
+'   2) FREEZE_LATCH -> control to FREEZE_RECOV_SP (90°F)
+'   3) UNOCC -> maintain UNOCC_MIN_SP (45°F)
+'   4) OCC / WARMUP -> heat to SA_SP only when needed
+'   5) Otherwise -> valve closed
+'
+' NOTE:
+'   This script does NOT reference ECON_AVAILABLE or CHW logic.
+'=========================================================
+
+
+' ------------------------- INPUTS -------------------------
+NUMERIC INPUT PREHEAT_DAT
+' Linked from: Preheat coil discharge air temperature sensor (EBO AI)
+' (Sensor located downstream of preheat coil as required by sequence.)
+
+NUMERIC INPUT SA_SP
+' Linked from: DOAS supply air temperature setpoint program output (°F)
+
+NUMERIC INPUT DOAS_MODE
+' Linked from: DOAS Determine Mode script output
+' 0=OFF,1=PRESTART,2=WARMUP,3=COOLDOWN,4=OCC,5=UNOCC-PROTECT
+
+NUMERIC INPUT SAFETY_OK
+' Linked from: DOAS safety aggregator output (1=OK,0=Trip)
+
+NUMERIC INPUT FREEZE_LATCH
+' Linked from: Freeze latch output (1=freeze active/latched)
+
+
+' ------------------------- OUTPUT -------------------------
+NUMERIC OUTPUT HW_CMD_CALC
+' Linked to: MAIN_DOAS_ORCHESTRATOR → HW_VLV_CMD → AO (% open)
+
+
+' ------------------------- PUBLIC TUNABLES ----------------
+NUMERIC PUBLIC KP
+' P gain for HW PID (typical 4–10)
+
+NUMERIC PUBLIC KI
+' I gain for HW PID (typical 0.05–0.20)
+
+NUMERIC PUBLIC HEAT_DB
+' Deadband (°F) to prevent chatter, typical 0.5
+
+NUMERIC PUBLIC FREEZE_RECOV_SP
+' Freeze recovery discharge setpoint (°F) – per sequence: 90°F (adj.)
+
+NUMERIC PUBLIC UNOCC_MIN_SP
+' Unoccupied minimum preheat discharge setpoint (°F) – per sequence: 45°F (adj.)
+
+NUMERIC PUBLIC MAX_CMD
+' Max valve command (%) normally 100
+
+
+' ------------------------- INTERNALS ----------------------
+NUMERIC TARGET_SP
+NUMERIC ERR
+NUMERIC PID_OUT
+NUMERIC I_TERM
+NUMERIC OLD_ERR
+
+FUNCTION PID_LOOP
+
+
+'=========================================================
+GOTO INIT
+
+
+'=========================================================
+INIT:
+
+    IF KP <= 0 THEN
+        KP = 6
+    ENDIF
+
+    IF KI < 0 THEN
+        KI = 0.1
+    ENDIF
+
+    IF HEAT_DB <= 0 THEN
+        HEAT_DB = 0.5
+    ENDIF
+
+    IF FREEZE_RECOV_SP <= 0 THEN
+        FREEZE_RECOV_SP = 90
+    ENDIF
+
+    IF UNOCC_MIN_SP <= 0 THEN
+        UNOCC_MIN_SP = 45
+    ENDIF
+
+    IF MAX_CMD <= 0 THEN
+        MAX_CMD = 100
+    ENDIF
+
+    I_TERM = 0
+    OLD_ERR = 0
+    HW_CMD_CALC = 0
+
+    GOTO MAIN
+
+
+    '=========================================================
+MAIN:
+
+    '---------------------------------------------------------
+    ' 1) SAFETY HARD OFF
+    '---------------------------------------------------------
+    IF SAFETY_OK = 0 THEN
+        HW_CMD_CALC = 0
+        I_TERM = 0
+        WAIT 1
+        GOTO MAIN
+    ENDIF
+
+
+    '---------------------------------------------------------
+    ' 2) FREEZE RECOVERY (TOP PRIORITY)
+    '    Control PREHEAT_DAT to 90°F regardless of mode.
+    '---------------------------------------------------------
+    IF FREEZE_LATCH = 1 THEN
+
+        TARGET_SP = FREEZE_RECOV_SP
+
+        ERR = TARGET_SP - PREHEAT_DAT
+
+        IF ERR <= HEAT_DB THEN
+            HW_CMD_CALC = 0
+            WAIT 1
+            GOTO MAIN
+        ENDIF
+
+        PID_OUT = PID_LOOP(0, PREHEAT_DAT, TARGET_SP, I_TERM, KP, KI, 0, OLD_ERR)
+
+        IF PID_OUT < 0 THEN
+            PID_OUT = 0
+        ENDIF
+
+        IF PID_OUT > MAX_CMD THEN
+            PID_OUT = MAX_CMD
+        ENDIF
+
+        HW_CMD_CALC = PID_OUT
+
+        WAIT 1
+        GOTO MAIN
+    ENDIF
+
+
+    '---------------------------------------------------------
+    ' 3) UNOCC MINIMUM HEAT (45°F)
+    '    Fans may be off; valve still maintains minimum.
+    '---------------------------------------------------------
+    IF DOAS_MODE = 0 THEN
+        ' Unit fully off: no requirement to maintain 45°F unless in protect mode.
+        HW_CMD_CALC = 0
+        I_TERM = 0
+        WAIT 1
+        GOTO MAIN
+    ENDIF
+
+    IF DOAS_MODE = 5 THEN
+
+        TARGET_SP = UNOCC_MIN_SP
+
+        ERR = TARGET_SP - PREHEAT_DAT
+
+        IF ERR <= HEAT_DB THEN
+            HW_CMD_CALC = 0
+            WAIT 1
+            GOTO MAIN
+        ENDIF
+
+        PID_OUT = PID_LOOP(0, PREHEAT_DAT, TARGET_SP, I_TERM, KP, KI, 0, OLD_ERR)
+
+        IF PID_OUT < 0 THEN
+            PID_OUT = 0
+        ENDIF
+
+        IF PID_OUT > MAX_CMD THEN
+            PID_OUT = MAX_CMD
+        ENDIF
+
+        HW_CMD_CALC = PID_OUT
+
+        WAIT 1
+        GOTO MAIN
+    ENDIF
+
+
+    '---------------------------------------------------------
+    ' 4) OCCUPIED / WARMUP HEATING TO SA_SP (as needed)
+    '    - Only heat if discharge is below SA_SP by deadband
+    '    - No cooling/econ dependencies
+    '---------------------------------------------------------
+    IF DOAS_MODE = 2 THEN
+        TARGET_SP = SA_SP
+    ELSE
+        IF DOAS_MODE = 4 THEN
+            TARGET_SP = SA_SP
+        ELSE
+            TARGET_SP = 0
+        ENDIF
+    ENDIF
+
+    IF TARGET_SP <= 0 THEN
+        HW_CMD_CALC = 0
+        I_TERM = 0
+        WAIT 1
+        GOTO MAIN
+    ENDIF
+
+    ERR = TARGET_SP - PREHEAT_DAT
+
+    IF ERR <= HEAT_DB THEN
+        HW_CMD_CALC = 0
+        WAIT 1
+        GOTO MAIN
+    ENDIF
+
+    PID_OUT = PID_LOOP(0, PREHEAT_DAT, TARGET_SP, I_TERM, KP, KI, 0, OLD_ERR)
+
+    IF PID_OUT < 0 THEN
+        PID_OUT = 0
+    ENDIF
+
+    IF PID_OUT > MAX_CMD THEN
+        PID_OUT = MAX_CMD
+    ENDIF
+
+    HW_CMD_CALC = PID_OUT
+
+    WAIT 1
+    GOTO MAIN

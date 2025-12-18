@@ -1,0 +1,70 @@
+'=========================================================
+' DOAS_StaticSP_Reset_MaxOnly  (Seq 12h)
+' Resets DUCT_STATIC_SP using only MAX_DAMPER_POS (0–100%).
+' Rules:
+'   - If MAX_DAMPER_POS > 95% ? increase SP
+'   - If MAX_DAMPER_POS ? 85% ? decrease SP
+'   - Else (between 85–95%) ? hold SP
+'=========================================================
+
+' ---------- INPUTS ----------
+NUMERIC INPUT OCC_REQUEST             ' 1=occupied request
+NUMERIC INPUT MAX_DAMPER_POS          ' % (max of all served VAV dampers)
+NUMERIC INPUT DUCT_STATIC_MIN                 ' in.w.c
+NUMERIC INPUT DUCT_STATIC_MAX                 ' in.w.c
+NUMERIC INPUT DUCT_STATIC_STEP_UP                ' in.w.c per adjustment
+NUMERIC INPUT DUCT_STATIC_STEP_DN                ' in.w.c per adjustment
+NUMERIC INPUT DUCT_STATIC_RESET_TIMER        ' seconds between adjustments
+' ---------- OUTPUTS ----------
+NUMERIC OUTPUT DUCT_STATIC_SP         ' in.w.c setpoint to Supply Fan PID
+
+' ---------- PUBLICS ----------
+
+
+' ---------- INTERNAL ----------
+NUMERIC t
+
+GOTO INI
+INI:
+
+    IF DUCT_STATIC_SP <= 0 THEN DUCT_STATIC_SP = DUCT_STATIC_MIN
+    t = 0
+    GOTO MAIN
+
+MAIN:
+    ' Only act during occupied request; otherwise hold conservative minimum
+    IF OCC_REQUEST = 0 THEN
+        DUCT_STATIC_SP = DUCT_STATIC_MIN
+        t = 0
+        WAIT 1
+        GOTO MAIN
+    ENDIF
+
+    ' Rate-limit adjustments
+    IF t < DUCT_STATIC_RESET_TIMER THEN
+        t = t + 1
+        WAIT 1
+        GOTO MAIN
+    ENDIF
+    t = 0
+
+    ' --- 12(h) logic using only MAX_DAMPER_POS ---
+    IF MAX_DAMPER_POS > 95 THEN
+        DUCT_STATIC_SP = DUCT_STATIC_SP + DUCT_STATIC_STEP_UP
+    ELSE
+        IF MAX_DAMPER_POS <= 85 THEN
+            DUCT_STATIC_SP = DUCT_STATIC_SP - DUCT_STATIC_STEP_DN
+        ELSE
+            ' 85% < MAX ? 95% ? hold
+            DUCT_STATIC_SP = DUCT_STATIC_SP
+        ENDIF
+    ENDIF
+
+
+
+    ' Clamp to limits
+    IF DUCT_STATIC_SP < DUCT_STATIC_MIN THEN DUCT_STATIC_SP = DUCT_STATIC_MIN
+    IF DUCT_STATIC_SP > DUCT_STATIC_MAX THEN DUCT_STATIC_SP = DUCT_STATIC_MAX
+
+    WAIT 1
+    GOTO MAIN
