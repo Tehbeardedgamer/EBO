@@ -1,0 +1,133 @@
+'======================================================================
+'  PROGRAM: OVAV_DCV_CONTROL
+'  PURPOSE: Control OVAV damper for DCV based on CO2 and Occupancy
+'           - OCC: maintain CO2 setpoint (default 1000 ppm)
+'           - UNOCC: close damper after CO2 <= 550 ppm
+'           - Multiple CO2 sensors: worst-case (max) select
+'
+'  NOTES:
+'   - Uses a PI loop (PIDControl with DK defaulted to 0 per your standard)
+'   - Outputs a 0-100% damper command
+'   - Pressure independent behavior is assumed inherent to the terminal;
+'     this program only commands damper position per sequence.
+'======================================================================
+
+'---------------------- INPUTS ----------------------------------------
+NUMERIC INPUT ZN_OCC                ' 1 = Occupied, 0 = Unoccupied (from occ sensor)
+NUMERIC INPUT CO2_1                 ' ppm
+NUMERIC INPUT CO2_2                 ' ppm (optional)
+NUMERIC INPUT CO2_3                 ' ppm (optional)
+NUMERIC INPUT CO2_4                 ' ppm (optional)
+NUMERIC INPUT CO2_SENSOR_COUNT      ' 1..4  (how many sensors are valid)
+
+NUMERIC INPUT SCAN_SEC              ' seconds per scan (e.g., 10). Must be >0.
+
+'---------------------- OUTPUTS ---------------------------------------
+NUMERIC OUTPUT DMP_CMD              ' % open (0..100)
+NUMERIC OUTPUT DMP_POS_FOR_RESET    ' % open used by system reset (typically same as cmd)
+NUMERIC OUTPUT CO2_WORST            ' ppm (max selected for BAS display/trend)
+NUMERIC OUTPUT MODE_Occupied        ' 1=Occupied mode active, 0=Unoccupied mode active
+
+'---------------------- ADJUSTABLE SETPOINTS / LIMITS -----------------
+NUMERIC INPUT CO2_SP                ' ppm (default 1000; adjustable)
+NUMERIC INPUT CO2_UNOCC_CLOSE       ' ppm (default 550; adjustable)
+
+NUMERIC INPUT DMP_MIN_CMD           ' % (default 0)
+NUMERIC INPUT DMP_MAX_CMD           ' % (default 100)
+
+'---------------------- PID TUNING ------------------------------------
+NUMERIC INPUT PK                    ' Proportional gain
+NUMERIC INPUT IK                    ' Integral gain
+' DK is intentionally fixed to 0 unless explicitly required
+
+'---------------------- INTERNALS -------------------------------------
+NUMERIC CO2_MAX, i
+NUMERIC CO2_LIST[4]
+
+NUMERIC PID_OUT
+NUMERIC I_TERM, OLDERR
+
+FUNCTION PIDControl
+
+
+GOTO INIT
+
+INIT:
+  
+
+    I_TERM = 0
+    OLDERR = 0
+
+    GOTO MAIN
+
+MAIN:
+    '----------------------------------------------------------
+    ' Build CO2 array and select WORST CASE (highest)
+    '----------------------------------------------------------
+    CO2_LIST[1] = CO2_1
+    CO2_LIST[2] = CO2_2
+    CO2_LIST[3] = CO2_3
+    CO2_LIST[4] = CO2_4
+
+    CO2_MAX = CO2_LIST[1]
+    FOR i = 2 TO CO2_SENSOR_COUNT
+        IF CO2_LIST[i] > CO2_MAX THEN CO2_MAX = CO2_LIST[i]
+    NEXT i
+
+    CO2_WORST = CO2_MAX
+
+    '----------------------------------------------------------
+    ' Mode selection
+    '----------------------------------------------------------
+    IF ZN_OCC >= 1 THEN
+        MODE_Occupied = 1
+        GOTO OCC_MODE
+    ELSE
+        MODE_Occupied = 0
+        GOTO UNOCC_MODE
+    ENDIF
+
+OCC_MODE:
+    '----------------------------------------------------------
+    ' OCCUPIED: Maintain CO2_SP (1000 ppm adj.)
+    ' PI control using PIDControl() returning 0..100%
+    ' DK = 0 by standard unless explicitly required
+    '----------------------------------------------------------
+    PID_OUT = PIDControl(0, CO2_WORST, CO2_SP, I_TERM, PK, IK, 0, OLDERR)
+
+    ' Clamp to command limits
+    IF PID_OUT < DMP_MIN_CMD THEN PID_OUT = DMP_MIN_CMD
+    IF PID_OUT > DMP_MAX_CMD THEN PID_OUT = DMP_MAX_CMD
+
+    DMP_CMD = PID_OUT
+    DMP_POS_FOR_RESET = DMP_CMD
+
+    GOTO END_SCAN
+
+UNOCC_MODE:
+    '----------------------------------------------------------
+    ' UNOCCUPIED:
+    ' Damper shall be CLOSED after CO2 <= CO2_UNOCC_CLOSE (550 ppm adj.)
+    ' Until then: continue ventilating as required (uses same PI method)
+    '----------------------------------------------------------
+    IF CO2_WORST <= CO2_UNOCC_CLOSE THEN
+        DMP_CMD = 0
+        ' Optional: force integrator reset when fully closed in unocc
+        I_TERM = 0
+        OLDERR = 0
+    ELSE
+        PID_OUT = PIDControl(0, CO2_WORST, CO2_UNOCC_CLOSE, I_TERM, PK, IK, 0, OLDERR)
+
+        IF PID_OUT < DMP_MIN_CMD THEN PID_OUT = DMP_MIN_CMD
+        IF PID_OUT > DMP_MAX_CMD THEN PID_OUT = DMP_MAX_CMD
+
+        DMP_CMD = PID_OUT
+    ENDIF
+
+    DMP_POS_FOR_RESET = DMP_CMD
+
+    GOTO END_SCAN
+
+END_SCAN:
+    ' End of scan - loop every execution
+    GOTO MAIN
