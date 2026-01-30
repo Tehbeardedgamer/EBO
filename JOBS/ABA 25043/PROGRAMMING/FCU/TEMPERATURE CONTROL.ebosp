@@ -1,0 +1,153 @@
+' =========================================================
+' PROGRAM: FCU_SPACE_TEMP_CONTROL
+' PURPOSE: Space temperature control using external PIDControl()
+'          - PID #1 = Cooling (CHW Valve)
+'          - PID #2 = Heating (HW Valve)
+'          - Stage 2 = Electric Reheat added after HW PID saturates
+' =========================================================
+
+' ======================== INPUTS ==========================
+NUMERIC INPUT SPACE_TEMP            ' Space temperature °F
+NUMERIC INPUT OCCUPIED_CMD          ' 0/1 – From Mode Manager
+NUMERIC INPUT SPACE_SP_OCC          ' Space temperature setpoint (Occupied)
+' ---- Cooling PID Tunables ----
+NUMERIC INPUT CLG_PK
+NUMERIC INPUT CLG_IK
+NUMERIC INPUT CLG_DK
+
+' ---- Heating PID Tunables ----
+NUMERIC INPUT HTG_PK
+NUMERIC INPUT HTG_IK
+NUMERIC INPUT HTG_DK
+
+' ---- Electric Heat Gain ----
+NUMERIC INPUT EDH_GAIN             ' %/°F
+' ======================== OUTPUTS =========================
+NUMERIC OUTPUT CHW_VALVE_CMD        ' 0–100% Cooling valve
+NUMERIC OUTPUT HW_VALVE_CMD         ' 0–100% Heating Stage #1
+NUMERIC OUTPUT EDH_CMD              ' 0–100% Electric heat Stage #2
+NUMERIC OUTPUT ACTIVE_SP            ' For graphics/trending
+NUMERIC INPUT DBAND         ' Deadband °F
+' ======================== PUBLICS =========================
+
+
+
+' ======================== INTERNALS ========================
+' PID #1 – Cooling
+NUMERIC CLG_I
+NUMERIC CLG_OLDERR
+
+' PID #2 – Heating
+NUMERIC HTG_I
+NUMERIC HTG_OLDERR
+
+' PID error magnitudes
+NUMERIC cool_err
+NUMERIC heat_err
+NUMERIC extra_heat_err
+
+' External PIDControl declaration
+Function PIDControl
+
+' ========================= PROGRAM =========================
+GOTO INIT
+
+INIT:
+    ' Initialize everything
+    ACTIVE_SP = SPACE_SP_OCC
+    CHW_VALVE_CMD = 0
+    HW_VALVE_CMD = 0
+    EDH_CMD = 0
+
+    CLG_I = 0
+    CLG_OLDERR = 0
+
+    HTG_I = 0
+    HTG_OLDERR = 0
+
+    GOTO MAIN
+
+    ' ========================= MAIN LOOP =======================
+MAIN:
+
+    ' ----------- If not occupied: Fully off --------------------
+    IF OCCUPIED_CMD = 0 THEN
+        ACTIVE_SP = SPACE_SP_OCC
+        CHW_VALVE_CMD = 0
+        HW_VALVE_CMD = 0
+        EDH_CMD = 0
+        GOTO WAITLOOP
+    ENDIF
+
+    ' Active setpoint
+    ACTIVE_SP = SPACE_SP_OCC
+
+    ' ============================================================
+    '                        COOLING MODE
+    ' ============================================================
+    IF SPACE_TEMP > (ACTIVE_SP + DBAND) THEN
+
+        cool_err = SPACE_TEMP - (ACTIVE_SP + DBAND)
+        IF cool_err < 0 THEN cool_err = 0
+
+        ' ----------- External PIDControl (Cooling) --------------
+        ' ReverseActing = 1 (Cooling: Output ? when Temp > SP)
+        CHW_VALVE_CMD = PIDControl(1, SPACE_TEMP, (ACTIVE_SP + DBAND), CLG_I, CLG_PK, CLG_IK, CLG_DK, CLG_OLDERR)
+
+        ' Clamp for safety
+        IF CHW_VALVE_CMD < 0 THEN CHW_VALVE_CMD = 0
+        IF CHW_VALVE_CMD > 100 THEN CHW_VALVE_CMD = 100
+
+        ' Heating fully off
+        HW_VALVE_CMD = 0
+        EDH_CMD = 0
+
+        GOTO WAITLOOP
+    ENDIF
+
+    ' ============================================================
+    '                        HEATING MODE
+    ' ============================================================
+    IF SPACE_TEMP < (ACTIVE_SP - DBAND) THEN
+
+        heat_err = (ACTIVE_SP - DBAND) - SPACE_TEMP
+        IF heat_err < 0 THEN heat_err = 0
+
+        ' ----------- External PIDControl (Heating) --------------
+        ' ReverseActing = 1 (Heating: Output ? when Temp < SP)
+        HW_VALVE_CMD = PIDControl(0, SPACE_TEMP, (ACTIVE_SP - DBAND), HTG_I, HTG_PK, HTG_IK, HTG_DK, HTG_OLDERR)
+
+        ' Clamp for safety
+        IF HW_VALVE_CMD < 0 THEN HW_VALVE_CMD = 0
+        IF HW_VALVE_CMD > 100 THEN HW_VALVE_CMD = 100
+
+        ' Cooling off
+        CHW_VALVE_CMD = 0
+
+        ' ----------- Stage 2 Electric Heat (EDH) ----------------
+        ' Triggered when HW valve has maxed out
+        IF HW_VALVE_CMD >= 98 THEN
+
+            ' Amount of additional error AFTER hot water is fully open
+            extra_heat_err = heat_err - (HW_VALVE_CMD / HTG_PK)
+            IF extra_heat_err < 0 THEN extra_heat_err = 0
+
+            EDH_CMD = extra_heat_err * EDH_GAIN
+            IF EDH_CMD > 100 THEN EDH_CMD = 100
+
+        ELSE
+            EDH_CMD = 0
+        ENDIF
+
+        GOTO WAITLOOP
+    ENDIF
+
+    ' ============================================================
+    '                      WITHIN DEADBAND
+    ' ============================================================
+    CHW_VALVE_CMD = 0
+    HW_VALVE_CMD = 0
+    EDH_CMD = 0
+
+WAITLOOP:
+    IF TS > 1 THEN GOTO MAIN

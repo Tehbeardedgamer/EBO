@@ -1,0 +1,165 @@
+' =========================================================
+' PROGRAM: FCU_MODE_MANAGER
+' PURPOSE: Mode logic (Enabled/Disabled, Occ/Unocc, Setback)
+' =========================================================
+
+' ------------------------- INPUTS -------------------------
+NUMERIC INPUT SCHED_OCC          ' 0/1 - Time-of-day schedule
+NUMERIC INPUT FCU_ENABLE_CMD     ' 0/1 - System/BMS enable
+NUMERIC INPUT SPACE_TEMP         ' °F - Space temperature
+NUMERIC INPUT LEAK_DETECT        ' 0/1 - Leak detector below unit
+NUMERIC INPUT OCC_OVERRIDE_BTN   ' 0/1 - Momentary occupancy override
+NUMERIC INPUT FIRE_ALARM				 ' 0/1 - Duct Detector from ASB
+
+' ------------------------- OUTPUTS ------------------------
+NUMERIC OUTPUT FCU_ENABLED       ' 0/1 - Unit allowed to run
+NUMERIC OUTPUT OCCUPIED_CMD      ' 0/1 - Treated as occupied
+NUMERIC OUTPUT MODE_STATE        ' 0=Disabled,1=Unocc,2=Occ
+NUMERIC OUTPUT LEAK_TRIP         ' 0/1 - Latched leak alarm
+
+' ------------------------- PUBLICS ------------------------
+NUMERIC INPUT UNOCC_HEAT_SP     ' °F - 60 (adj.)   – Heat setback start
+NUMERIC INPUT UNOCC_HEAT_CLEAR  ' °F - 64 (adj.)   – Heat setback clear
+NUMERIC INPUT UNOCC_COOL_SP     ' °F - 80 (adj.)   – Cool setup start
+NUMERIC INPUT UNOCC_COOL_CLEAR  ' °F - 76 (adj.)   – Cool setup clear
+NUMERIC PUBLIC ALARM_RESET
+NUMERIC INPUT MIN_RUN_TIME_HR   ' Hours - 0.5 (adj.) minimum runtime
+NUMERIC INPUT OVERRIDE_HOURS    ' Hours - 2.0 (adj.) occupancy override
+
+' Script scan period in minutes (e.g. 10s scan => 10 / 60 = 0.1667)
+NUMERIC PUBLIC SCAN_PERIOD_MIN
+
+
+' ------------------------- INTERNALS ----------------------
+NUMERIC HEAT_SETBACK_ACTIVE
+NUMERIC COOL_SETUP_ACTIVE
+NUMERIC RUNTIME_TIMER_HR
+NUMERIC OVERRIDE_ACTIVE
+NUMERIC OVERRIDE_TIMER_HR
+
+NUMERIC base_occ
+NUMERIC effective_occ
+
+' =================== MAIN EXECUTION =======================
+
+' --------- LEAK TRIP LATCH / FIRE ALARM LATCH--------------------------------
+IF LEAK_DETECT = 1 THEN
+    LEAK_TRIP = 1
+ENDIF
+IF ALARM_RESET = TRUE THEN
+LEAK_TRIP = 0
+WAIT 1 
+ALARM_RESET = FALSE
+ENDIF
+
+' --------- BASE ENABLED / DISABLED ------------------------
+IF (FCU_ENABLE_CMD = 0) OR (LEAK_TRIP = 1)  OR (FIRE_ALARM = 1)THEN
+
+    ' Fully disabled
+    FCU_ENABLED = 0
+    OCCUPIED_CMD = 0
+    MODE_STATE = 0          ' Disabled
+    HEAT_SETBACK_ACTIVE = 0
+    COOL_SETUP_ACTIVE = 0
+    RUNTIME_TIMER_HR = 0
+    OVERRIDE_ACTIVE = 0
+    OVERRIDE_TIMER_HR = 0
+
+ELSE
+
+    ' Unit is generally enabled from BMS and no leak lockout
+    FCU_ENABLED = 1
+
+    ' --------- BASE OCC FROM SCHEDULE -----------------------
+    IF SCHED_OCC = 1 THEN
+        base_occ = 1          ' Scheduled occupied
+    ELSE
+        base_occ = 0          ' Scheduled unoccupied
+    ENDIF
+
+    ' --------- OCCUPANCY OVERRIDE LOGIC ---------------------
+    ' Latch override on button press when not already active
+    IF (OCC_OVERRIDE_BTN = 1) AND (OVERRIDE_ACTIVE = 0) THEN
+        OVERRIDE_ACTIVE = 1
+        OVERRIDE_TIMER_HR = 0
+    ENDIF
+
+    ' If override active, accumulate timer
+    IF OVERRIDE_ACTIVE = 1 THEN
+        OVERRIDE_TIMER_HR = OVERRIDE_TIMER_HR + (SCAN_PERIOD_MIN / 60)
+        ' Clear override after OVERRIDE_HOURS
+        IF OVERRIDE_TIMER_HR >= OVERRIDE_HOURS THEN
+            OVERRIDE_ACTIVE = 0
+            OVERRIDE_TIMER_HR = 0
+        ENDIF
+    ENDIF
+
+    ' --------- UNOCC SETBACK / SETUP LOGIC ------------------
+    ' Only evaluate setback/setup when not scheduled occupied
+    IF base_occ = 0 THEN
+
+        ' ---- Heating setback trigger ----
+        IF (HEAT_SETBACK_ACTIVE = 0) AND (SPACE_TEMP < UNOCC_HEAT_SP) THEN
+            HEAT_SETBACK_ACTIVE = 1
+            COOL_SETUP_ACTIVE = 0
+            RUNTIME_TIMER_HR = 0
+        ENDIF
+
+        ' ---- Cooling setup trigger ----
+        IF (COOL_SETUP_ACTIVE = 0) AND (SPACE_TEMP > UNOCC_COOL_SP) THEN
+            COOL_SETUP_ACTIVE = 1
+            HEAT_SETBACK_ACTIVE = 0
+            RUNTIME_TIMER_HR = 0
+        ENDIF
+
+        ' If either setback or setup is active, run timer
+        IF (HEAT_SETBACK_ACTIVE = 1) OR (COOL_SETUP_ACTIVE = 1) THEN
+            RUNTIME_TIMER_HR = RUNTIME_TIMER_HR + (SCAN_PERIOD_MIN / 60)
+        ENDIF
+
+        ' ---- Clear heating setback ----
+        IF HEAT_SETBACK_ACTIVE = 1 THEN
+            IF (SPACE_TEMP >= UNOCC_HEAT_CLEAR) OR (RUNTIME_TIMER_HR >= MIN_RUN_TIME_HR) THEN
+                HEAT_SETBACK_ACTIVE = 0
+                RUNTIME_TIMER_HR = 0
+            ENDIF
+        ENDIF
+
+        ' ---- Clear cooling setup ----
+        IF COOL_SETUP_ACTIVE = 1 THEN
+            IF (SPACE_TEMP <= UNOCC_COOL_CLEAR) OR (RUNTIME_TIMER_HR >= MIN_RUN_TIME_HR) THEN
+                COOL_SETUP_ACTIVE = 0
+                RUNTIME_TIMER_HR = 0
+            ENDIF
+        ENDIF
+
+    ELSE
+        ' Scheduled occupied – no setback/setup logic needed
+        HEAT_SETBACK_ACTIVE = 0
+        COOL_SETUP_ACTIVE = 0
+        RUNTIME_TIMER_HR = 0
+    ENDIF
+
+    ' --------- EFFECTIVE OCCUPIED FLAG ----------------------
+    effective_occ = base_occ
+
+    ' If any unocc setback/setup is active, treat as occupied
+    IF (HEAT_SETBACK_ACTIVE = 1) OR (COOL_SETUP_ACTIVE = 1) THEN
+        effective_occ = 1
+    ENDIF
+
+    ' If override is active, force occupied
+    IF OVERRIDE_ACTIVE = 1 THEN
+        effective_occ = 1
+    ENDIF
+
+    ' --------- FINAL OUTPUTS --------------------------------
+    IF effective_occ = 1 THEN
+        OCCUPIED_CMD = 1
+        MODE_STATE = 2         ' Occupied
+    ELSE
+        OCCUPIED_CMD = 0
+        MODE_STATE = 1         ' Unoccupied
+    ENDIF
+
+ENDIF

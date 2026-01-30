@@ -1,0 +1,194 @@
+' =========================================================
+' PROGRAM: FPB_AIRFLOW_AND_REHEAT_CONTROL
+' PURPOSE:
+'   - Determine cooling/heating mode from AHU DAT vs space temp
+'   - Reset airflow SP per sequence
+'   - PID airflow to damper
+'   - PID space temp to electric reheat when in reheat stage
+' =========================================================
+
+' ========================== INPUTS =========================
+NUMERIC INPUT FPB_ENABLED
+NUMERIC INPUT OCCUPIED_CMD
+
+NUMERIC INPUT SPACE_TEMP           ' °F
+NUMERIC INPUT SPACE_SP_OCC         ' °F
+
+NUMERIC INPUT AHU_DAT              ' °F - AHU discharge air temp to this box
+NUMERIC INPUT DAT_HEAT_DIFF        ' °F - differential for heating mode decision
+
+'NUMERIC INPUT BOX_CFM              ' CFM - measured airflow
+
+' Scheduled CFM setpoints (from drawings)
+NUMERIC INPUT MIN_CLG_CFM_SP       ' CFM
+NUMERIC INPUT MAX_CLG_CFM_SP       ' CFM
+NUMERIC INPUT HTG_CFM_SP           ' CFM (fixed heating airflow for cooling-mode reheat stage)
+
+' Reset bands / thresholds
+NUMERIC INPUT CLG_RESET_BAND_F     ' °F above SP to go MIN->MAX (e.g. 3.0)
+NUMERIC INPUT HTG_RESET_BAND_F     ' °F below SP to go MIN->MAX (e.g. 3.0)
+
+NUMERIC INPUT HEAT_STAGE_DBAND_F   ' °F below SP = "further fall" to enable reheat (e.g. 1.0)
+
+' Airflow PID tunables (damper)
+'NUMERIC INPUT AF_PK
+'NUMERIC INPUT AF_IK
+'NUMERIC INPUT AF_DK
+
+' Reheat PID tunables (space temp)
+NUMERIC INPUT RH_PK
+NUMERIC INPUT RH_IK
+NUMERIC INPUT RH_DK
+
+' ========================== OUTPUTS =========================
+NUMERIC OUTPUT MODE_STATE          ' 1=CoolingMode, 2=HeatingMode
+NUMERIC OUTPUT ACTIVE_SP           ' °F
+NUMERIC OUTPUT AIRFLOW_SP          ' CFM
+NUMERIC OUTPUT DAMPER_CMD          ' 0-100%
+NUMERIC OUTPUT REHEAT_CMD          ' 0-100%
+
+' ========================== INTERNALS =======================
+NUMERIC af_ratio
+NUMERIC temp_err
+
+NUMERIC AF_I
+NUMERIC AF_OLDERR
+
+NUMERIC RH_I
+NUMERIC RH_OLDERR
+
+NUMERIC reheat_enable_seq
+
+Function PIDControl
+
+' ========================= PROGRAM =========================
+GOTO INIT
+
+
+INIT:
+    MODE_STATE = 1
+    ACTIVE_SP = SPACE_SP_OCC
+    AIRFLOW_SP = 0
+    DAMPER_CMD = 0
+    REHEAT_CMD = 0
+
+    AF_I = 0
+    AF_OLDERR = 0
+    RH_I = 0
+    RH_OLDERR = 0
+
+    GOTO MAIN
+
+
+MAIN:
+
+    ' -------------------------
+    ' Disable behavior
+    ' -------------------------
+    IF (FPB_ENABLED = 0) OR (OCCUPIED_CMD = 0) THEN
+        ACTIVE_SP = SPACE_SP_OCC
+        AIRFLOW_SP = 0
+        DAMPER_CMD = 0
+        REHEAT_CMD = 0
+        GOTO WAITLOOP
+    ENDIF
+
+    ACTIVE_SP = SPACE_SP_OCC
+
+    ' =========================================================
+    ' MODE DECISION (per sequence)
+    ' a) If DAT < SpaceTemp => Cooling Mode
+    ' b) If DAT > SpaceTemp + Diff => Heating Mode
+    ' else hold last mode to avoid hunting
+    ' =========================================================
+    IF AHU_DAT < SPACE_TEMP THEN
+        MODE_STATE = 1
+    ENDIF
+
+    IF AHU_DAT > (SPACE_TEMP + DAT_HEAT_DIFF) THEN
+        MODE_STATE = 2
+    ENDIF
+
+    ' Default outputs
+    reheat_enable_seq = 0
+    REHEAT_CMD = 0
+
+    ' =========================================================
+    ' COOLING MODE LOGIC (MODE_STATE = 1)
+    ' =========================================================
+    IF MODE_STATE = 1 THEN
+
+        ' 1) If space rises above SP: reset airflow MIN->MAX to maintain SP
+        IF SPACE_TEMP > ACTIVE_SP THEN
+
+            temp_err = SPACE_TEMP - ACTIVE_SP
+            af_ratio = temp_err / CLG_RESET_BAND_F
+            IF af_ratio < 0 THEN af_ratio = 0
+            IF af_ratio > 1 THEN af_ratio = 1
+
+            AIRFLOW_SP = MIN_CLG_CFM_SP + (af_ratio * (MAX_CLG_CFM_SP - MIN_CLG_CFM_SP))
+
+        ELSE
+            ' 2) Upon fall below SP: modulate closed to MIN cooling CFM, reheat off
+            AIRFLOW_SP = MIN_CLG_CFM_SP
+
+            ' 3) Upon further fall below SP: go to heating CFM and enable reheat to maintain SP
+            IF SPACE_TEMP < (ACTIVE_SP - HEAT_STAGE_DBAND_F) THEN
+                AIRFLOW_SP = HTG_CFM_SP
+                reheat_enable_seq = 1
+            ENDIF
+        ENDIF
+
+    ENDIF
+
+    ' =========================================================
+    ' HEATING MODE LOGIC (MODE_STATE = 2)
+    ' =========================================================
+    IF MODE_STATE = 2 THEN
+
+        ' Reset airflow from MIN->MAX as space temp falls below SP (reset by space temp)
+        IF SPACE_TEMP < ACTIVE_SP THEN
+
+            temp_err = ACTIVE_SP - SPACE_TEMP
+            af_ratio = temp_err / HTG_RESET_BAND_F
+            IF af_ratio < 0 THEN af_ratio = 0
+            IF af_ratio > 1 THEN af_ratio = 1
+
+            AIRFLOW_SP = MIN_CLG_CFM_SP + (af_ratio * (MAX_CLG_CFM_SP - MIN_CLG_CFM_SP))
+
+            ' Further fall: maintain max airflow and enable reheat
+            IF temp_err >= HEAT_STAGE_DBAND_F THEN
+                IF AIRFLOW_SP >= (MAX_CLG_CFM_SP - 1) THEN
+                    reheat_enable_seq = 1
+                    AIRFLOW_SP = MAX_CLG_CFM_SP
+                ENDIF
+            ENDIF
+
+        ELSE
+            ' Space at/above SP: reheat off, airflow resets down toward MIN
+            AIRFLOW_SP = MIN_CLG_CFM_SP
+            reheat_enable_seq = 0
+        ENDIF
+
+    ENDIF
+
+    ' =========================================================
+    ' AIRFLOW PID -> DAMPER (track AIRFLOW_SP)
+    ' =========================================================
+    ' DAMPER_CMD = PIDControl(0, BOX_CFM, AIRFLOW_SP, AF_I, AF_PK, AF_IK, AF_DK, AF_OLDERR)
+    ' IF DAMPER_CMD < 0 THEN DAMPER_CMD = 0
+    ' IF DAMPER_CMD > 100 THEN DAMPER_CMD = 100
+
+    ' =========================================================
+    ' REHEAT PID -> SCR (only when sequence enables reheat stage)
+    ' =========================================================
+    IF reheat_enable_seq = 1 THEN
+        REHEAT_CMD = PIDControl(0, SPACE_TEMP, ACTIVE_SP, RH_I, RH_PK, RH_IK, RH_DK, RH_OLDERR)
+        IF REHEAT_CMD < 0 THEN REHEAT_CMD = 0
+        IF REHEAT_CMD > 100 THEN REHEAT_CMD = 100
+    ELSE
+        REHEAT_CMD = 0
+    ENDIF
+
+WAITLOOP:
+    IF TS > 1 THEN GOTO MAIN

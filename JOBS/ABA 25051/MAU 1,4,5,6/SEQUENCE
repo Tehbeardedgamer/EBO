@@ -1,0 +1,355 @@
+
+# 1. CONTROLS SEQUENCE OF OPERATION
+
+**Make-Up Air Unit (MAU)**
+
+---
+
+## 1.1 GENERAL CONTROL REQUIREMENTS
+
+1. The Make-Up Air Unit (MAU) shall be controlled by a dedicated local controller networked to the Building Automation System (BAS).
+2. All control logic and programming shall reside locally in the MAU controller. The unit shall continue to operate autonomously upon loss of BAS network communications.
+3. The steam generator shall be controlled by the manufacturer’s integral controller and shall communicate to the BAS via BACnet/IP for monitoring and enable/disable commands only.
+4. All adjustable control setpoints shall be operator-adjustable via the BAS.
+5. Space temperature, space relative humidity, and space differential pressure setpoints shall be as defined in the Room Criteria Schedule.
+
+---
+
+## 1.2 SYSTEM ENABLE / DISABLE
+
+1. The MAU system shall be enabled at all times unless disabled by:
+
+   * Safety interlock
+   * Manual disconnect
+   * Maintenance Mode (Section 1.10)
+2. When enabled, one air handler shall operate as the active unit per the Lead / Standby sequence.
+
+---
+
+## 1.3 LEAD / STANDBY OPERATION
+
+1. The MAU system shall consist of two parallel air handlers configured in an **N+1 lead / standby arrangement**.
+2. Only one air handler shall operate at a time under normal conditions.
+3. The lead air handler assignment shall rotate automatically on a weekly basis.
+4. Upon detection of a lead unit failure, the system shall:
+
+   * Command the standby unit to start
+   * Annunciate a lead unit failure alarm to the BAS
+5. Prior to starting the standby unit:
+
+   * The CHW cooling coil valve and HW preheat coil valve on the standby unit shall be commanded fully open
+   * Valves shall remain fully open for **2 minutes** to purge and prime the coils
+6. After the standby unit is confirmed running, valve control shall revert to normal automatic modulation.
+
+---
+
+## 1.4 FAN AND DAMPER SEQUENCE
+
+### 1.4.1 Damper Control
+
+1. When an air handler is enabled to operate:
+
+   * The outdoor air damper shall be commanded open
+   * The supply air damper shall be commanded open
+2. Damper open position shall be proven via end switch prior to fan enable.
+
+---
+
+### 1.4.2 Fan Operation
+
+1. Each air handler shall consist of an **N-1 fan array**.
+2. During normal operation, all fans in the array shall be commanded ON.
+3. Fan speed shall modulate to maintain the **space differential pressure setpoint**. 
+
+---
+
+### 1.4.3 Fan Failure Response
+
+1. Fan failure shall be detected via:
+
+   * VFD status feedback, or
+   * Current transducer (CT) input
+2. Upon failure of any fan:
+
+   * Remaining fans shall increase speed as required to maintain the space differential pressure setpoint
+   * A fan failure alarm shall be generated in the BAS
+
+---
+
+## 1.5 HEATING MODE
+
+### 1.5.1 Heating Mode Enable
+
+Heating Mode shall be active when Cooling Mode and Dehumidification Mode are not active.
+
+---
+
+### 1.5.2 Preheat Coil Control
+
+1. The hot water preheat coil shall maintain a **Leaving Air Temperature (LAT) minimum of 45°F at all times**.
+2. The preheat valve shall modulate to maintain the active Supply Air Temperature (SAT) setpoint.
+
+---
+
+### 1.5.3 Supply Air Temperature Reset (Heating)
+
+1. During Heating Mode, the SAT setpoint shall reset linearly based on the position of the associated space sensible cooling coil valves:
+
+   * When all associated sensible cooling coil valves are **100% closed**, SAT setpoint = **60°F**
+   * When all associated sensible cooling coil valves are **100% open**, SAT setpoint = **45°F**
+
+---
+
+### 1.5.4 Reheat Coil Control
+
+1. If the SAT setpoint cannot be maintained by the preheat coil alone:
+
+   * The hot water reheat coil valve shall modulate open
+   * Reheat valve modulation shall maintain the SAT setpoint
+
+---
+
+## 1.6 HUMIDIFICATION MODE
+
+### 1.6.1 Humidification Enable
+
+Humidification Mode shall be enabled when **either** of the following conditions are true for more than **5 minutes**:
+
+* Outside air dewpoint is below **46°F**
+* Space relative humidity is below **40%**
+
+---
+
+### 1.6.2 Humidification Operation
+
+1. Upon Humidification Mode enable:
+
+   * Steam generator and dispersion grid system shall be enabled
+   * Supply air temperature setpoint shall be reset to **60°F**
+2. Airflow shall be proven via airflow switch prior to humidifier enable.
+3. The humidifier shall modulate to maintain the space relative humidity setpoint.
+
+---
+
+### 1.6.3 Humidification Disable
+
+1. The steam generator system shall be placed in standby for **24 hours** when outside air dewpoint rises above **48°F for more than 5 minutes**.
+
+---
+
+## 1.7 COOLING MODE
+
+### 1.7.1 Cooling Mode Enable
+
+Cooling Mode shall be enabled when **both** of the following conditions are met for more than **5 minutes**:
+
+* Outside air temperature > **50°F**
+* Outside air dewpoint < **47°F**
+
+---
+
+### 1.7.2 Cooling Operation
+
+1. The cooling coil control valve shall modulate to maintain a SAT setpoint of **47.5°F**.
+
+---
+
+### 1.7.3 Cooling Mode Disable
+
+Cooling Mode shall be disabled when outside air temperature drops below **48°F for more than 5 minutes**.
+
+---
+
+## 1.8 DEHUMIDIFICATION MODE
+
+### 1.8.1 Dehumidification Enable
+
+Dehumidification Mode shall be enabled when **either** of the following conditions occur:
+
+* Outside air dewpoint rises above **47°F for more than 5 minutes**
+* Space relative humidity increases by more than **2% for more than 1 minute**
+
+---
+
+### 1.8.2 Dehumidification Operation
+
+1. Cooling coil valve shall modulate to maintain a **Leaving Air Temperature (LAT) setpoint of 47.5°F**.
+2. Reheat coil valve shall modulate to maintain the active SAT setpoint.
+
+---
+
+### 1.8.3 Supply Air Temperature Reset (Dehumidification)
+
+1. SAT setpoint shall reset linearly based on the position of the associated space sensible cooling coil valves:
+
+   * Valves fully closed → SAT = **60°F**
+   * Valves fully open → SAT = **45°F**
+
+---
+
+## 1.9 MODE PRIORITY
+
+Mode priority shall be as follows (highest to lowest):
+
+1. Safety shutdowns
+2. Maintenance Mode
+3. Dehumidification Mode
+4. Humidification Mode
+5. Cooling Mode
+6. Heating Mode
+
+---
+
+## 1.10 MAINTENANCE MODE
+
+1. A Maintenance Mode override shall be provided in the BAS front-end graphics for each air handler tunnel.
+2. When Maintenance Mode is activated for a unit:
+
+   * The selected unit shall shut down
+   * The standby unit shall start via the normal lead / standby changeover sequence
+3. No alarms shall be generated for a unit while in Maintenance Mode.
+4. Maintenance Mode shall remain active until manually canceled by the operator.
+5. A BAS alarm shall be generated if a unit remains in Maintenance Mode longer than **24 hours**.
+
+---
+
+# 2. LANGUAGE NORMALIZATION FOR EBO SCRIPT ALIGNMENT
+
+Key normalizations applied:
+
+* **“Shall modulate”** → deterministic PID ownership
+* **LAT vs SAT explicitly defined** to avoid sensor ambiguity
+* **Mode enable conditions converted to Boolean + Timer logic**
+* **Valve reset logic tied to “associated space valves”** (but flagged below)
+* **Clear ownership of coils** (preheat vs reheat vs cooling)
+
+Recommended EBO script ownership structure:
+
+* **Unit Control Script** → mode selection, lead/lag, safety, maintenance
+* **Fan Control Script** → DP PID, fan failure handling
+* **SAT Control Script** → SAT reset + coil arbitration
+* **Humidification Script** → enable logic + interlocks
+
+---
+
+# 3. AMBIGUOUS OR CONFLICTING RESET LOGIC (IMPORTANT)
+
+These are real issues that will bite during commissioning.
+
+---
+
+## ⚠️ Issue 1: Sensible Cooling Coil Valve Reference Is Undefined
+
+**Problem:**
+Multiple resets reference:
+
+> “the position of the sensible cooling coil control valves at the associated space(s)”
+
+But:
+
+* No definition of *how many spaces*
+* No aggregation logic (max, avg, min?)
+* No failure handling if a space drops offline
+
+**Recommendation (spec clarification needed):**
+
+* Explicitly define whether SAT reset uses:
+
+  * Maximum valve position
+  * Average valve position
+  * Representative zone only
+
+Without this, EBO scripting will be subjective.
+
+---
+
+## ⚠️ Issue 2: Humidification and Dehumidification Can Oscillate
+
+**Problem:**
+Humidification enable at:
+
+* OADP < 46°F
+
+Dehumidification enable at:
+
+* OADP > 47°F
+
+Disable at:
+
+* OADP > 48°F (24-hour lockout)
+
+This creates **mode overlap and deadband gaps**.
+
+**Risk:**
+Rapid mode switching or unexpected lockouts during shoulder seasons.
+
+**Recommendation:**
+
+* Add explicit **mode deadbands**
+* Define **mutual exclusion logic** between humidification and dehumidification
+
+---
+
+## ⚠️ Issue 3: Heating Mode SAT Reset vs Cooling / Dehum SAT
+
+**Problem:**
+Heating Mode resets SAT based on cooling valve position, while:
+
+* Cooling Mode hard-sets SAT to 47.5°F
+* Dehumidification resets SAT independently
+
+**Risk:**
+Multiple SAT authorities competing unless mode arbitration is enforced.
+
+**Recommendation:**
+
+* SAT setpoint must be owned **only by the active mode**
+* All other modes must relinquish control
+
+(This is why Mode Priority is critical.)
+
+---
+
+## ⚠️ Issue 4: Preheat LAT Minimum vs SAT Reset Conflict
+
+**Problem:**
+Preheat coil must maintain **LAT ≥ 45°F at all times**, but:
+
+* SAT reset can drive SAT to 45°F
+* LAT sensor placement not defined
+
+**Risk:**
+Preheat valve hunting or override conflicts.
+
+**Recommendation:**
+
+* Define LAT sensor location explicitly
+* Enforce LAT minimum as a **hard safety clamp**, not a PID target
+
+---
+
+## ⚠️ Issue 5: Steam Generator 24-Hour Standby Logic
+
+**Problem:**
+Steam generator locks out for 24 hours based solely on OADP rise.
+
+**Risk:**
+Space RH demand ignored during lockout.
+
+**Recommendation:**
+
+* Confirm this is a **hard manufacturer requirement**
+* Otherwise, allow RH demand to override standby timer
+
+---
+
+### If you want next steps:
+
+I can:
+
+* Convert this directly into **EBO Script pseudocode with timers**
+* Build a **Mode State Diagram**
+* Produce a **Commissioning Test Matrix**
+* Or rewrite this into a **“no-ambiguity” issued-for-construction controls spec**
+
+Just tell me where you want to take it.

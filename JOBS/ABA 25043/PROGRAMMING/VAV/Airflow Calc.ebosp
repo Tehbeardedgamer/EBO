@@ -1,0 +1,146 @@
+'======================================================================
+'  PROGRAM: VAV_AIRFLOW_SP_PIDCONTROL
+'  PURPOSE:
+'    Compute VAV Supply Airflow Setpoint (CFM) using your PIDControl()
+'    function with scaling (Args 9-11) and percent output capture.
+'
+'     - Neutral: SA_FLOW_SP = SA_FLOW_MIN
+'     - Heating demand (SPACE_TEMP < HTG_SP - DB):
+'          SA_FLOW_SP = SA_FLOW_HTG
+'          If HEAT_AIR_RELEASE=1 AND HW_AVAIL=1:
+'             SA_FLOW_SP modulates from SA_FLOW_HTG..SA_FLOW_MAX via PIDControl
+'          If HW unavailable: do NOT increase airflow for heating
+'
+'     - Cooling demand (SPACE_TEMP > CLG_SP + DB):
+'          SA_FLOW_SP modulates from SA_FLOW_MIN..SA_FLOW_MAX via PIDControl
+'
+'  NOTES:
+'    - PIDControl default return is 0..100%
+'    - When Args 9/10/11 are passed, PIDControl returns engineering units
+'      between Arg9..Arg10 and writes the percent 0..100 into Arg11.
+'======================================================================
+
+'---------------------- INPUTS ----------------------------------------
+NUMERIC INPUT SPACE_TEMP
+NUMERIC INPUT HTG_SP
+NUMERIC INPUT CLG_SP
+
+NUMERIC INPUT SA_FLOW_MIN
+NUMERIC INPUT SA_FLOW_HTG      ' Intermediate airflow used as heating airflow SP
+NUMERIC INPUT SA_FLOW_MAX
+
+NUMERIC INPUT HW_AVAIL         ' 1=HW available, 0=unavailable (broadcast)
+NUMERIC INPUT HEAT_AIR_RELEASE ' 1=airflow release active (from HW valve script)
+
+NUMERIC INPUT DB_F             ' °F deadband around SP (provided by object)
+NUMERIC INPUT UPDATE_SEC       ' seconds between calculations (provided by object)
+
+'---------------------- OUTPUTS ---------------------------------------
+NUMERIC OUTPUT SA_FLOW_SP
+NUMERIC OUTPUT MODE            ' 0=Neutral, 1=Heat, 2=Cool, 3=Heat-Release
+NUMERIC OUTPUT CLG_DEMAND_PCT  ' 0..100 (written by PIDControl arg 11)
+NUMERIC OUTPUT HTG_DEMAND_PCT  ' 0..100 (written by PIDControl arg 11)
+
+'---------------------- PID INTERNALS ---------------------------------
+NUMERIC OLDERR_CLG, I_CLG, PK_CLG, IK_CLG, DK_CLG
+NUMERIC OLDERR_HTG, I_HTG, PK_HTG, IK_HTG, DK_HTG
+
+'---------------------- INTERNALS -------------------------------------
+NUMERIC TMR
+NUMERIC PID_OUT
+FUNCTION PIDControl
+
+GOTO INIT
+
+INIT:
+    ' Cooling PID tuning (temp above CLG_SP drives demand up)
+    PK_CLG = 3
+    IK_CLG = 0.05
+    DK_CLG = 0
+    OLDERR_CLG = 0
+    I_CLG = 50
+
+    ' Heating-release PID tuning (temp below HTG_SP drives demand up)
+    PK_HTG = 3
+    IK_HTG = 0.05
+    DK_HTG = 0
+    OLDERR_HTG = 0
+    I_HTG = 50
+
+    TMR = 0
+    MODE = 0
+    SA_FLOW_SP = SA_FLOW_MIN
+    CLG_DEMAND_PCT = 0
+    HTG_DEMAND_PCT = 0
+
+    GOTO MAIN
+
+MAIN:
+    '----------------- True time-based update ---------------------------
+    TMR = TMR + TS
+    IF TMR < UPDATE_SEC THEN GOTO END_SCAN
+    TMR = 0
+    '--------------------------------------------------------------------
+
+    ' Default outputs each update
+    MODE = 0
+    SA_FLOW_SP = SA_FLOW_MIN
+    CLG_DEMAND_PCT = 0
+    HTG_DEMAND_PCT = 0
+
+    '==================================================================
+    ' COOLING (SPACE_TEMP > CLG_SP + DB): modulate MIN..MAX
+    ' ReverseActing=1 => ThisError = PV - SP (positive when hot)
+    ' PIDControl returns CFM and writes percent to CLG_DEMAND_PCT
+    '==================================================================
+    IF SPACE_TEMP > (CLG_SP + DB_F) THEN
+        MODE = 2
+
+        PID_OUT = PIDControl(1, SPACE_TEMP, CLG_SP, I_CLG, PK_CLG, IK_CLG, DK_CLG, OLDERR_CLG, SA_FLOW_MIN, SA_FLOW_MAX, CLG_DEMAND_PCT)
+        SA_FLOW_SP = PID_OUT
+
+        GOTO CLAMP_AND_EXIT
+    ENDIF
+
+    '==================================================================
+    ' HEATING (SPACE_TEMP < HTG_SP - DB):
+    '   Normal: SA_FLOW_HTG
+    '   Release (only if HW available): modulate HTG..MAX
+    ' ReverseActing=0 => ThisError = SP - PV (positive when cold)
+    ' PIDControl returns CFM and writes percent to HTG_DEMAND_PCT
+    '==================================================================
+    IF SPACE_TEMP < (HTG_SP - DB_F) THEN
+        MODE = 1
+        SA_FLOW_SP = SA_FLOW_HTG
+
+        IF HW_AVAIL >= 1 THEN
+            IF HEAT_AIR_RELEASE >= 1 THEN
+                MODE = 3
+
+                PID_OUT = PIDControl(0, SPACE_TEMP, HTG_SP, I_HTG, PK_HTG, IK_HTG, DK_HTG, OLDERR_HTG, SA_FLOW_HTG, SA_FLOW_MAX, HTG_DEMAND_PCT)
+                SA_FLOW_SP = PID_OUT
+            ENDIF
+        ELSE
+            ' HW unavailable: prevent airflow increase for heating
+            MODE = 1
+            SA_FLOW_SP = SA_FLOW_HTG
+            HTG_DEMAND_PCT = 0
+        ENDIF
+
+        GOTO CLAMP_AND_EXIT
+    ENDIF
+
+    '==================================================================
+    ' NEUTRAL (between setpoints): SA_FLOW_MIN
+    '==================================================================
+    MODE = 0
+    SA_FLOW_SP = SA_FLOW_MIN
+
+CLAMP_AND_EXIT:
+    ' Defensive clamps on OUTPUT only (inputs are immutable)
+    IF SA_FLOW_SP < 0 THEN SA_FLOW_SP = 0
+    IF SA_FLOW_SP < SA_FLOW_MIN THEN SA_FLOW_SP = SA_FLOW_MIN
+    IF SA_FLOW_SP > SA_FLOW_MAX THEN SA_FLOW_SP = SA_FLOW_MAX
+
+END_SCAN:
+    GOTO MAIN

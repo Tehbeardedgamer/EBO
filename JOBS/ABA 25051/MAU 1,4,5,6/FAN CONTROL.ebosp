@@ -1,0 +1,175 @@
+'==============================================================================
+' MAU_AHU_FAN_DP_CONTROL
+'
+' PURPOSE
+' Generate fan speed request to maintain SPACE differential pressure setpoint.
+' Provide fan failure alarm based on SAF_STATUS_A / SAF_STATUS_B.
+'
+' SOO REQUIREMENTS COVERED
+' - Fan speed modulates to maintain SPACE_DP_SP.
+' - Fan failure detected via status feedback (here: SAF_STATUS_A, SAF_STATUS_B).
+' - Upon failure of any fan: alarm to BAS (speed demand will naturally rise via PID).
+'
+' NOTES
+' - Final output authority remains in IO_AND_SAFETIES (SAF_SS and SAF_SPEED_CMD).
+'   This script only outputs FAN_SPEED_REQ and FAN_FAIL_ALM.
+' - Alarm is masked during MAINT_MODE (per SoO) by forcing FAN_FAIL_ALM = 0.
+' - PID integrals are preserved (not reset) when disabled.
+'==============================================================================
+
+'-----------------------------
+' INPUTS (Bindings)
+'-----------------------------
+NUMERIC INPUT UNIT_EnableCmd
+NUMERIC INPUT UNIT_MAINT_MODE
+
+NUMERIC INPUT SAFETY_OK
+NUMERIC INPUT E_POWER
+
+NUMERIC INPUT OA_DAMPER_PROOF
+NUMERIC INPUT SA_DAMPER_PROOF
+
+NUMERIC INPUT SPACE_DP
+NUMERIC INPUT SPACE_DP_SP
+
+NUMERIC INPUT SAF_STATUS_A
+NUMERIC INPUT SAF_STATUS_B
+
+' PID tuning (Bindings / Adjustable)
+NUMERIC INPUT DP_KP
+NUMERIC INPUT DP_KI
+NUMERIC INPUT DP_KD
+
+' Fan failure alarm delay (seconds)
+NUMERIC INPUT FAN_FAIL_TIME
+
+'-----------------------------
+' OUTPUTS (Bindings)
+'-----------------------------
+NUMERIC OUTPUT FAN_SPEED_REQ     ' 0..100
+NUMERIC OUTPUT FAN_FAIL_ALM      ' 0/1
+
+'-----------------------------
+' INTERNAL VARIABLES
+'-----------------------------
+NUMERIC UnitPermit
+NUMERIC DampersProven
+NUMERIC FanPermit
+
+NUMERIC DP_PID_Int
+NUMERIC DP_PID_OldErr
+NUMERIC DP_Out
+
+NUMERIC T_1                    ' Fan fail timer storage for Sectimer
+NUMERIC FailCond
+NUMERIC AnyStatusFail
+NUMERIC Done_FanFail
+
+'-----------------------------
+' FUNCTIONS USED
+'-----------------------------
+FUNCTION PIDControl
+FUNCTION Sectimer
+'==============================================================================
+INIT:
+'==============================================================================
+
+FAN_SPEED_REQ = 0
+FAN_FAIL_ALM = 0
+
+UnitPermit = 0
+DampersProven = 0
+FanPermit = 0
+
+DP_PID_Int = 0
+DP_PID_OldErr = 0
+DP_Out = 0
+
+T_1 = 0
+FailCond = 0
+AnyStatusFail = 0
+Done_FanFail = 0
+
+Goto MAIN
+
+
+'==============================================================================
+MAIN:
+'==============================================================================
+
+'-----------------------------
+' Determine permits (mirror of IO gating for request generation only)
+'-----------------------------
+UnitPermit = 0
+If UNIT_EnableCmd is ON then
+    If UNIT_MAINT_MODE is OFF then
+        If SAFETY_OK is ON then
+            If E_POWER is ON then
+                UnitPermit = 1
+            EndIf
+        EndIf
+    EndIf
+EndIf
+
+DampersProven = 0
+If OA_DAMPER_PROOF is ON then
+    If SA_DAMPER_PROOF is ON then
+        DampersProven = 1
+    EndIf
+EndIf
+
+FanPermit = 0
+If UnitPermit is ON then
+    If DampersProven is ON then
+        FanPermit = 1
+    EndIf
+EndIf
+
+
+'-----------------------------
+' DP PID -> FAN_SPEED_REQ
+'-----------------------------
+FAN_SPEED_REQ = 0
+
+If FanPermit is ON then
+    ' ReverseActing = 0 (Direct acting): DP low -> increase output
+    DP_Out = PIDControl(0, SPACE_DP, SPACE_DP_SP, DP_PID_Int, DP_KP, DP_KI, DP_KD, DP_PID_OldErr)
+
+    ' Clamp to 0..100 (do not invent min speed unless you provide limits)
+    If DP_Out < 0 then DP_Out = 0
+    If DP_Out > 100 then DP_Out = 100
+
+    FAN_SPEED_REQ = DP_Out
+EndIf
+
+
+'-----------------------------
+' Fan failure detection (SAF_STATUS_A / SAF_STATUS_B)
+' Alarm if commanded to run (FanPermit) AND either status is NOT ON for FAN_FAIL_TIME
+'-----------------------------
+AnyStatusFail = 0
+If SAF_STATUS_A is OFF then AnyStatusFail = 1
+If SAF_STATUS_B is OFF then AnyStatusFail = 1
+
+FailCond = 0
+If FanPermit is ON then
+    If AnyStatusFail is ON then
+        FailCond = 1
+    EndIf
+EndIf
+
+Done_FanFail = Sectimer(FailCond, FAN_FAIL_TIME, T_1, 0)
+
+FAN_FAIL_ALM = 0
+If Done_FanFail is ON then
+    FAN_FAIL_ALM = 1
+EndIf
+
+' Maintenance Mode requirement: no alarms while in maintenance
+If UNIT_MAINT_MODE is ON then
+    FAN_FAIL_ALM = 0
+EndIf
+
+
+Wait 1
+Goto MAIN

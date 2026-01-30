@@ -1,0 +1,96 @@
+'======================================================================
+'   AUTHOR: SPENCER WENNERMARK - Spencer.Wennermark@Entechsales.com
+'   UPDATED: 01-10-2026
+'  PROGRAM: VAV_HW_VALVE_CTRL
+'  PURPOSE:
+'    - Modulate HW valve to maintain space heating setpoint
+'    - If valve is full open AND space temp still below setpoint
+'      continuously for RELEASE_MIN minutes -> HEAT_AIR_RELEASE = 1
+'
+'  REQUIREMENTS:
+'    - Do NOT write to NUMERIC INPUTs (read-only bindings)
+'    - Use PIDControl() for valve command (0..100%)
+'    - Use SecTimer() to time the "full open & still cold" condition
+'======================================================================
+
+'---------------------- INPUTS ----------------------------------------
+NUMERIC INPUT SPACE_TEMP
+NUMERIC INPUT HTG_SP
+NUMERIC INPUT HW_AVAIL            ' 1=HW available, 0=unavailable
+NUMERIC INPUT DB_F                ' °F heating deadband (provided by object)
+NUMERIC INPUT RELEASE_MIN         ' minutes (e.g. 30)
+NUMERIC INPUT PK                  ' provided by object
+NUMERIC INPUT IK                  ' provided by object
+NUMERIC INPUT DK                  ' provided by object
+
+'---------------------- OUTPUTS ---------------------------------------
+NUMERIC OUTPUT HW_VALVE_CMD        ' 0..100 %
+NUMERIC OUTPUT HEAT_AIR_RELEASE    ' 0/1
+NUMERIC OUTPUT HEAT_CALL           ' 0/1 (for trending/diagnostics)
+
+'---------------------- FUNCTIONS --------------------------------------
+FUNCTION PIDControl
+FUNCTION SecTimer
+'---------------------- INTERNALS -------------------------------------
+NUMERIC I_HW
+NUMERIC OLDERR_HW
+NUMERIC TMR_SEC
+NUMERIC PID_OUT
+
+GOTO INIT
+
+INIT:
+    ' Internal states only (ok to initialize internal vars)
+    I_HW = 50
+    OLDERR_HW = 0
+    TMR_SEC = 0
+
+    HW_VALVE_CMD = 0
+    HEAT_AIR_RELEASE = 0
+    HEAT_CALL = 0
+
+    GOTO MAIN
+
+MAIN:
+    '---------------------- Default outputs each scan -------------------
+    HEAT_CALL = 0
+    HEAT_AIR_RELEASE = 0
+
+    '---------------------- HW unavailable ------------------------------
+    IF HW_AVAIL = FALSE THEN
+        HW_VALVE_CMD = 0
+
+        ' Ensure SecTimer state resets (Condition = 0 will drive TMR to 0)
+        HEAT_AIR_RELEASE = SecTimer(0, (RELEASE_MIN * 60), TMR_SEC)
+
+        GOTO END_SCAN
+    ENDIF
+
+    '---------------------- Heating call logic --------------------------
+    IF SPACE_TEMP < (HTG_SP - DB_F) THEN
+        HEAT_CALL = 1
+    ELSE
+        HEAT_CALL = 0
+    ENDIF
+
+    '---------------------- Valve command -------------------------------
+    IF HEAT_CALL = 1 THEN
+        ' ReverseActing = 0 -> error = SP - PV (positive when cold)
+        PID_OUT = PIDControl(0, SPACE_TEMP, HTG_SP, I_HW, PK, IK, DK, OLDERR_HW)
+
+        ' Defensive clamp output only
+        IF PID_OUT < 0 THEN PID_OUT = 0
+        IF PID_OUT > 100 THEN PID_OUT = 100
+
+        HW_VALVE_CMD = PID_OUT
+    ELSE
+        HW_VALVE_CMD = 0
+    ENDIF
+
+    '---------------------- Airflow release timer -----------------------
+    ' Condition: (Valve is full open) AND (still below setpoint)
+    ' SecTimer resets automatically when Condition = 0
+    HEAT_AIR_RELEASE = SecTimer((HW_VALVE_CMD >= 100) AND (HEAT_CALL = 1), (RELEASE_MIN * 60), TMR_SEC)
+
+END_SCAN:
+    GOTO MAIN

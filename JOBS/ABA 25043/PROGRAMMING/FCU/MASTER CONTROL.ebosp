@@ -1,0 +1,199 @@
+' =========================================================
+' PROGRAM: FCU_IO_AND_SAFETIES
+' PURPOSE:
+'   - Handle fan/valve/heater IO for FCU-XX
+'   - Enforce safeties (leak, airflow, high-limit)
+'   - Generate fan failure and EDH failure alarms
+'
+' UPSTREAM MODULES:
+'   - FCU_MODE_MANAGER
+'   - FCU_SPACE_TEMP_CONTROL (external PIDControl used there)
+' =========================================================
+
+
+' ========================== INPUTS =========================
+NUMERIC INPUT FCU_ENABLED          ' 0/1 - Unit allowed to run (from Mode Manager)
+NUMERIC INPUT OCCUPIED_CMD        ' 0/1 - Treat unit as occupied (fan run cmd)
+NUMERIC INPUT LEAK_TRIP           ' 0/1 - Leak detector trip from Mode Manager
+
+NUMERIC INPUT CHW_VALVE_CMD       ' 0–100% - Cooling valve demand (from PID script)
+NUMERIC INPUT HW_VALVE_CMD        ' 0–100% - HW reheat valve demand (from PID script)
+NUMERIC INPUT EDH_CMD             ' 0–100% - Electric heat demand (from PID script)
+
+NUMERIC INPUT SAF_STATUS           ' 0/1 - Supply fan status/proof
+NUMERIC INPUT EDH_HIGH_LIMIT      ' 0/1 - EDH high temperature limit switch (1 = tripped)
+
+
+' ========================== OUTPUTS ========================
+NUMERIC OUTPUT SAF_SS             ' 0/1    - Supply fan start command (DO)
+NUMERIC OUTPUT CHW_VALVE_OUT      ' 0–100% - CHW valve AO
+NUMERIC OUTPUT HW_VALVE_OUT       ' 0–100% - HW valve AO
+NUMERIC OUTPUT EDH_SCR_OUT        ' 0–100% - Electric duct heater SCR AO
+
+NUMERIC OUTPUT ALM_SAF_FAIL        ' 0/1 - Supply fan failure alarm
+NUMERIC OUTPUT ALM_EDH_FAIL       ' 0/1 - Electric duct heater failure alarm
+
+NUMERIC INPUT SCAN_PERIOD_MIN      ' Script scan period in minutes (e.g. 10s = 0.1667)
+NUMERIC INPUT FAN_FAIL_DELAY_MIN   ' Minutes fan must fail to prove before alarm
+NUMERIC INPUT EDH_FAIL_DELAY_MIN   ' Minutes EDH fault condition must persist before alarm
+
+
+' ========================== PUBLICS ========================
+
+
+' ========================== INTERNALS ======================
+NUMERIC fan_fail_timer
+NUMERIC edh_fail_timer
+NUMERIC edh_enabled
+
+
+' ========================== PROGRAM ========================
+GOTO INIT
+
+
+INIT:
+    ' Initialize all outputs and timers
+    SAF_SS = 0
+    CHW_VALVE_OUT = 0
+    HW_VALVE_OUT = 0
+    EDH_SCR_OUT = 0
+
+    ALM_SAF_FAIL = 0
+    ALM_EDH_FAIL = 0
+
+    fan_fail_timer = 0
+    edh_fail_timer = 0
+
+    GOTO MAIN
+
+
+MAIN:
+
+    ' -----------------------------------------------------------
+    ' 1. HARD DISABLE / LEAK TRIP BEHAVIOR
+    ' -----------------------------------------------------------
+    IF (FCU_ENABLED = 0) OR (LEAK_TRIP = 1) THEN
+
+        ' Everything off, safed
+        SAF_SS = 0
+        CHW_VALVE_OUT = 0
+        HW_VALVE_OUT = 0
+        EDH_SCR_OUT = 0
+
+        ' When not commanded on, no fan-fail timer
+        fan_fail_timer = 0
+
+        ' EDH failure alarm if high limit is tripped (still reportable)
+        IF EDH_HIGH_LIMIT = 1 THEN
+            ALM_EDH_FAIL = 1
+        ELSE
+            ALM_EDH_FAIL = 0
+        ENDIF
+
+        ALM_SAF_FAIL = 0
+
+        GOTO ENDPROG
+    ENDIF
+
+
+    ' -----------------------------------------------------------
+    ' 2. SUPPLY FAN COMMAND (OCCUPIED_CMD FROM MODE MANAGER)
+    ' -----------------------------------------------------------
+    IF OCCUPIED_CMD = 1 THEN
+        ' Enabled + “occupied” (including setback/setup and overrides)
+        SAF_SS = 1
+    ELSE
+        SAF_SS = 0
+    ENDIF
+
+
+    ' -----------------------------------------------------------
+    ' 3. VALVE OUTPUTS (TIED TO FAN STATUS COMMAND)
+    '    - Only drive valves when fan is commanded on
+    ' -----------------------------------------------------------
+    IF SAF_SS = 1 THEN
+        CHW_VALVE_OUT = CHW_VALVE_CMD
+        HW_VALVE_OUT = HW_VALVE_CMD
+    ELSE
+        CHW_VALVE_OUT = 0
+        HW_VALVE_OUT = 0
+    ENDIF
+
+
+    ' -----------------------------------------------------------
+    ' 4. ELECTRIC DUCT HEATER INTERLOCKS AND COMMAND
+    '    EDH is only allowed when:
+    '      - Fan commanded ON
+    '      - Airflow switch proven
+    '      - High limit NOT tripped
+    ' -----------------------------------------------------------
+    edh_enabled = 0
+
+    IF (SAF_SS = 1) AND (EDH_HIGH_LIMIT = 0) THEN
+        edh_enabled = 1
+    ENDIF
+
+    IF edh_enabled = 1 THEN
+        EDH_SCR_OUT = EDH_CMD
+        IF EDH_SCR_OUT < 0 THEN EDH_SCR_OUT = 0
+        IF EDH_SCR_OUT > 100 THEN EDH_SCR_OUT = 100
+    ELSE
+        EDH_SCR_OUT = 0
+    ENDIF
+
+
+    ' -----------------------------------------------------------
+    ' 5. SUPPLY FAN FAILURE ALARM
+    '    - If fan is commanded ON but status does not prove
+    '      within FAN_FAIL_DELAY_MIN
+    ' -----------------------------------------------------------
+    IF SAF_SS = 1 THEN
+        IF SAF_STATUS = 0 THEN
+            fan_fail_timer = fan_fail_timer + SCAN_PERIOD_MIN
+        ELSE
+            fan_fail_timer = 0
+        ENDIF
+    ELSE
+        fan_fail_timer = 0
+    ENDIF
+
+    IF fan_fail_timer >= FAN_FAIL_DELAY_MIN THEN
+        ALM_SAF_FAIL = 1
+    ELSE
+        ALM_SAF_FAIL = 0
+    ENDIF
+
+
+    ' -----------------------------------------------------------
+    ' 6. EDH FAILURE ALARM
+    '    - Fault if:
+    '       a) EDH commanded (EDH_CMD > 0 OR EDH_SCR_OUT > 0)
+    '          AND airflow is NOT proven; OR
+    '       b) High limit is tripped
+    '    - Uses a delay before latching alarm for airflow issue
+    ' -----------------------------------------------------------
+    ' Condition A: Commanded but missing airflow
+    'IF (EDH_CMD > 0) AND (AFLOW_SWITCH = 0) THEN
+    '    edh_fail_timer = edh_fail_timer + SCAN_PERIOD_MIN
+    'ELSE
+    '    edh_fail_timer = 0
+    'ENDIF
+
+    'IF edh_fail_timer >= EDH_FAIL_DELAY_MIN THEN
+    '    ALM_EDH_FAIL = 1
+    'ENDIF
+
+    ' Condition B: High limit trip = immediate EDH failure
+    IF EDH_HIGH_LIMIT = 1 THEN
+        ALM_EDH_FAIL = 1
+    ENDIF
+
+    ' If no issues at all, clear EDH alarm
+    IF (EDH_SCR_OUT = 0) AND (EDH_CMD = 0) AND (EDH_HIGH_LIMIT = 0) THEN
+        ALM_EDH_FAIL = 0
+    ENDIF
+
+
+ENDPROG:
+    ' ======================= END OF PROGRAM ====================
+IF TS > 10 THEN GOTO MAIN

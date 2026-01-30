@@ -1,0 +1,271 @@
+Below is a **binding map** for the MAU architecture we’ve built, showing **ownership**, **producer → consumer**, and where the **final outputs** live (IO_AND_SAFETIES).
+
+I’m writing this as a *system-level map* plus *per-AHU maps*. If you want, we can rename the script instances explicitly to `AHU1_*` / `AHU2_*` next.
+
+---
+
+## 1) System-level scripts (one set total)
+
+### A) `LEAD LAG`
+
+**Inputs**
+
+* `Sys_Enable` (system enable)
+* `AHU1_Failure`  ← from `AHU1_MASTER CONTROL.UNIT_Failure`
+* `AHU2_Failure`  ← from `AHU2_MASTER CONTROL.UNIT_Failure`
+* `AHU1_RunningProof` ← from `AHU1_MASTER CONTROL.UNIT_RunningProof`
+* `AHU2_RunningProof` ← from `AHU2_MASTER CONTROL.UNIT_RunningProof`
+* `AHU1_MaintMode` (BAS)
+* `AHU2_MaintMode` (BAS)
+
+**Outputs**
+
+* `AHU1_EnableCmd` → `AHU1_MASTER CONTROL.UNIT_EnableCmd`
+* `AHU2_EnableCmd` → `AHU2_MASTER CONTROL.UNIT_EnableCmd`
+* `AHU1_PrimeCmd`  → `AHU1_MASTER CONTROL.UNIT_PrimeCmd`
+* `AHU2_PrimeCmd`  → `AHU2_MASTER CONTROL.UNIT_PrimeCmd`
+* `LeadUnitNumber` (to BAS / trend)
+* `ActiveUnitNumber` (to BAS / trend)
+* `LeadFailAlarm` (to BAS)
+
+---
+
+### B) `MODE MANAGER`
+
+**Inputs**
+
+* `UNIT_Enable` (system-level enable; you named this `UNIT_Enable` / earlier `UNIT_EnableCmd` at system level)
+
+* `OA_TEMP`
+
+* `OA_DEWPOINT`
+
+* `Space_RH`
+
+* `SPACE_RH_SP`
+
+* `SAT_RESET_SP` ← from `SA RESET.SAT_RESET_SP`
+
+* `OA_DEWPOINT_LOW`
+
+* `HUMIDITY_ENABLE_TIME`
+
+* `OA_DEWPOINT_HIGH`
+
+* `HUMIDITY_STANDBY_TRIGGER_TIME`
+
+* `HUMIDITY_STANDBY_DURATION`
+
+* `COOLING_ENABLE_OAT`
+
+* `COOLING_ENABLE_DEWPOINT`
+
+* `COOLING_ENABLE_TIME`
+
+* `COOLING_DISABLE_OAT`
+
+* `COOLING_DISABLE_TIME`
+
+* `DEHUMIDIFICATION_ENABLE_DEWPOINT`
+
+* `DEHUMIDIFICATION_ENABLE_DEWPOINT_TIME`
+
+* `DEHUMIDIFICATION_ENABLE_RH_OFFSET`
+
+* `DEHUMIDIFICATION_ENABLE_RH_TIME`
+
+* `SAT_COOL_SETPOINT`
+
+* `SAT_HUMIDIFY_SETPOINT`
+
+* `SAT_DEHUMIDIFY_SETPOINT`  *(this is your dehum LAT setpoint value; name is slightly misleading but matches your earlier mapping)*
+
+**Outputs**
+
+* `Sys_ActiveMode` → `AHU1_TEMP_COIL_CONTROL.Sys_ActiveMode` and `AHU2_TEMP_COIL_CONTROL.Sys_ActiveMode`
+* `Sys_HeatingActive` (optional to BAS)
+* `Sys_CoolingActive` (optional to BAS)
+* `Sys_HumidActive` → `AHU1_HUMIDIFIER CONTROL.HUMID_MODE_ACTIVE` and `AHU2_HUMIDIFIER CONTROL.HUMID_MODE_ACTIVE`
+* `Sys_DehumActive` (optional to BAS)
+* `Sys_Active_SAT_SP` → `AHU1_TEMP_COIL_CONTROL.SYS_ACTIVE_SAT_SP` and `AHU2_TEMP_COIL_CONTROL.SYS_ACTIVE_SAT_SP`
+* `Sys_Active_LAT_SP` → `AHU1_TEMP_COIL_CONTROL.SYS_ACTIVE_LAT_SP` and `AHU2_TEMP_COIL_CONTROL.SYS_ACTIVE_LAT_SP`
+* `Sys_HumStandbyActive` → `AHU1_HUMIDIFIER CONTROL.HUMID_STANDBY_ACTIVE` and `AHU2_HUMIDIFIER CONTROL.HUMID_STANDBY_ACTIVE`
+
+---
+
+### C) `SA RESET`
+
+**Inputs**
+
+* `AssocSpace_ValveAgg_Pct` (aggregation from zones)
+* `SAT_RESET_MAX_SP`
+* `SAT_RESET_MIN_SP`
+
+**Outputs**
+
+* `SAT_RESET_SP` → `MODE MANAGER.SAT_RESET_SP`
+
+---
+
+## 2) Per-AHU scripts (duplicate for AHU1 and AHU2)
+
+I’ll show AHU1; AHU2 is identical with point renames.
+
+---
+
+### D) `AHU1_FAN CONTROL` (`MAU_AHU_FAN CONTROL`)
+
+**Inputs**
+
+* `UNIT_EnableCmd` ← from `LEAD LAG.AHU1_EnableCmd`
+* `UNIT_MAINT_MODE` ← from BAS `AHU1_MaintMode`
+* `SAFETY_OK` ← from field safety chain / safeties
+* `DISCONNECT_OK` ← from field / `E_POWER` logic (if you use the same)
+* `OA_DAMPER_PROOF` ← from field DI
+* `SA_DAMPER_PROOF` ← from field DI
+* `SPACE_DP` ← from field AI
+* `SPACE_DP_SP` ← from BAS / criteria schedule
+* `SAF_STATUS_A` ← from VFD/array status
+* `SAF_STATUS_B` ← from VFD/array status
+* `DP_KP, DP_KI, DP_KD` (tuning)
+* `FAN_FAIL_TIME` (seconds)
+
+**Outputs**
+
+* `FAN_SPEED_REQ` → `MASTER CONTROL.FAN_SPEED_REQ`
+* `FAN_FAIL_ALM`  → `MASTER CONTROL.FAN_FAIL_ALM_IN`
+
+---
+
+### E) `AHU1_TEMP_COIL_CONTROL` (`MAU_AHU_TEMP_COIL_CONTROL`)
+
+**Inputs**
+
+* `UNIT_EnableCmd` ← from `LEAD LAG.AHU1_EnableCmd`
+
+* `UNIT_MAINT_MODE` ← BAS `AHU1_MaintMode`
+
+* `SAFETY_OK`
+
+* `DISCONNECT_OK` *(or `E_POWER` mapped into a boolean OK)*
+
+* `Sys_ActiveMode` ← from `MODE MANAGER.Sys_ActiveMode`
+
+* `SYS_ACTIVE_SAT_SP` ← from `MODE MANAGER.Sys_Active_SAT_SP`
+
+* `SYS_ACTIVE_LAT_SP` ← from `MODE MANAGER.Sys_Active_LAT_SP`
+
+* `SAT_F` (SAT sensor)
+
+* `LAT_F` (LAT sensor)
+
+* `LAT_MIN_SP` (45°F)
+
+* `PREHEAT_SAT_ENABLE_PCT`
+
+* `REHEAT_ENABLE_DB_F`
+
+* `PH_KP, PH_KI, PH_KD`
+
+* `CHW_KP, CHW_KI, CHW_KD`
+
+* `RH_KP, RH_KI, RH_KD`
+
+**Outputs**
+
+* `HW_PREHEAT_REQ` → `MASTER CONTROL.HW_PREHEAT_REQ`
+* `CHW_VALVE_REQ`  → `MASTER CONTROL.CHW_VALVE_REQ`
+* `HW_REHEAT_REQ`  → `MASTER CONTROL.HW_REHEAT_REQ`
+
+---
+
+### F) `AHU1_HUMIDIFIER CONTROL` (`MAU_AHU_HUMIDIFIER CONTROL`)
+
+**Inputs**
+
+* `UNIT_EnableCmd` ← from `LEAD LAG.AHU1_EnableCmd`
+* `UNIT_MAINT_MODE` ← BAS `AHU1_MaintMode`
+* `SAFETY_OK`
+* `DISCONNECT_OK`
+* `AIRFLOW_PROOF` ← from field DI
+* `HUMID_MODE_ACTIVE` ← from `MODE MANAGER.Sys_HumidActive`
+* `HUMID_STANDBY_ACTIVE` ← from `MODE MANAGER.Sys_HumStandbyActive`
+* `SPACE_RH` (AI)
+* `SPACE_RH_SP` (BAS)
+* `HUM_KP, HUM_KI, HUM_KD` (tuning)
+
+**Outputs**
+
+* `HUM_ENABLE_REQ` → `MASTER CONTROL.HUM_ENABLE_REQ`
+* `HUM_OUTPUT_REQ` → `MASTER CONTROL.HUM_OUTPUT_REQ`
+
+---
+
+### G) `MASTER CONTROL` (`MAU_AHU_IO_AND_SAFETIES`) **FINAL OUTPUT AUTHORITY**
+
+**Inputs**
+
+* `UNIT_EnableCmd` ← from `LEAD LAG.AHU1_EnableCmd`
+
+* `UNIT_PrimeCmd`  ← from `LEAD LAG.AHU1_PrimeCmd`
+
+* `UNIT_MAINT_MODE` ← BAS `AHU1_MaintMode`
+
+* `SAFETY_OK`
+
+* `E_POWER` *(manual disconnect; note your code treats OFF as trip)*
+
+* `OA_DAMPER_PROOF`
+
+* `SA_DAMPER_PROOF`
+
+* `AIRFLOW_PROOF`
+
+* `FAN_SPEED_REQ` ← from `AHU1_FAN CONTROL.FAN_SPEED_REQ`
+
+* `HW_PREHEAT_REQ` ← from `AHU1_TEMP_COIL_CONTROL.HW_PREHEAT_REQ`
+
+* `CHW_VALVE_REQ`  ← from `AHU1_TEMP_COIL_CONTROL.CHW_VALVE_REQ`
+
+* `HW_REHEAT_REQ`  ← from `AHU1_TEMP_COIL_CONTROL.HW_REHEAT_REQ`
+
+* `HUM_ENABLE_REQ` ← from `AHU1_HUMIDIFIER CONTROL.HUM_ENABLE_REQ`
+
+* `HUM_OUTPUT_REQ` ← from `AHU1_HUMIDIFIER CONTROL.HUM_OUTPUT_REQ`
+
+* `SPACE_RH_SP` (optional passthrough)
+
+* `FAN_FAIL_ALM_IN` ← from `AHU1_FAN CONTROL.FAN_FAIL_ALM`
+
+**Outputs (to physical I/O / BACnet writes)**
+
+* `OA_DAMPER_CMD`
+* `SA_DAMPER_CMD`
+* `SAF_SS`
+* `SAF_SPEED_CMD`
+* `HW_PREHEAT_CMD`
+* `CHW_VALVE_CMD`
+* `HW_REHEAT_CMD`
+* `HUM_ENABLE_CMD`
+* `HUM_OUTPUT_CMD`
+* `HUM_RH_SP_CMD` *(optional)*
+
+**Outputs back to system scripts**
+
+* `UNIT_RunningProof` → `LEAD LAG.AHU1_RunningProof`
+* `UNIT_Failure`      → `LEAD LAG.AHU1_Failure`
+* `FAN_FAIL_ALM_OUT`  → BAS alarm/trend (masked in maint)
+* `SAFETY_SHUTDOWN`   → BAS status/trend
+
+---
+
+## 3) Summary of critical inter-script data flow
+
+* **Lead/Standby → IO**: `EnableCmd`, `PrimeCmd`
+* **Mode Manager → Coils**: `Sys_ActiveMode`, `Sys_Active_SAT_SP`, `Sys_Active_LAT_SP`
+* **SAT Reset → Mode Manager**: `SAT_RESET_SP`
+* **Fan DP → IO**: `FAN_SPEED_REQ`, `FAN_FAIL_ALM`
+* **Temp Coils → IO**: `HW_PREHEAT_REQ`, `CHW_VALVE_REQ`, `HW_REHEAT_REQ`
+* **Humid Control → IO**: `HUM_ENABLE_REQ`, `HUM_OUTPUT_REQ`
+* **IO → Lead/Standby**: `UNIT_RunningProof`, `UNIT_Failure`
+

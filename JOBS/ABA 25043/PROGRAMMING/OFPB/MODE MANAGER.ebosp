@@ -1,0 +1,77 @@
+' =========================================================
+' PROGRAM: FPB_MODE_MANAGER
+' PURPOSE: Enable + Occupied command + FPB_READY handshake
+' =========================================================
+
+' ------------------------- INPUTS -------------------------
+NUMERIC INPUT SCHED_OCC            ' 0/1 - Time-of-day schedule
+NUMERIC INPUT FPB_ENABLE_CMD       ' 0/1 - System/BMS enable for this FPB
+NUMERIC INPUT ALARM_RESET          ' 0/1 - Manual reset (momentary)
+
+NUMERIC INPUT SCAN_PERIOD_MIN      ' Minutes (e.g. 10s = 0.1667)
+
+' Lead/handshake tuning
+NUMERIC INPUT PRESTART_DELAY_MIN   ' Minutes from enable->ready (e.g. 0.1)
+
+' ------------------------- OUTPUTS ------------------------
+NUMERIC OUTPUT FPB_ENABLED         ' 0/1 - Unit allowed to run
+NUMERIC OUTPUT OCCUPIED_CMD        ' 0/1 - Treat as occupied (fan continuous)
+NUMERIC OUTPUT FPB_READY           ' 0/1 - "Ready" permissive for AHU enable
+
+' ------------------------- INTERNALS ----------------------
+NUMERIC prestart_timer
+
+' ========================= PROGRAM =========================
+GOTO INIT
+
+
+INIT:
+    FPB_ENABLED = 0
+    OCCUPIED_CMD = 0
+    FPB_READY = 0
+    prestart_timer = 0
+    GOTO MAIN
+
+
+MAIN:
+
+    ' -------------------------
+    ' BASE ENABLE / DISABLE
+    ' -------------------------
+    IF FPB_ENABLE_CMD = 0 THEN
+        FPB_ENABLED = 0
+        OCCUPIED_CMD = 0
+        FPB_READY = 0
+        prestart_timer = 0
+        GOTO WAITLOOP
+    ENDIF
+
+    FPB_ENABLED = 1
+
+    ' -------------------------
+    ' OCCUPANCY (Occupied Mode only per sequence)
+    ' -------------------------
+    IF SCHED_OCC = 1 THEN
+        OCCUPIED_CMD = 1
+    ELSE
+        OCCUPIED_CMD = 0
+    ENDIF
+
+    ' -------------------------
+    ' "JUST PRIOR TO AHU" HANDSHAKE
+    ' FPB_READY asserts shortly after OCCUPIED_CMD goes true.
+    ' -------------------------
+    IF OCCUPIED_CMD = 1 THEN
+        prestart_timer = prestart_timer + SCAN_PERIOD_MIN
+        IF prestart_timer >= PRESTART_DELAY_MIN THEN
+            FPB_READY = 1
+        ELSE
+            FPB_READY = 0
+        ENDIF
+    ELSE
+        prestart_timer = 0
+        FPB_READY = 0
+    ENDIF
+
+WAITLOOP:
+    IF TS > 1 THEN GOTO MAIN
