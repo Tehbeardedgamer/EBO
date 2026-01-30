@@ -10,7 +10,6 @@
 NUMERIC INPUT FPB_ENABLED
 NUMERIC INPUT OCCUPIED_CMD
 
-NUMERIC INPUT DAMPER_CMD           ' 0-100 from control module
 NUMERIC INPUT REHEAT_CMD           ' 0-100 from control module
 
 ' Fan/airflow proofs (hardware dependent)

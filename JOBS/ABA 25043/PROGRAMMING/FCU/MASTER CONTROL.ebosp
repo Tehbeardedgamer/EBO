@@ -35,7 +35,7 @@ NUMERIC OUTPUT ALM_EDH_FAIL       ' 0/1 - Electric duct heater failure alarm
 
 NUMERIC INPUT SCAN_PERIOD_MIN      ' Script scan period in minutes (e.g. 10s = 0.1667)
 NUMERIC INPUT FAN_FAIL_DELAY_MIN   ' Minutes fan must fail to prove before alarm
-NUMERIC INPUT EDH_FAIL_DELAY_MIN   ' Minutes EDH fault condition must persist before alarm
+
 
 
 ' ========================== PUBLICS ========================

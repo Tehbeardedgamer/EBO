@@ -20,8 +20,6 @@ NUMERIC INPUT CO2_3                 ' ppm (optional)
 NUMERIC INPUT CO2_4                 ' ppm (optional)
 NUMERIC INPUT CO2_SENSOR_COUNT      ' 1..4  (how many sensors are valid)
 
-NUMERIC INPUT SCAN_SEC              ' seconds per scan (e.g., 10). Must be >0.
-
 '---------------------- OUTPUTS ---------------------------------------
 NUMERIC OUTPUT DMP_CMD              ' % open (0..100)
 NUMERIC OUTPUT DMP_POS_FOR_RESET    ' % open used by system reset (typically same as cmd)

@@ -18,7 +18,6 @@ NUMERIC OUTPUT Is_Night_Setback     ' 1 = NSB active, 0 = Normal mode
 '=======================
 '     INTERNALS
 '=======================
-NUMERIC Active_NSB
 
 
 '=======================

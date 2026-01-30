@@ -6,7 +6,6 @@
 ' ------------------------- INPUTS -------------------------
 NUMERIC INPUT SCHED_OCC            ' 0/1 - Time-of-day schedule
 NUMERIC INPUT FPB_ENABLE_CMD       ' 0/1 - System/BMS enable for this FPB
-NUMERIC INPUT ALARM_RESET          ' 0/1 - Manual reset (momentary)
 
 NUMERIC INPUT SCAN_PERIOD_MIN      ' Minutes (e.g. 10s = 0.1667)
 
