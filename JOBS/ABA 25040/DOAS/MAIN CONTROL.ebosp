@@ -175,7 +175,7 @@ MAIN:
         OA_BYPASS_CMD = 0
         EA_BYPASS_CMD = 0
 
-        CHW_VLV_CMD = 0
+        CHW_VLV_CMD = CHW_CMD_CALC
         HW_VLV_CMD = HW_CMD_CALC   ' Allow freeze recovery heating
 
         WAIT 1

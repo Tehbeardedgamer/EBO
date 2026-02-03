@@ -7,7 +7,7 @@ NUMERIC INPUT SAFETY_OK
 NUMERIC INPUT FREEZE_STAT
 NUMERIC INPUT DUCT_STATIC
 NUMERIC INPUT DUCT_STATIC_SP
-NUMERIC INPUT SF_STATUS
+NUMERIC INPUT SAF_STATUS_A,SAF_STATUS_B
 NUMERIC INPUT SF_FAULT
 
 NUMERIC OUTPUT SF_SS_CALC
@@ -16,7 +16,7 @@ NUMERIC OUTPUT SF_READY
 NUMERIC OUTPUT SF_FAIL
 NUMERIC OUTPUT ALM_LOW_STATIC
 
-NUMERIC PUBLIC KP, KI, KD
+NUMERIC INPUT KP, KI, KD
 NUMERIC PUBLIC I_TERM, OLD_ERR
 
 NUMERIC PUBLIC MIN_WARMUP
@@ -45,24 +45,22 @@ NUMERIC e_sp
 GOTO INI
 
 INI:
-    IF KP <= 0 THEN KP = 1
-    IF KI < 0 THEN KI = 0.10
-    IF KD < 0 THEN KD = 0
+  
 
-    IF MIN_WARMUP <= 0 THEN MIN_WARMUP = 25
-    IF MIN_COOLDN <= 0 THEN MIN_COOLDN = 25
-    IF MIN_OCC <= 0 THEN MIN_OCC = 20
-    IF MIN_PROTECT <= 0 THEN MIN_PROTECT = 15
+   MIN_WARMUP = 25
+   MIN_COOLDN = 25
+   MIN_OCC = 20
+   MIN_PROTECT = 15
 
-    IF MAX_SPEED <= 0 THEN MAX_SPEED = 100
+   MAX_SPEED = 100
 
-    IF RATE_UP_PCT_S <= 0 THEN RATE_UP_PCT_S = 10
-    IF RATE_DN_PCT_S <= 0 THEN RATE_DN_PCT_S = 15
-    IF CMD_DEADBAND < 0 THEN CMD_DEADBAND = 0.5
+   RATE_UP_PCT_S = 10
+   RATE_DN_PCT_S = 15
+   CMD_DEADBAND = 0.5
 
-    IF PROVE_TIMEOUT_S <= 0 THEN PROVE_TIMEOUT_S = 20
-    IF LOW_STATIC_ERR_THR <= 0 THEN LOW_STATIC_ERR_THR = 0.15
-    IF LOW_STATIC_TIME_S <= 0 THEN LOW_STATIC_TIME_S = 60
+   PROVE_TIMEOUT_S = 20
+   LOW_STATIC_ERR_THR = 0.15
+   LOW_STATIC_TIME_S = 60
 
     last_cmd = 0
     I_TERM = 0
@@ -70,8 +68,7 @@ INI:
     t_prove = 0
     t_lowstatic = 0
 
-    SF_SS_CALC = 0
-    SF_SPEED_CALC = 0
+    
     SF_READY = 1
     SF_FAIL = 0
     ALM_LOW_STATIC = 0
@@ -133,29 +130,29 @@ MAIN:
     SAF_CALC = PID_LOOP(0, DUCT_STATIC, DUCT_STATIC_SP, I_TERM, KP, KI, KD, OLD_ERR)
 
     ' Clamp & anti-windup
-    IF SAF_CALC > MAX_SPEED THEN
-        SAF_CALC = MAX_SPEED
-        e_sp = (DUCT_STATIC_SP - DUCT_STATIC)
-        IF e_sp > 0 THEN I_TERM = I_TERM - (KI * e_sp)
-    ENDIF
+    'IF SAF_CALC > MAX_SPEED THEN
+    '    SAF_CALC = MAX_SPEED
+    '    e_sp = (DUCT_STATIC_SP - DUCT_STATIC)
+     '   IF e_sp > 0 THEN I_TERM = I_TERM - (KI * e_sp)
+    'ENDIF
 
-    IF SAF_CALC < 0 THEN
-        SAF_CALC = 0
-        e_sp = (DUCT_STATIC_SP - DUCT_STATIC)
-        IF e_sp < 0 THEN I_TERM = I_TERM - (KI * e_sp)
-    ENDIF
+    'IF SAF_CALC < 0 THEN
+    '    SAF_CALC = 0
+     '   e_sp = (DUCT_STATIC_SP - DUCT_STATIC)
+     '   IF e_sp < 0 THEN I_TERM = I_TERM - (KI * e_sp)
+    'ENDIF
 
     IF SAF_CALC < min_speed THEN SAF_CALC = min_speed
 
     ' Ramp limit
-    IF SAF_CALC > last_cmd + RATE_UP_PCT_S THEN
-        SF_SPEED_CALC = last_cmd + RATE_UP_PCT_S
+   IF SAF_CALC > last_cmd + RATE_UP_PCT_S THEN
+       SF_SPEED_CALC = last_cmd + RATE_UP_PCT_S
     ELSE
-        IF SAF_CALC < last_cmd - RATE_DN_PCT_S THEN
-            SF_SPEED_CALC = last_cmd - RATE_DN_PCT_S
-        ELSE
-            SF_SPEED_CALC = SAF_CALC
-        ENDIF
+     IF SAF_CALC < last_cmd - RATE_DN_PCT_S THEN
+           SF_SPEED_CALC = last_cmd - RATE_DN_PCT_S
+       ELSE
+           SF_SPEED_CALC = SAF_CALC
+       ENDIF
     ENDIF
 
     ' Deadband
@@ -166,7 +163,7 @@ MAIN:
 
     ' Proof
     IF SF_SS_CALC = 1 THEN
-        IF SF_STATUS = 1 THEN
+        IF SAF_STATUS_A = 1 OR SAF_STATUS_B = 1 THEN
             t_prove = 0
         ELSE
             IF t_prove < PROVE_TIMEOUT_S THEN
@@ -179,25 +176,8 @@ MAIN:
         t_prove = 0
     ENDIF
 
-    ' Low static diagnostic
-    IF SF_SPEED_CALC >= (MAX_SPEED - 0.5) THEN
-        IF (DUCT_STATIC_SP - DUCT_STATIC) >= LOW_STATIC_ERR_THR THEN
-            IF t_lowstatic < LOW_STATIC_TIME_S THEN
-                t_lowstatic = t_lowstatic + 1
-            ELSE
-                ALM_LOW_STATIC = 1
-                SF_FAIL = 1
-            ENDIF
-        ELSE
-            t_lowstatic = 0
-        ENDIF
-    ELSE
-        t_lowstatic = 0
-    ENDIF
-
-    IF SF_FAULT = 1 THEN
-        SF_FAIL = 1
-    ENDIF
-
+   
+GOTO WAITLOOP
+WAITLOOP:
     WAIT 1
     GOTO MAIN

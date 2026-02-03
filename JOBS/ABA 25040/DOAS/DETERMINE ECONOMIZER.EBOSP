@@ -1,43 +1,50 @@
 '=========================================================
-' DETERMINE_ECONOMIZER  (MINIMAL / GOLD)
+' DETERMINE_ECONOMIZER  (MINIMAL / SEQUENCE-TRUE)
 '
 ' PURPOSE:
-'   Determine if economizer operation is permitted.
+'   - Determine if economizer operation is permitted
+'   - Determine if energy recovery wheel is enabled
 '
 ' OUTPUTS:
-'   ECON_AVAILABLE = 1 when OA conditions allow free cooling
+'   ECON_AVAILABLE   = 1 when OA enthalpy < RA/EA enthalpy AND OA drybulb below limit
+'   RECOVERY_ENABLE  = 1 when RA/EA enthalpy > OA enthalpy
 '
 ' NOTE:
-'   This script does NOT modulate dampers or valves.
-'   It only grants or denies permission.
+'   - No modulation. No tuning knobs. No invented differentials.
+'   - "RA" here is your exhaust-side / wheel reference air (since true DOAS).
 '=========================================================
 
 
 ' ------------------------- INPUTS -------------------------
-NUMERIC INPUT OA_TEMP          ' Outdoor Air Dry Bulb (°F) – from sensor
-NUMERIC INPUT OA_RH            ' Outdoor Air RH (%) – from sensor
-NUMERIC INPUT RA_TEMP          ' Return / Exhaust Air Temp (°F) – from sensor
-NUMERIC INPUT RA_RH            ' Return / Exhaust Air RH (%) – from sensor
+NUMERIC INPUT OA_TEMP          ' Outdoor Air Dry Bulb (°F) – AI
+NUMERIC INPUT OA_RH            ' Outdoor Air RH (%) – AI
+NUMERIC INPUT RA_TEMP          ' Exhaust / Wheel Reference Air Temp (°F) – AI
+NUMERIC INPUT RA_RH            ' Exhaust / Wheel Reference RH (%) – AI
 
-NUMERIC INPUT DOAS_MODE        ' From DETERMINE MODE script
-NUMERIC INPUT SAFETY_OK        ' From SAFETY / MODE logic
+NUMERIC INPUT DOAS_MODE        ' From DETERMINE_MODE (0=OFF,1=PRE,2=WU,3=CD,4=OCC,5=UNOCC-PROTECT)
+NUMERIC INPUT SAFETY_OK        ' From SAFETY logic (1=OK,0=Trip)
 
-NUMERIC INPUT OA_DB_LIMIT      ' Typically 65°F (adjustable)
+NUMERIC INPUT OA_DB_LIMIT      ' Dry-bulb economizer limit (°F) – Virtual SP
 
 
 ' ------------------------- OUTPUTS ------------------------
-NUMERIC OUTPUT ECON_AVAILABLE  ' 1 = Economizer allowed, 0 = not allowed
+NUMERIC OUTPUT ECON_AVAILABLE  ' 1 = economizer permitted, 0 = not permitted
+NUMERIC OUTPUT RECOVERY_ENABLE ' 1 = ERW permitted, 0 = not permitted
+
+' (Diagnostic / trending outputs)
+NUMERIC OUTPUT W_OA            ' Humidity ratio OA (lb water / lb dry air)
+NUMERIC OUTPUT W_RA            ' Humidity ratio RA/EA (lb water / lb dry air)
+NUMERIC OUTPUT H_OA            ' Enthalpy OA (Btu/lb dry air)
+NUMERIC OUTPUT H_RA            ' Enthalpy RA/EA (Btu/lb dry air)
 
 
 ' ------------------------- INTERNALS ----------------------
 NUMERIC P_ATM
+NUMERIC OA_TC, RA_TC
+NUMERIC Psat_OA_kPa, Psat_RA_kPa
 NUMERIC Psat_OA, Psat_RA
 NUMERIC Pv_OA, Pv_RA
-NUMERIC W_OA, W_RA
-NUMERIC H_OA, H_RA
 
-
-'=========================================================
 GOTO INIT
 
 
@@ -45,69 +52,95 @@ GOTO INIT
 INIT:
 
     ECON_AVAILABLE = 0
+    RECOVERY_ENABLE = 0
 
-    ' Standard atmospheric pressure (psia)
-    P_ATM = 14.696
+    W_OA = 0
+    W_RA = 0
+    H_OA = 0
+    H_RA = 0
+
+    P_ATM = 14.696   ' psia (standard atmospheric)
 
     GOTO MAIN
 
 
-    '=========================================================
+'=========================================================
 MAIN:
 
-    '-----------------------------------------
-    ' Default: economizer NOT available
-    '-----------------------------------------
     ECON_AVAILABLE = 0
-
+    RECOVERY_ENABLE = 0
 
     '-----------------------------------------
-    ' Basic gating
+    ' Gating (sequence intent: only relevant in COOLDOWN or OCC)
     '-----------------------------------------
     IF SAFETY_OK = 0 THEN
-        WAIT 1
+        WAIT 5
         GOTO MAIN
     ENDIF
 
     IF DOAS_MODE <> 3 THEN
         IF DOAS_MODE <> 4 THEN
-            WAIT 1
+            WAIT 5
             GOTO MAIN
         ENDIF
     ENDIF
 
     IF OA_TEMP >= OA_DB_LIMIT THEN
-        WAIT 1
+        WAIT 5
         GOTO MAIN
     ENDIF
 
 
     '-----------------------------------------
-    ' Enthalpy calculation
+    ' Enthalpy calculation (FIXED)
+    '   - Saturation pressure formula expects °C
+    '   - Compute Psat in kPa then convert to psia
     '-----------------------------------------
 
-    ' Saturation vapor pressure (psia)
-    Psat_OA = EXP(18.6686 - (4030.183 / (OA_TEMP + 235)))
-    Psat_RA = EXP(18.6686 - (4030.183 / (RA_TEMP + 235)))
+    ' Convert °F to °C
+    OA_TC = (OA_TEMP - 32) * 5.0 / 9.0
+    RA_TC = (RA_TEMP - 32) * 5.0 / 9.0
 
-    ' Vapor pressure
-    Pv_OA = (OA_RH / 100) * Psat_OA
-    Pv_RA = (RA_RH / 100) * Psat_RA
+    ' Saturation vapor pressure (kPa), valid for typical HVAC ranges
+    Psat_OA_kPa = 0.61078 * EXP((17.2694 * OA_TC) / (OA_TC + 237.3))
+    Psat_RA_kPa = 0.61078 * EXP((17.2694 * RA_TC) / (RA_TC + 237.3))
 
-    ' Humidity ratio (lb water / lb dry air)
+    ' Convert kPa -> psia (1 kPa = 0.1450377377 psia)
+    Psat_OA = Psat_OA_kPa * 0.1450377377
+    Psat_RA = Psat_RA_kPa * 0.1450377377
+
+    ' Vapor pressure (psia)
+    Pv_OA = (OA_RH / 100.0) * Psat_OA
+    Pv_RA = (RA_RH / 100.0) * Psat_RA
+
+    ' Guard against sensor/math edge cases: Pv must be < P_ATM
+    IF Pv_OA < 0 THEN Pv_OA = 0
+    IF Pv_RA < 0 THEN Pv_RA = 0
+    IF Pv_OA > (0.99 * P_ATM) THEN Pv_OA = 0.99 * P_ATM
+    IF Pv_RA > (0.99 * P_ATM) THEN Pv_RA = 0.99 * P_ATM
+
+    ' Humidity ratio W (lb water / lb dry air)
     W_OA = 0.62198 * Pv_OA / (P_ATM - Pv_OA)
     W_RA = 0.62198 * Pv_RA / (P_ATM - Pv_RA)
 
-    ' Enthalpy (BTU / lb dry air)
+    ' Enthalpy h (Btu/lb dry air) using °F constants
     H_OA = 0.24 * OA_TEMP + W_OA * (1061 + 0.444 * OA_TEMP)
     H_RA = 0.24 * RA_TEMP + W_RA * (1061 + 0.444 * RA_TEMP)
 
 
     '-----------------------------------------
-    ' Economizer permission
+    ' ECONOMIZER AVAILABLE
     '-----------------------------------------
     IF H_OA < H_RA THEN
         ECON_AVAILABLE = 1
+    ENDIF
+
+
+    '-----------------------------------------
+    ' ENERGY RECOVERY ENABLE
+    '-----------------------------------------
+    IF H_RA > H_OA THEN
+        RECOVERY_ENABLE = 1
     ENDIF
 
 

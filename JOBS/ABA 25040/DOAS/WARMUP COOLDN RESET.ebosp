@@ -10,8 +10,8 @@
 '
 ' MODE BEHAVIOR:
 '   - WARMUP (Mode 2):
-'       * SAT resets LINEARLY from 80°F → 70°F
-'       * As RA temperature rises from 60°F → 70°F
+'       * SAT resets LINEARLY from 80°F ? 70°F
+'       * As RA temperature rises from 60°F ? 70°F
 '       * All VAVs are requested to open to MAX airflow
 '
 '   - COOLDOWN (Mode 3):
@@ -36,14 +36,14 @@
 '=========================================================
 '
 ' INPUT LINKING:
-'   DOAS_MODE     ← DOAS_DETERMINE_MODE_GOLD
-'   SAFETY_OK     ← Safety aggregation script
-'   FREEZE_LATCH  ← Freeze stat latch (manual reset)
-'   RA_TEMP       ← EBO Analog Input (Return Air Temp)
+'   DOAS_MODE     ? DOAS_DETERMINE_MODE_GOLD
+'   SAFETY_OK     ? Safety aggregation script
+'   FREEZE_LATCH  ? Freeze stat latch (manual reset)
+'   RA_TEMP       ? EBO Analog Input (Return Air Temp)
 '
 ' OUTPUT LINKING:
-'   SAT_BASE_SP   → SAT trim / economizer / HW & CHW valves
-'   VAV_MAX_REQ   → VAV programs (if implemented)
+'   SAT_BASE_SP   ? SAT trim / economizer / HW & CHW valves
+'   VAV_MAX_REQ   ? VAV programs (if implemented)
 '
 '=========================================================
 
@@ -83,27 +83,27 @@ NUMERIC OUTPUT VAV_MAX_REQ
 
 
 '---------------------- PUBLIC TUNABLES -------------------
-NUMERIC PUBLIC SAT_OCC_BASE
+NUMERIC INPUT SAT_OCC_BASE
 ' Normal occupied SAT baseline (°F)
 ' Typical: 74°F
 
-NUMERIC PUBLIC WU_RA_LO
+NUMERIC INPUT WU_RA_LO
 ' Warm-up start RA temperature (°F)
 ' Typical: 60°F
 
-NUMERIC PUBLIC WU_RA_HI
+NUMERIC INPUT WU_RA_HI
 ' Warm-up exit RA temperature (°F)
 ' Typical: 70°F
 
-NUMERIC PUBLIC WU_SAT_LO
+NUMERIC INPUT WU_SAT_LO
 ' SAT at start of warm-up (°F)
 ' Typical: 80°F
 
-NUMERIC PUBLIC WU_SAT_HI
+NUMERIC INPUT WU_SAT_HI
 ' SAT at end of warm-up (°F)
 ' Typical: 70°F
 
-NUMERIC PUBLIC CD_SAT
+NUMERIC INPUT CD_SAT
 ' Fixed cool-down SAT (°F)
 ' Typical: 55°F
 
@@ -121,12 +121,12 @@ GOTO INIT
 INIT:
 
     ' ---- Default values if not set in database ----
-    IF SAT_OCC_BASE <= 0 THEN SAT_OCC_BASE = 74
-    IF WU_RA_LO <= 0 THEN WU_RA_LO = 60
-    IF WU_RA_HI <= 0 THEN WU_RA_HI = 70
-    IF WU_SAT_LO <= 0 THEN WU_SAT_LO = 80
-    IF WU_SAT_HI <= 0 THEN WU_SAT_HI = 70
-    IF CD_SAT <= 0 THEN CD_SAT = 55
+    'IF SAT_OCC_BASE <= 0 THEN SAT_OCC_BASE = 74
+    'IF WU_RA_LO <= 0 THEN WU_RA_LO = 60
+    'IF WU_RA_HI <= 0 THEN WU_RA_HI = 70
+    'IF WU_SAT_LO <= 0 THEN WU_SAT_LO = 80
+    'IF WU_SAT_HI <= 0 THEN WU_SAT_HI = 70
+    'IF CD_SAT <= 0 THEN CD_SAT = 55
 
     ' ---- Initialize outputs ----
     SAT_BASE_SP = SAT_OCC_BASE
@@ -169,8 +169,8 @@ MAIN:
         IF x > WU_RA_HI THEN x = WU_RA_HI
 
         ' Linear interpolation:
-        '   RA 60°F → SAT 80°F
-        '   RA 70°F → SAT 70°F
+        '   RA 60°F ? SAT 80°F
+        '   RA 70°F ? SAT 70°F
         SAT_BASE_SP = WU_SAT_LO + ((x - WU_RA_LO) * (WU_SAT_HI - WU_SAT_LO) / (WU_RA_HI - WU_RA_LO))
 
 

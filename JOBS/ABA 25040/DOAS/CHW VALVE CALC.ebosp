@@ -1,170 +1,158 @@
 '=========================================================
-' DOAS_CHW_VALVE_CALC  (GOLD / SEQUENCE-CORRECT)
+' DOAS_CHW_VALVE_CALC (GOLD)
 '
 ' PURPOSE:
-'   Calculate chilled water valve command for DOAS unit.
+'   Calculates chilled water valve command for the DOAS
 '
-' SEQUENCE BASIS:
-'   - CHW is LAST stage of cooling
-'   - CHW disabled whenever economizer is available
-'   - CHW modulates to maintain SA temperature setpoint
+' SEQUENCE COVERAGE:
+'   - Cooling to maintain SAT setpoint
+'   - CHW is second-stage after economizer
+'   - Valve closes when SAT < SP + deadband
+'   - Dehumidification override when RH exceeds limit
 '
-' ECONOMIZER INTERFACE:
-'   - Uses ECON_AVAILABLE (0/1)
-'   - Does NOT use ECON_STATE
+' IMPORTANT:
+'   - This script ONLY calculates CHW_CMD_CALC
+'   - Main Orchestrator decides when the valve is enabled
 '
 '=========================================================
 
 
-' ------------------------- INPUTS -------------------------
-NUMERIC INPUT SA_TEMP
-' Linked from: Supply Air Temperature sensor (EBO AI)
-
-NUMERIC INPUT SA_SP
-' Linked from: DOAS_SAT_SP_Module (final supply air setpoint)
-
+'---------------------- INPUTS -----------------------------
 NUMERIC INPUT DOAS_MODE
-' Linked from: DETERMINE_MODE script
+' From: DETERMINE_MODE
+' 0=OFF, 1=PRESTART, 2=WARMUP, 3=COOLDOWN, 4=OCC, 5=UNOCC-PROTECT
 
 NUMERIC INPUT SAFETY_OK
-' Linked from: Safety / Mode script (1 = OK)
+' From: SAFETY CALC
+' 1 = All safeties satisfied
 
 NUMERIC INPUT FREEZE_LATCH
-' Linked from: Freeze logic (1 = freeze active)
+' From: DETERMINE_MODE (latched freezestat)
+
+NUMERIC INPUT SA_TEMP
+' From: Discharge Air Temperature sensor (EBO AI)
+
+NUMERIC INPUT SA_SP
+' From: SAT Trim / WU-CD Reset logic (°F)
+
+NUMERIC INPUT OA_DAMPER_CMD
+' From: Unified Damper Controller
+' Used to determine if economizer is fully utilized
 
 NUMERIC INPUT ECON_AVAILABLE
-' Linked from: DETERMINE_ECONOMIZER (1 = economizer allowed)
+' From: DETERMINE_ECONOMIZER
+' 1 = Economizer conditions satisfied
 
+NUMERIC INPUT RETURN_RH
+' From: Return Air Humidity sensor (EBO AI)
 
-' ------------------------- OUTPUT -------------------------
+'---------------------- OUTPUTS ----------------------------
 NUMERIC OUTPUT CHW_CMD_CALC
-' Linked to: MAIN_DOAS_ORCHESTRATOR → CHW_VLV_CMD → AO
+' To: MAIN_DOAS_ORCHESTRATOR
+' 0–100% chilled water valve command (calculated only)
 
+NUMERIC OUTPUT CHW_FAIL
+' To: MAIN_DOAS_ORCHESTRATOR
+' Non-latching diagnostic fail (always 0 in this script)
 
-' ------------------------- PUBLIC TUNABLES ----------------
-NUMERIC PUBLIC KP
-' Proportional gain (e.g. 4–8)
+'---------------------- PUBLIC TUNABLES --------------------
+NUMERIC DBAND
+' Deadband above SA_SP where CHW remains closed (°F)
 
-NUMERIC PUBLIC KI
-' Integral gain (e.g. 0.05–0.15)
+NUMERIC PUBLIC OA_MAX_POS
+' Economizer fully-open threshold (%)
 
-NUMERIC PUBLIC COOL_DB
-' Cooling deadband (°F), e.g. 0.5
+NUMERIC DEHUM_RH_START
+' RH (%) above which dehumidification is required
 
-NUMERIC PUBLIC MAX_CMD
-' Max valve command (normally 100)
+NUMERIC INPUT KP
+NUMERIC INPUT KI
+NUMERIC INPUT KD
+' PID gains for chilled water valve
 
-
-' ------------------------- INTERNALS ----------------------
+'---------------------- INTERNALS --------------------------
 NUMERIC ERR
 NUMERIC PID_OUT
-NUMERIC I_TERM
-NUMERIC OLD_ERR
-
+NUMERIC I_VlV
 FUNCTION PID_LOOP
 
-
-'=========================================================
 GOTO INIT
 
 
 '=========================================================
 INIT:
+'---------------------------------------------------------
+DBAND = 1.0
+OA_MAX_POS = 95
+DEHUM_RH_START = 60
+I_VlV = 10
 
-    IF KP <= 0 THEN
-        KP = 6
-    ENDIF
-
-    IF KI < 0 THEN
-        KI = 0.1
-    ENDIF
-
-    IF COOL_DB <= 0 THEN
-        COOL_DB = 0.5
-    ENDIF
-
-    IF MAX_CMD <= 0 THEN
-        MAX_CMD = 100
-    ENDIF
-
-    I_TERM = 0
-    OLD_ERR = 0
-    CHW_CMD_CALC = 0
-
-    GOTO MAIN
+GOTO MAIN
 
 
-    '=========================================================
+'=========================================================
 MAIN:
-
-    '---------------------------------------------------------
-    ' 1) HARD DISABLE CONDITIONS
-    '---------------------------------------------------------
-    IF SAFETY_OK = 0 THEN
-        CHW_CMD_CALC = 0
-        I_TERM = 0
-        WAIT 1
-        GOTO MAIN
-    ENDIF
-
-    IF FREEZE_LATCH = 1 THEN
-        CHW_CMD_CALC = 0
-        I_TERM = 0
-        WAIT 1
-        GOTO MAIN
-    ENDIF
-
-    '---------------------------------------------------------
-    ' 2) MODE CHECK (cooling-capable modes only)
-    '---------------------------------------------------------
-    IF DOAS_MODE <> 3 THEN
-        IF DOAS_MODE <> 4 THEN
-            CHW_CMD_CALC = 0
-            I_TERM = 0
-            WAIT 1
-            GOTO MAIN
-        ENDIF
-    ENDIF
-
-    '---------------------------------------------------------
-    ' 3) ECONOMIZER OVERRIDE (key patch)
-    '---------------------------------------------------------
-    IF ECON_AVAILABLE = 1 THEN
-        CHW_CMD_CALC = 0
-        I_TERM = 0
-        WAIT 1
-        GOTO MAIN
-    ENDIF
-
-    '---------------------------------------------------------
-    ' 4) TEMPERATURE ERROR
-    '---------------------------------------------------------
-    ERR = SA_TEMP - SA_SP
-
-    '---------------------------------------------------------
-    ' 5) DEADBAND HANDLING (NO CHATTER)
-    '---------------------------------------------------------
-    IF ERR <= COOL_DB THEN
-        CHW_CMD_CALC = 0
-        WAIT 1
-        GOTO MAIN
-    ENDIF
-
-    '---------------------------------------------------------
-    ' 6) PID MODULATION
-    '---------------------------------------------------------
-    PID_OUT = PID_LOOP(0, SA_TEMP, SA_SP, I_TERM, KP, KI, 0, OLD_ERR)
-
-    ' Clamp output
-    IF PID_OUT < 0 THEN
-        PID_OUT = 0
-    ENDIF
-
-    IF PID_OUT > MAX_CMD THEN
-        PID_OUT = MAX_CMD
-    ENDIF
-
-    CHW_CMD_CALC = PID_OUT
-
+'---------------------------------------------------------
+CHW_CMD_CALC = 0
+CHW_FAIL = FALSE
+'---------------- SAFETY / OFF -----------------------------
+IF (SAFETY_OK = 0) OR (FREEZE_LATCH = 1) THEN
+    CHW_CMD_CALC = 100
     WAIT 1
     GOTO MAIN
+ENDIF
+
+IF (DOAS_MODE = 0) OR (DOAS_MODE = 2) THEN
+    ' OFF or WARMUP ? no cooling allowed
+    CHW_CMD_CALC = 0
+    WAIT 1
+    GOTO MAIN
+ENDIF
+
+
+'---------------- DEADBAND CLOSE LOGIC --------------------
+' Sequence:
+' "When DAT drops below cooling setpoint PLUS deadband,
+'  chilled water valve shall close."
+
+IF SA_TEMP <= (SA_SP + DBAND) THEN
+    CHW_CMD_CALC = 0
+    WAIT 1
+    GOTO MAIN
+ENDIF
+
+
+'---------------- ECONOMIZER PRIORITY ---------------------
+' If economizer is available AND not fully open,
+' CHW must remain closed (econ is first stage)
+
+IF (ECON_AVAILABLE = 1) AND (OA_DAMPER_CMD < OA_MAX_POS) THEN
+    CHW_CMD_CALC = 0
+    WAIT 1
+    GOTO MAIN
+ENDIF
+
+
+'---------------- DEHUMIDIFICATION OVERRIDE ----------------
+' Sequence:
+' If RH exceeds setpoint, CHW may open regardless of SAT
+
+IF RETURN_RH >= DEHUM_RH_START THEN
+    
+    PID_OUT = PID_LOOP(1, SA_TEMP, SA_SP, I_VlV, KP, KI, KD,ERR)
+    CHW_CMD_CALC = PID_OUT
+    WAIT 1
+    GOTO MAIN
+ENDIF
+
+
+'---------------- NORMAL COOLING PID ----------------------
+
+PID_OUT = PID_LOOP(1, SA_TEMP, SA_SP,I_VlV, KP, KI, KD,ERR)
+
+
+CHW_CMD_CALC = PID_OUT
+
+
+WAIT 10
+GOTO MAIN

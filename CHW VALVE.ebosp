@@ -1,0 +1,97 @@
+'=========================================================
+' Program: AHU_SAT_CHWV_CTRL
+' Purpose: Modulate CHW valve to maintain Supply Air Temp
+' Notes:
+'   - Uses external Script Function PIDcontrolControl().
+'   - ReverseActing = 1 for cooling valve (open more when SAT > SP).
+'   - Ki and Kd are per-execution (tune based on this program’s execution rate).
+'=========================================================
+
+'-------------------------
+' Bindings (edit bindings in WorkStation)
+'-------------------------
+Numeric Input  SAT_DegF
+Numeric Input  SAT_SP_DegF
+Numeric Input  SAT_CTRL_EN            ' 1 = enable SAT control, 0 = disable
+Numeric Output CHWV_CMD_PCT           ' 0-100% command to valve actuator
+
+'-------------------------
+' Function binding (must be bound to Script Function object "PIDcontrolControl")
+'-------------------------
+Function PIDcontrol
+
+'-------------------------
+' Persistent locals
+'-------------------------
+Numeric I_Term
+Numeric OldErr
+
+Numeric Kp
+Numeric Ki
+Numeric Kd
+Numeric ReverseActing
+
+Numeric OutMin
+Numeric OutMax
+
+Numeric PIDcontrol_Out
+
+
+
+GOTO INIT
+
+INIT:
+'-------------------------
+' One-time init (safe: only sets defaults if they look uninitialized)
+'-------------------------
+If OutMax = 0 Then
+   ' Default tuning starting points (YOU will tune these)
+   Kp = 2.0
+   Ki = 0.05
+   Kd = 0.0
+
+   ' Cooling valve is typically reverse acting: open more when SAT is high
+   ReverseActing = 1
+
+   ' Output limits
+   OutMin = 0
+   OutMax = 100
+
+   ' PIDcontrol state
+   I_Term = 0
+   OldErr = 0
+Endif
+GOTO CONTROL
+
+
+CONTROL:
+'-------------------------
+' Main control
+'-------------------------
+If SAT_CTRL_EN = 0 Then
+
+   ' Disabled: drive valve closed and reset stored PIDcontrol state to prevent windup on re-enable
+   CHWV_CMD_PCT = 0
+   I_Term = 0
+   OldErr = 0
+
+Else
+
+   ' Calculate PIDcontrol
+   PIDcontrol_Out = PIDcontrol(ReverseActing, SAT_DegF, SAT_SP_DegF, I_Term, Kp, Ki, Kd, OldErr)
+
+   ' Clamp output
+   If PIDcontrol_Out < OutMin Then PIDcontrol_Out = OutMin
+   If PIDcontrol_Out > OutMax Then PIDcontrol_Out = OutMax
+
+   ' Command valve
+   CHWV_CMD_PCT = PIDcontrol_Out
+
+Endif
+
+
+GOTO WAIT_LOOP
+
+WAIT_LOOP:
+IF TS > 10 THEN GOTO CONTROL
+IF FIRE = TRUE THEN GOTO SHUTDOWN

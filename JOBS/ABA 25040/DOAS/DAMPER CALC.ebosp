@@ -1,289 +1,149 @@
 '=========================================================
-' DOAS_Damper_Controller_GOLD  (NO RA MAIN DAMPER)
+' DOAS_DAMPER_CONTROLLER_GOLD (PATCHED FOR TRUE DOAS)
 '
-' Controls (CALCULATED outputs to be written by MAIN):
-'   OA_DAMPER_CMD_CALC   -> bind to MAIN input OA_DAMPER_CMD_CALC -> MAIN writes OA_DAMPER_CMD
-'   EA_DAMPER_CMD_CALC   -> bind to MAIN input EA_DAMPER_CMD_CALC -> MAIN writes EA_DAMPER_CMD
-'   OA_BYPASS_CMD_CALC   -> bind to MAIN input OA_BYPASS_CMD_CALC -> MAIN writes OA_BYPASS_CMD
-'   EA_BYPASS_CMD_CALC   -> bind to MAIN input EA_BYPASS_CMD_CALC -> MAIN writes EA_BYPASS_CMD
+' PURPOSE:
+'   - Control OA and EA dampers for a 100% OA DOAS
+'   - Hold minimum ventilation whenever unit is running
+'   - Modulate above minimum only when economizer is allowed
 '
-' Inputs to bind:
-'   DOAS_MODE      <- from DETERMINE MODE
-'   SAFETY_OK      <- from DETERMINE MODE (smoke/pressure/leak/etc)
-'   FREEZE_LATCH   <- from DETERMINE MODE (manual reset latch per sequence)
-'   SA_TEMP        <- Supply/Discharge Air Temp sensor
-'   SA_SP          <- from DETERMINE SA SETPOINT (already includes trim)
-'   ECON_AVAILABLE <- from DETERMINE ECONOMIZER (0/1, smallest correct version)
-'   CO2, CO2_SP    <- optional; if not used, set CO2_SP = 0
+' IMPORTANT:
+'   - No return air damper exists
+'   - No mixed air logic
+'   - "100% return air" in sequence = economizer disabled
 '
-' Hardware reality:
-'   - NO Return Air main damper exists on this unit.
 '=========================================================
 
-' ------------------------- INPUTS -------------------------
-NUMERIC INPUT DOAS_MODE            ' 0=OFF,1=PRE,2=WARMUP,3=COOLDOWN,4=OCC,5=UNOCC-PROTECT
-NUMERIC INPUT SAFETY_OK            ' from DETERMINE MODE
-NUMERIC INPUT FREEZE_LATCH         ' from DETERMINE MODE (manual reset latch)
-NUMERIC INPUT SA_TEMP              ' discharge/supply air temp (°F) from sensor
-NUMERIC INPUT SA_SP                ' active SAT setpoint (°F) from SA SP module
-NUMERIC INPUT ECON_AVAILABLE       ' 1 when economizer available (OA enthalpy<RA & OA<limit)
-NUMERIC INPUT CO2                  ' ppm (optional)
-NUMERIC INPUT CO2_SP               ' ppm setpoint (optional). If 0 => CO2 logic disabled
+'---------------- INPUTS ----------------
+NUMERIC INPUT DOAS_MODE        ' From DETERMINE_MODE
+NUMERIC INPUT SAFETY_OK        ' 1=OK, 0=Trip
+NUMERIC INPUT FREEZE_LATCH     ' 1=Freeze active
 
-' ------------------------- OUTPUTS ------------------------
-NUMERIC OUTPUT OA_DAMPER_CMD_CALC         ' 0–100% -> MAIN -> OA_DAMPER_CMD
-NUMERIC OUTPUT EA_DAMPER_CMD_CALC         ' 0–100% -> MAIN -> EA_DAMPER_CMD
-NUMERIC OUTPUT OA_BYPASS_CMD_CALC         ' 0–100% -> MAIN -> OA_BYPASS_CMD
-NUMERIC OUTPUT EA_BYPASS_CMD_CALC         ' 0–100% -> MAIN -> EA_BYPASS_CMD
+NUMERIC INPUT ECON_AVAILABLE  ' From DETERMINE_ECONOMIZER
+NUMERIC INPUT RECOVERY_ENABLE  ' From DETERMINE_ECONOMIZER
 
-' ------------------------- PUBLICS ------------------------
-' Base minimum ventilation position (Occupied)
-NUMERIC PUBLIC OA_MIN_OCC_PCT      ' default 20 (%)
-NUMERIC PUBLIC EA_MIN_OCC_PCT      ' default 20 (%)
+NUMERIC INPUT SA_TEMP         ' Supply Air Temp (°F)
+NUMERIC INPUT SA_SP           ' Supply Air Temp Setpoint (°F)
 
-' Warmup / Cooldown / Unocc posture (no RA damper exists, so "100% return" = OA/EA closed)
-NUMERIC PUBLIC OA_WARMUP_PCT       ' default 0
-NUMERIC PUBLIC EA_WARMUP_PCT       ' default 0
-NUMERIC PUBLIC OA_COOLDN_PCT       ' default 0
-NUMERIC PUBLIC EA_COOLDN_PCT       ' default 0
-NUMERIC PUBLIC OA_UNOCC_PCT        ' default 0
-NUMERIC PUBLIC EA_UNOCC_PCT        ' default 0
+'---------------- OUTPUTS ----------------
+NUMERIC OUTPUT OA_DAMPER_CMD  ' % to OA damper
+NUMERIC OUTPUT EA_DAMPER_CMD  ' % to EA damper
+NUMERIC OUTPUT OA_BYPASS_CMD
+NUMERIC OUTPUT EA_BYPASS_CMD
 
-' Economizer modulation shaping (SAT error = SA_TEMP - SA_SP)
-NUMERIC PUBLIC ECON_ERR_1          ' °F where econ starts opening above minimum (default 1)
-NUMERIC PUBLIC ECON_ERR_2          ' °F where OA/EA hit 100% (default 6)
+'---------------- PUBLIC TUNABLES ----------------
+NUMERIC INPUT OA_MIN_POS     ' Minimum OA position (%)
+NUMERIC INPUT OA_MAX_POS     ' Maximum OA position (%)
+NUMERIC INPUT EA_MIN_POS     ' Minimum EA position (%)
+NUMERIC INPUT EA_MAX_POS     ' Maximum EA position (%)
 
-' Bypass modulation during econ:
-'   At ECON_ERR_1 => bypass 100% (wheel minimized)
-'   At ECON_ERR_2 => bypass 0%   (full through wheel)
-NUMERIC PUBLIC BYP_AT_E1           ' default 100
-NUMERIC PUBLIC BYP_AT_E2           ' default 0
+NUMERIC INPUT ECON_GAIN      ' % damper change per °F error
+NUMERIC INPUT ECON_DB        ' Deadband around SA_SP (°F)
 
-' CO2 modulation (adds open % above whatever econ/base is doing)
-NUMERIC PUBLIC CO2_DEADBAND        ' ppm (default 50)
-NUMERIC PUBLIC CO2_FULL_SCALE      ' ppm above SP+DB where we add full CO2_BOOST_MAX (default 300)
-NUMERIC PUBLIC CO2_BOOST_MAX       ' % additional OA/EA allowed from CO2 demand (default 30)
-
-' Clamp
-NUMERIC PUBLIC MIN_PCT             ' default 0
-NUMERIC PUBLIC MAX_PCT             ' default 100
-
-' ------------------------- INTERNALS ----------------------
-NUMERIC base_OA, base_EA
-NUMERIC cmd_OA, cmd_EA
-NUMERIC cmd_OA_BYP, cmd_EA_BYP
-NUMERIC ERR, ratio
-NUMERIC co2_add, co2_err, co2_ratio
+'---------------- INTERNALS ----------------
+NUMERIC ERR
+NUMERIC D_MOD
 
 GOTO INIT
 
+'=========================================================
 INIT:
-    IF OA_MIN_OCC_PCT <= 0 THEN OA_MIN_OCC_PCT = 20
-    IF EA_MIN_OCC_PCT <= 0 THEN EA_MIN_OCC_PCT = 20
 
-    IF OA_WARMUP_PCT < 0 THEN OA_WARMUP_PCT = 0
-    IF EA_WARMUP_PCT < 0 THEN EA_WARMUP_PCT = 0
-    IF OA_COOLDN_PCT < 0 THEN OA_COOLDN_PCT = 0
-    IF EA_COOLDN_PCT < 0 THEN EA_COOLDN_PCT = 0
-    IF OA_UNOCC_PCT < 0 THEN OA_UNOCC_PCT = 0
-    IF EA_UNOCC_PCT < 0 THEN EA_UNOCC_PCT = 0
+OA_DAMPER_CMD = 0
+EA_DAMPER_CMD = 0
 
-    IF ECON_ERR_1 <= 0 THEN ECON_ERR_1 = 1
-    IF ECON_ERR_2 <= 0 THEN ECON_ERR_2 = 6
-    IF BYP_AT_E1 < 0 THEN BYP_AT_E1 = 100
-    IF BYP_AT_E2 < 0 THEN BYP_AT_E2 = 0
-
-    IF CO2_DEADBAND <= 0 THEN CO2_DEADBAND = 50
-    IF CO2_FULL_SCALE <= 0 THEN CO2_FULL_SCALE = 300
-    IF CO2_BOOST_MAX <= 0 THEN CO2_BOOST_MAX = 30
-
-    IF MIN_PCT < 0 THEN MIN_PCT = 0
-    IF MAX_PCT <= 0 THEN MAX_PCT = 100
-
-    OA_DAMPER_CMD_CALC = 0
-    EA_DAMPER_CMD_CALC = 0
-    OA_BYPASS_CMD_CALC = 100
-    EA_BYPASS_CMD_CALC = 100
-
-    GOTO MAIN
-
-
+GOTO MAIN
+  
+'=========================================================
 MAIN:
 
-    '=====================================================
-    ' 1) SAFETY/FREEZE HARD OVERRIDE
-    '=====================================================
-    IF (SAFETY_OK = 0) OR (FREEZE_LATCH = 1) THEN
-        cmd_OA = 0
-        cmd_EA = 0
-        cmd_OA_BYP = 100
-        cmd_EA_BYP = 100
-        GOTO APPLY_LIMITS
-    ENDIF
-
-    '=====================================================
-    ' 2) BASE POSITIONS BY MODE
-    '=====================================================
-    base_OA = 0
-    base_EA = 0
-
-    ' Default bypass open (wheel minimized) unless econ logic changes it
-    cmd_OA_BYP = 100
-    cmd_EA_BYP = 100
-
-    IF DOAS_MODE = 0 THEN
-        base_OA = 0
-        base_EA = 0
-        cmd_OA_BYP = 100
-        cmd_EA_BYP = 100
-        GOTO BUILD_FINAL
-    ELSE
-        IF DOAS_MODE = 1 THEN
-            base_OA = 0
-            base_EA = 0
-            cmd_OA_BYP = 100
-            cmd_EA_BYP = 100
-            GOTO BUILD_FINAL
-        ELSE
-            IF DOAS_MODE = 2 THEN
-                ' Warm-up: sequence calls "100% return air" => OA/EA closed on this hardware
-                base_OA = OA_WARMUP_PCT
-                base_EA = EA_WARMUP_PCT
-                cmd_OA_BYP = 100
-                cmd_EA_BYP = 100
-                GOTO BUILD_FINAL
-            ELSE
-                IF DOAS_MODE = 3 THEN
-                    ' Cool-down: sequence also calls 100% return air at startup
-                    base_OA = OA_COOLDN_PCT
-                    base_EA = EA_COOLDN_PCT
-                    cmd_OA_BYP = 100
-                    cmd_EA_BYP = 100
-                ELSE
-                    IF DOAS_MODE = 4 THEN
-                        ' Occupied: OA/EA at minimum ventilation
-                        base_OA = OA_MIN_OCC_PCT
-                        base_EA = EA_MIN_OCC_PCT
-                    ELSE
-                        IF DOAS_MODE = 5 THEN
-                            ' Unoccupied protect: OA/EA typically closed
-                            base_OA = OA_UNOCC_PCT
-                            base_EA = EA_UNOCC_PCT
-                            cmd_OA_BYP = 100
-                            cmd_EA_BYP = 100
-                            GOTO BUILD_FINAL
-                        ELSE
-                            base_OA = 0
-                            base_EA = 0
-                            cmd_OA_BYP = 100
-                            cmd_EA_BYP = 100
-                            GOTO BUILD_FINAL
-                        ENDIF
-                    ENDIF
-                ENDIF
-            ENDIF
-        ENDIF
-    ENDIF
-
-    '=====================================================
-    ' 3) ECONOMIZER MODULATION (Occupied only)
-    '    We only do this when:
-    '      - DOAS_MODE = 4 (OCC)
-    '      - ECON_AVAILABLE = 1
-    '    Then:
-    '      OA/EA ramp from MIN -> 100 as SAT rises above SP
-    '      BYPASS ramps from 100 -> 0 across the same error band
-    '=====================================================
-    cmd_OA = base_OA
-    cmd_EA = base_EA
-
-    IF (DOAS_MODE = 4) THEN
-        IF ECON_AVAILABLE = 1 THEN
-
-            ERR = SA_TEMP - SA_SP
-
-            ' If no cooling load (ERR <= ECON_ERR_1), stay at minimum and keep bypass open
-            IF ERR <= ECON_ERR_1 THEN
-                cmd_OA = base_OA
-                cmd_EA = base_EA
-                cmd_OA_BYP = BYP_AT_E1
-                cmd_EA_BYP = BYP_AT_E1
-            ELSE
-                ' If at/above ECON_ERR_2 => OA/EA 100% and bypass at BYP_AT_E2 (typically 0)
-                IF ERR >= ECON_ERR_2 THEN
-                    cmd_OA = 100
-                    cmd_EA = 100
-                    cmd_OA_BYP = BYP_AT_E2
-                    cmd_EA_BYP = BYP_AT_E2
-                ELSE
-                    ' Linear interpolation between E1 and E2
-                    ratio = (ERR - ECON_ERR_1) / (ECON_ERR_2 - ECON_ERR_1)
-
-                    cmd_OA = base_OA + ((100 - base_OA) * ratio)
-                    cmd_EA = base_EA + ((100 - base_EA) * ratio)
-
-                    cmd_OA_BYP = BYP_AT_E1 + ((BYP_AT_E2 - BYP_AT_E1) * ratio)
-                    cmd_EA_BYP = BYP_AT_E1 + ((BYP_AT_E2 - BYP_AT_E1) * ratio)
-                ENDIF
-            ENDIF
-
-        ELSE
-            ' Econ not available: leave OA/EA at base min, and allow wheel/valves to do work.
-            cmd_OA = base_OA
-            cmd_EA = base_EA
-            cmd_OA_BYP = 0
-            cmd_EA_BYP = 0
-        ENDIF
-    ELSE
-        ' Not occupied (or in cooldown where we force OA closed)
-        cmd_OA = base_OA
-        cmd_EA = base_EA
-    ENDIF
-
-
-BUILD_FINAL:
-    '=====================================================
-    ' 4) CO2 OVERRIDE (proportional add-on)
-    '=====================================================
-    co2_add = 0
-
-    IF CO2_SP > 0 THEN
-        co2_err = CO2 - (CO2_SP + CO2_DEADBAND)
-
-        IF co2_err > 0 THEN
-            IF co2_err >= CO2_FULL_SCALE THEN
-                co2_add = CO2_BOOST_MAX
-            ELSE
-                co2_ratio = co2_err / CO2_FULL_SCALE
-                co2_add = CO2_BOOST_MAX * co2_ratio
-            ENDIF
-        ENDIF
-    ENDIF
-
-    cmd_OA = cmd_OA + co2_add
-    cmd_EA = cmd_EA + co2_add
-
-
-APPLY_LIMITS:
-    '=====================================================
-    ' 5) Clamp outputs 0–100 and publish
-    '=====================================================
-    IF cmd_OA < MIN_PCT THEN cmd_OA = MIN_PCT
-    IF cmd_OA > MAX_PCT THEN cmd_OA = MAX_PCT
-
-    IF cmd_EA < MIN_PCT THEN cmd_EA = MIN_PCT
-    IF cmd_EA > MAX_PCT THEN cmd_EA = MAX_PCT
-
-    IF cmd_OA_BYP < MIN_PCT THEN cmd_OA_BYP = MIN_PCT
-    IF cmd_OA_BYP > MAX_PCT THEN cmd_OA_BYP = MAX_PCT
-
-    IF cmd_EA_BYP < MIN_PCT THEN cmd_EA_BYP = MIN_PCT
-    IF cmd_EA_BYP > MAX_PCT THEN cmd_EA_BYP = MAX_PCT
-
-    OA_DAMPER_CMD_CALC = cmd_OA
-    EA_DAMPER_CMD_CALC = cmd_EA
-    OA_BYPASS_CMD_CALC = cmd_OA_BYP
-    EA_BYPASS_CMD_CALC = cmd_EA_BYP
-
+'---------------------------------------------------------
+' 1) HARD OFF / SAFETY
+'---------------------------------------------------------
+IF (SAFETY_OK = 0) OR (FREEZE_LATCH = 1) THEN
+    OA_DAMPER_CMD = 0
+    EA_DAMPER_CMD = 0
     WAIT 1
     GOTO MAIN
+ENDIF
+
+'---------------------------------------------------------
+' 2) UNIT NOT RUNNING
+'   (OFF / PRESTART / UNOCC-PROTECT)
+'---------------------------------------------------------
+IF DOAS_MODE = 0 THEN
+    OA_DAMPER_CMD = 0
+    EA_DAMPER_CMD = 0
+    WAIT 1
+    GOTO MAIN
+ENDIF
+
+IF DOAS_MODE = 1 THEN
+    OA_DAMPER_CMD = 0
+    EA_DAMPER_CMD = 0
+    WAIT 1
+    GOTO MAIN
+ENDIF
+
+IF DOAS_MODE = 5 THEN
+    OA_DAMPER_CMD = 0
+    EA_DAMPER_CMD = 0
+    WAIT 1
+    GOTO MAIN
+ENDIF
+
+'---------------------------------------------------------
+' 3) UNIT RUNNING (WARMUP / COOLDOWN / OCCUPIED)
+'   ? Hold minimum ventilation by default
+'---------------------------------------------------------
+OA_DAMPER_CMD = OA_MIN_POS
+EA_DAMPER_CMD = EA_MIN_POS
+
+'---------------------------------------------------------
+' 4) ECONOMIZER MODULATION (ONLY WHEN AVAILABLE)
+'---------------------------------------------------------
+IF ECON_AVAILABLE = 1 THEN
+
+    ' Positive error = SA too warm ? need more cooling
+    ERR = SA_TEMP - SA_SP
+
+    IF ABS(ERR) <= ECON_DB THEN
+        D_MOD = 0
+    ELSE
+        D_MOD = ERR * ECON_GAIN
+    ENDIF
+
+    OA_DAMPER_CMD = OA_MIN_POS + D_MOD
+    EA_DAMPER_CMD = EA_MIN_POS + D_MOD
+
+    ' Clamp OA
+    IF OA_DAMPER_CMD > OA_MAX_POS THEN OA_DAMPER_CMD = OA_MAX_POS
+    IF OA_DAMPER_CMD < OA_MIN_POS THEN OA_DAMPER_CMD = OA_MIN_POS
+
+    ' Clamp EA
+    IF EA_DAMPER_CMD > EA_MAX_POS THEN EA_DAMPER_CMD = EA_MAX_POS
+    IF EA_DAMPER_CMD < EA_MIN_POS THEN EA_DAMPER_CMD = EA_MIN_POS
+
+ENDIF
+
+'=========================================================
+' ENERGY RECOVERY BYPASS DAMPERS
+'
+' RECOVERY_ENABLE = 1 ? force air through wheel
+' RECOVERY_ENABLE = 0 ? bypass wheel
+'=========================================================
+
+IF (SAFETY_OK = 0) OR (FREEZE_LATCH = 1) OR (DOAS_MODE = 0) THEN
+    OA_BYPASS_CMD = 100     ' Fully open bypass
+    EA_BYPASS_CMD = 100
+ELSE
+    IF RECOVERY_ENABLE = 1 THEN
+        OA_BYPASS_CMD = 0   ' Close bypass ? force recovery
+        EA_BYPASS_CMD = 0
+    ELSE
+        OA_BYPASS_CMD = 100 ' Open bypass ? no recovery
+        EA_BYPASS_CMD = 100
+    ENDIF
+ENDIF
+
+WAIT 1
+GOTO MAIN

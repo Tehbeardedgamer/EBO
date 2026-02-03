@@ -6,13 +6,13 @@
 '
 '   Every TRIM_INTERVAL:
 '     - If ANY VAV is at MAX airflow:
-'         → Decrease SAT by TRIM_STEP
+'         ? Decrease SAT by TRIM_STEP
 '
 '     - If NO VAV is above 75% airflow:
-'         → Increase SAT by TRIM_STEP
+'         ? Increase SAT by TRIM_STEP
 '
 '     - Otherwise:
-'         → Hold SAT
+'         ? Hold SAT
 '
 '   This trim is applied ON TOP OF SAT_BASE_SP.
 '
@@ -24,13 +24,13 @@
 '=========================================================
 '
 ' INPUT LINKING:
-'   SAT_BASE_SP        ← DOAS_WU_CD_SAT_RESET_GOLD
-'   DOAS_MODE          ← DOAS_DETERMINE_MODE_GOLD
-'   ANY_VAV_AT_MAX     ← DOAS_VAV_CFM_Aggregator
-'   NONE_ABOVE_75PC    ← DOAS_VAV_CFM_Aggregator
+'   SAT_BASE_SP        ? DOAS_WU_CD_SAT_RESET_GOLD
+'   DOAS_MODE          ? DOAS_DETERMINE_MODE_GOLD
+'   ANY_VAV_AT_MAX     ? DOAS_VAV_CFM_Aggregator
+'   NONE_ABOVE_75PC    ? DOAS_VAV_CFM_Aggregator
 '
 ' OUTPUT LINKING:
-'   SAT_FINAL_SP       → Economizer / CHW / HW logic
+'   SAT_FINAL_SP       ? Economizer / CHW / HW logic
 '
 '=========================================================
 

@@ -63,26 +63,26 @@ GOTO INI
 
 INI:
     ' PID defaults
-    IF KP <= 0 THEN KP = 1
-    IF KI < 0 THEN KI = 0.1
-    IF KD < 0 THEN KD = 0
+    KP = 1
+    KI = 0.1
+    KD = 0
 
     ' Limits defaults (align with SF)
-    IF MAX_SPEED <= 0 THEN MAX_SPEED = 100
-    IF MIN_WARMUP <= 0 THEN MIN_WARMUP = 25
-    IF MIN_COOLDN <= 0 THEN MIN_COOLDN = 25
-    IF MIN_OCC <= 0 THEN MIN_OCC = 20
-    IF MIN_PROTECT <= 0 THEN MIN_PROTECT = 15
+    MAX_SPEED = 100
+    MIN_WARMUP = 25
+    MIN_COOLDN = 25
+    MIN_OCC = 20
+    MIN_PROTECT = 15
 
     ' Dynamics
-    IF RATE_UP_PCT_S <= 0 THEN RATE_UP_PCT_S = 10
-    IF RATE_DN_PCT_S <= 0 THEN RATE_DN_PCT_S = 15
-    IF CMD_DEADBAND < 0 THEN CMD_DEADBAND = 0.5
+    RATE_UP_PCT_S = 10
+    RATE_DN_PCT_S = 15
+    CMD_DEADBAND = 0.5
 
     ' Proof/diagnostics
-    IF PROVE_TIMEOUT_S <= 0 THEN PROVE_TIMEOUT_S = 20
-    IF LOW_EXH_ERR_THR <= 0 THEN LOW_EXH_ERR_THR = 150   ' CFM
-    IF LOW_EXH_TIME_S <= 0 THEN LOW_EXH_TIME_S = 60
+    PROVE_TIMEOUT_S = 20
+    LOW_EXH_ERR_THR = 150   ' CFM
+    LOW_EXH_TIME_S = 60
 
     I_TERM = 0
     OLD_ERR = 0

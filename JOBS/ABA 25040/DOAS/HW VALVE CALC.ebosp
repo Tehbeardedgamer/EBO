@@ -42,31 +42,31 @@ NUMERIC INPUT FREEZE_LATCH
 
 ' ------------------------- OUTPUT -------------------------
 NUMERIC OUTPUT HW_CMD_CALC
-' Linked to: MAIN_DOAS_ORCHESTRATOR → HW_VLV_CMD → AO (% open)
+' Linked to: MAIN_DOAS_ORCHESTRATOR ? HW_VLV_CMD ? AO (% open)
 
 
 ' ------------------------- PUBLIC TUNABLES ----------------
-NUMERIC PUBLIC KP
+NUMERIC INPUT KP
 ' P gain for HW PID (typical 4–10)
 
-NUMERIC PUBLIC KI
+NUMERIC INPUT KI
 ' I gain for HW PID (typical 0.05–0.20)
 
-NUMERIC PUBLIC HEAT_DB
+NUMERIC INPUT HEAT_DB
 ' Deadband (°F) to prevent chatter, typical 0.5
 
-NUMERIC PUBLIC FREEZE_RECOV_SP
+NUMERIC INPUT FREEZE_RECOV_SP
 ' Freeze recovery discharge setpoint (°F) – per sequence: 90°F (adj.)
 
-NUMERIC PUBLIC UNOCC_MIN_SP
+NUMERIC INPUT UNOCC_MIN_SP
 ' Unoccupied minimum preheat discharge setpoint (°F) – per sequence: 45°F (adj.)
 
-NUMERIC PUBLIC MAX_CMD
+NUMERIC INPUT MAX_CMD
 ' Max valve command (%) normally 100
 
 
 ' ------------------------- INTERNALS ----------------------
-NUMERIC TARGET_SP
+NUMERIC PUBLIC TARGET_SP
 NUMERIC ERR
 NUMERIC PID_OUT
 NUMERIC I_TERM
@@ -82,29 +82,7 @@ GOTO INIT
 '=========================================================
 INIT:
 
-    IF KP <= 0 THEN
-        KP = 6
-    ENDIF
-
-    IF KI < 0 THEN
-        KI = 0.1
-    ENDIF
-
-    IF HEAT_DB <= 0 THEN
-        HEAT_DB = 0.5
-    ENDIF
-
-    IF FREEZE_RECOV_SP <= 0 THEN
-        FREEZE_RECOV_SP = 90
-    ENDIF
-
-    IF UNOCC_MIN_SP <= 0 THEN
-        UNOCC_MIN_SP = 45
-    ENDIF
-
-    IF MAX_CMD <= 0 THEN
-        MAX_CMD = 100
-    ENDIF
+   
 
     I_TERM = 0
     OLD_ERR = 0
@@ -119,7 +97,7 @@ MAIN:
     '---------------------------------------------------------
     ' 1) SAFETY HARD OFF
     '---------------------------------------------------------
-    IF SAFETY_OK = 0 THEN
+    IF SAFETY_OK = 0 AND FREEZE_LATCH = 0 THEN
         HW_CMD_CALC = 0
         I_TERM = 0
         WAIT 1
@@ -164,15 +142,9 @@ MAIN:
     ' 3) UNOCC MINIMUM HEAT (45°F)
     '    Fans may be off; valve still maintains minimum.
     '---------------------------------------------------------
-    IF DOAS_MODE = 0 THEN
-        ' Unit fully off: no requirement to maintain 45°F unless in protect mode.
-        HW_CMD_CALC = 0
-        I_TERM = 0
-        WAIT 1
-        GOTO MAIN
-    ENDIF
+      
 
-    IF DOAS_MODE = 5 THEN
+    IF  DOAS_MODE = 0 OR DOAS_MODE = 5 THEN
 
         TARGET_SP = UNOCC_MIN_SP
 
@@ -212,7 +184,7 @@ MAIN:
         IF DOAS_MODE = 4 THEN
             TARGET_SP = SA_SP
         ELSE
-            TARGET_SP = 0
+            TARGET_SP = 55
         ENDIF
     ENDIF
 
@@ -223,13 +195,6 @@ MAIN:
         GOTO MAIN
     ENDIF
 
-    ERR = TARGET_SP - PREHEAT_DAT
-
-    IF ERR <= HEAT_DB THEN
-        HW_CMD_CALC = 0
-        WAIT 1
-        GOTO MAIN
-    ENDIF
 
     PID_OUT = PID_LOOP(0, PREHEAT_DAT, TARGET_SP, I_TERM, KP, KI, 0, OLD_ERR)
 
@@ -243,5 +208,5 @@ MAIN:
 
     HW_CMD_CALC = PID_OUT
 
-    WAIT 1
+    WAIT 5
     GOTO MAIN
