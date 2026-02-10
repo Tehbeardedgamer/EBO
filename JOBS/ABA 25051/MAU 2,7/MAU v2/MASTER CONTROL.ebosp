@@ -1,0 +1,246 @@
+'==============================================================================
+' MAU_AHU_IO_AND_SAFETIES
+'
+' PURPOSE
+' Final output authority for a single MAU air handler (use one instance per MAU).
+'
+' UPDATE (per request)
+' - Added humidifier analog demand handling (0-100% -> 0-10V scaled externally):
+'     * HUM_OUTPUT_REQ (input request)
+'     * HUM_OUTPUT_CMD (final commanded output, gated by airflow proof + permits)
+'
+' ALSO ALIGNED TO YOUR HARDWARE NOTE
+' - Single fan start/stop and single fan speed output:
+'     * SAF_SS
+'     * SAF_SPEED_CMD
+'
+'==============================================================================
+
+'-----------------------------
+' INPUTS (Bindings)
+'-----------------------------
+NUMERIC INPUT UNIT_EnableCmd
+NUMERIC INPUT UNIT_PrimeCmd
+NUMERIC INPUT UNIT_MAINT_MODE
+
+NUMERIC INPUT SAFETY_OK              ' 1=OK, 0=Trip/Not OK
+NUMERIC INPUT E_POWER               ' 1=OK, 0=Manual disconnect open
+
+NUMERIC INPUT OA_DAMPER_PROOF        ' end switch proof
+NUMERIC INPUT SA_DAMPER_PROOF        ' end switch proof
+NUMERIC INPUT AIRFLOW_PROOF          ' airflow switch proof
+
+' Control requests from other modules
+NUMERIC INPUT FAN_SPEED_REQ          ' 0..100
+NUMERIC INPUT HW_PREHEAT_REQ         ' 0..100
+NUMERIC INPUT CHW_VALVE_REQ          ' 0..100
+NUMERIC INPUT HW_REHEAT_REQ          ' 0..100
+
+NUMERIC INPUT HUM_ENABLE_REQ         ' 1=enable request
+NUMERIC INPUT HUM_OUTPUT_REQ         ' 0..100 (humidifier demand request)
+NUMERIC INPUT SPACE_RH_SP            ' optional if device accepts setpoint
+
+' Alarm inputs from other modules
+NUMERIC INPUT FAN_FAIL_ALM_IN        ' 1=fan failure alarm (from fan module)
+
+'-----------------------------
+' OUTPUTS (Bindings)
+'-----------------------------
+NUMERIC OUTPUT OA_DAMPER_CMD         ' 0/1
+NUMERIC OUTPUT SA_DAMPER_CMD         ' 0/1
+
+NUMERIC OUTPUT SAF_SS               ' 0/1
+NUMERIC OUTPUT SAF_SPEED_CMD         ' 0..100
+
+NUMERIC OUTPUT HW_PREHEAT_CMD        ' 0..100
+NUMERIC OUTPUT CHW_VALVE_CMD         ' 0..100
+NUMERIC OUTPUT HW_REHEAT_CMD         ' 0..100
+
+NUMERIC OUTPUT HUM_ENABLE_CMD        ' 0/1
+NUMERIC OUTPUT HUM_OUTPUT_CMD        ' 0..100 (scale to 0-10V externally)
+NUMERIC OUTPUT HUM_RH_SP_CMD         ' numeric (if applicable)
+
+' Status / interlocks back to system scripts
+NUMERIC OUTPUT UNIT_RunningProof     ' 0/1
+NUMERIC OUTPUT UNIT_Failure          ' 0/1 (masked in maintenance)
+NUMERIC OUTPUT FAN_FAIL_ALM_OUT      ' 0/1 (masked in maintenance)
+NUMERIC OUTPUT SAFETY_SHUTDOWN       ' 0/1
+
+'-----------------------------
+' INTERNAL VARIABLES
+'-----------------------------
+NUMERIC UnitPermit
+NUMERIC DampersProven
+NUMERIC FanPermit
+NUMERIC HumPermit
+
+NUMERIC HumOutClamped
+
+'==============================================================================
+INIT:
+'==============================================================================
+
+OA_DAMPER_CMD = 0
+SA_DAMPER_CMD = 0
+
+SAF_SS = 0
+SAF_SPEED_CMD = 0
+
+HW_PREHEAT_CMD = 0
+CHW_VALVE_CMD = 0
+HW_REHEAT_CMD = 0
+
+HUM_ENABLE_CMD = 0
+HUM_OUTPUT_CMD = 0
+HUM_RH_SP_CMD = SPACE_RH_SP
+
+UNIT_RunningProof = 0
+UNIT_Failure = 0
+FAN_FAIL_ALM_OUT = 0
+SAFETY_SHUTDOWN = 0
+
+UnitPermit = 0
+DampersProven = 0
+FanPermit = 0
+HumPermit = 0
+
+HumOutClamped = 0
+
+Goto MAIN
+
+
+'==============================================================================
+MAIN:
+'==============================================================================
+
+'-----------------------------
+' Global permit evaluation
+'-----------------------------
+SAFETY_SHUTDOWN = 0
+If SAFETY_OK is OFF then SAFETY_SHUTDOWN = 1
+If E_POWER is OFF then SAFETY_SHUTDOWN = 1
+
+UnitPermit = 0
+If UNIT_EnableCmd is ON then
+    If UNIT_MAINT_MODE is OFF then
+        If SAFETY_SHUTDOWN is OFF then
+            UnitPermit = 1
+        EndIf
+    EndIf
+EndIf
+
+'-----------------------------
+' Damper commands and proof gating
+'-----------------------------
+OA_DAMPER_CMD = 0
+SA_DAMPER_CMD = 0
+
+If UnitPermit is ON then
+    OA_DAMPER_CMD = 1
+    SA_DAMPER_CMD = 1
+EndIf
+
+DampersProven = 0
+If OA_DAMPER_PROOF is ON then
+    If SA_DAMPER_PROOF is ON then
+        DampersProven = 1
+    EndIf
+EndIf
+
+'-----------------------------
+' Fan permit and commands
+'-----------------------------
+FanPermit = 0
+If UnitPermit is ON then
+    If DampersProven is ON then
+        FanPermit = 1
+    EndIf
+EndIf
+
+SAF_SS = 0
+SAF_SPEED_CMD = 0
+
+If FanPermit is ON then
+    SAF_SS = 1
+    SAF_SPEED_CMD = FAN_SPEED_REQ
+EndIf
+
+'-----------------------------
+' Valve commands (with Prime override)
+'-----------------------------
+HW_PREHEAT_CMD = HW_PREHEAT_REQ
+CHW_VALVE_CMD = CHW_VALVE_REQ
+HW_REHEAT_CMD = HW_REHEAT_REQ
+
+If UNIT_MAINT_MODE is ON then
+    HW_PREHEAT_CMD = 0
+    CHW_VALVE_CMD = 0
+    HW_REHEAT_CMD = 0
+EndIf
+
+If SAFETY_SHUTDOWN is ON then
+    HW_PREHEAT_CMD = 0
+    CHW_VALVE_CMD = 0
+    HW_REHEAT_CMD = 0
+EndIf
+
+If UNIT_PrimeCmd is ON then
+    If UNIT_MAINT_MODE is OFF then
+        If SAFETY_SHUTDOWN is OFF then
+            HW_PREHEAT_CMD = 100
+            CHW_VALVE_CMD = 100
+        EndIf
+    EndIf
+EndIf
+
+'-----------------------------
+' Humidifier enable + analog demand interlock
+'-----------------------------
+HUM_RH_SP_CMD = SPACE_RH_SP
+
+HUM_ENABLE_CMD = 0
+HUM_OUTPUT_CMD = 0
+
+HumPermit = 0
+If UnitPermit is ON then
+    If AIRFLOW_PROOF is ON then
+        HumPermit = 1
+    EndIf
+EndIf
+
+HumOutClamped = HUM_OUTPUT_REQ
+If HumOutClamped < 0 then HumOutClamped = 0
+If HumOutClamped > 100 then HumOutClamped = 100
+
+If HumPermit is ON then
+    If HUM_ENABLE_REQ is ON then
+        HUM_ENABLE_CMD = 1
+        HUM_OUTPUT_CMD = HumOutClamped
+    EndIf
+EndIf
+
+'-----------------------------
+' Status points
+'-----------------------------
+UNIT_RunningProof = 0
+If FanPermit is ON then
+    If AIRFLOW_PROOF is ON then
+        UNIT_RunningProof = 1
+    EndIf
+EndIf
+
+'-----------------------------
+' Alarm forwarding / masking (Maintenance Mode requirement)
+'-----------------------------
+FAN_FAIL_ALM_OUT = FAN_FAIL_ALM_IN
+
+UNIT_Failure = 0
+If FAN_FAIL_ALM_IN is ON then UNIT_Failure = 1
+
+If UNIT_MAINT_MODE is ON then
+    FAN_FAIL_ALM_OUT = 0
+    UNIT_Failure = 0
+EndIf
+
+Wait 1
+Goto MAIN

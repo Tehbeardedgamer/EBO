@@ -1,0 +1,304 @@
+'==============================================================================
+' MAU_MODE_MANAGER  (Sectimer direct-assignment, no SAT reset math)
+'
+' Mode priority (highest to lowest):
+'   1) Safety shutdowns (handled upstream via UNIT_Enable / IO&Safeties)
+'   2) Maintenance Mode (per-unit; handled in MAU_LEAD_STANDBY + IO)
+'   3) Dehumidification
+'   4) Humidification
+'   5) Cooling
+'   6) Heating (default)
+'
+' Timed enables using Sectimer():
+'   - Humidify enable:
+'       (OA_DEWPOINT < OA_DEWPOINT_LOW for HUMIDITY_ENABLE_TIME)
+'        OR (SPACE_RH < SPACE_RH_SP for HUMIDITY_ENABLE_TIME)
+'
+'   - Humidify standby lockout:
+'       OA_DEWPOINT > OA_DEWPOINT_HIGH for HUMIDITY_STANDBY_TRIGGER_TIME
+'       -> lockout for HUMIDITY_STANDBY_DURATION
+'
+'   - Cooling enable:
+'       (OA_TEMP > COOLING_ENABLE_OAT AND OA_DEWPOINT < COOLING_ENABLE_DEWPOINT)
+'       for COOLING_ENABLE_TIME
+'     Cooling disable:
+'       OA_TEMP < COOLING_DISABLE_OAT for COOLING_DISABLE_TIME
+'     Cooling is latched ON once enabled; released only by disable timer.
+'
+'   - Dehumidification enable:
+'       (OA_DEWPOINT > DEHUMIDIFICATION_ENABLE_DEWPOINT for DEHUMIDIFICATION_ENABLE_DEWPOINT_TIME)
+'        OR (SPACE_RH > SPACE_RH_SP + DEHUMIDIFICATION_ENABLE_RH_OFFSET for DEHUMIDIFICATION_ENABLE_RH_TIME)
+'
+' Setpoints:
+'   - Cooling: SAT = SAT_COOL_SETPOINT
+'   - Humidify: SAT = SAT_HUMIDIFY_SETPOINT
+'   - Heating: SAT = SAT_RESET_SP (computed externally)
+'   - Dehum:  LAT_SP = SAT_DEHUMIDIFY_SETPOINT (name per your mapping)
+'            SAT = SAT_RESET_SP (computed externally)
+'
+' NOTE:
+' - All Sectimer() calls pass AutoReset=0 to avoid TS-based resets in loop scripts.
+'==============================================================================
+
+'-----------------------------
+' INPUTS (Bindings)
+'-----------------------------
+NUMERIC INPUT UNIT_Enable
+NUMERIC INPUT OA_TEMP
+NUMERIC INPUT OA_DEWPOINT
+NUMERIC INPUT SPACE_RH
+NUMERIC INPUT SPACE_RH_SP
+
+' External SAT reset result (from separate SAT reset script)
+NUMERIC INPUT SAT_RESET_SP
+' Humidification enable
+NUMERIC INPUT OA_DEWPOINT_LOW
+NUMERIC INPUT HUMIDITY_ENABLE_TIME
+' Humidification standby / lockout
+NUMERIC INPUT OA_DEWPOINT_HIGH
+NUMERIC INPUT HUMIDITY_STANDBY_TRIGGER_TIME
+NUMERIC INPUT HUMIDITY_STANDBY_DURATION
+' Cooling enable/disable
+NUMERIC INPUT COOLING_ENABLE_OAT
+NUMERIC INPUT COOLING_ENABLE_DEWPOINT
+NUMERIC INPUT COOLING_ENABLE_TIME
+NUMERIC INPUT COOLING_DISABLE_OAT
+NUMERIC INPUT COOLING_DISABLE_TIME
+' Dehumidification enable
+NUMERIC INPUT DEHUMIDIFICATION_ENABLE_DEWPOINT
+NUMERIC INPUT DEHUMIDIFICATION_ENABLE_DEWPOINT_TIME
+NUMERIC INPUT DEHUMIDIFICATION_ENABLE_RH_OFFSET
+NUMERIC INPUT DEHUMIDIFICATION_ENABLE_RH_TIME
+' Fixed setpoints
+NUMERIC INPUT SAT_COOL_SETPOINT
+NUMERIC INPUT SAT_HUMIDIFY_SETPOINT
+NUMERIC INPUT SAT_DEHUMIDIFY_SETPOINT
+
+'-----------------------------
+' OUTPUTS (Bindings)
+'-----------------------------
+NUMERIC OUTPUT ActiveMode          ' 0=OFF, 1=HEAT, 2=COOL, 3=HUM, 4=DEHUM
+NUMERIC OUTPUT HeatingActive
+NUMERIC OUTPUT CoolingActive
+NUMERIC OUTPUT HumidActive
+NUMERIC OUTPUT DehumActive
+NUMERIC OUTPUT SAT_SP
+NUMERIC OUTPUT DEHUMID_SAT_SP
+NUMERIC OUTPUT HumStandbyActive
+
+'-----------------------------
+' INTERNAL VARIABLES
+'-----------------------------
+' Timer storage (Sectimer Tmr args)
+NUMERIC T_1  ' Hum enable: OA dewpoint low
+NUMERIC T_2  ' Hum enable: SPACE RH low
+NUMERIC T_3  ' Hum standby trigger: OA dewpoint high
+NUMERIC T_4  ' Hum standby hold: duration
+NUMERIC T_5  ' Cooling enable
+NUMERIC T_6  ' Cooling disable
+NUMERIC T_7  ' Dehum enable: OA dewpoint high
+NUMERIC T_8  ' Dehum enable: SPACE RH high (SP + offset)
+NUMERIC CoolingLatched
+NUMERIC HumStandbyLatch
+NUMERIC HumReq
+NUMERIC CoolReq
+NUMERIC DehumReq
+NUMERIC Done_HumDewLow
+NUMERIC Done_HumRHLow
+NUMERIC Done_HumStandbyTrig
+NUMERIC Done_HumStandbyHold
+NUMERIC Done_CoolEnable
+NUMERIC Done_CoolDisable
+NUMERIC Done_DehumDewHigh
+NUMERIC Done_DehumRHHigh
+
+
+'-----------------------------
+' FUNCTIONS
+'-----------------------------
+
+FUNCTION Sectimer
+'==============================================================================
+INIT:
+    '==============================================================================
+
+    T_1 = 0
+    T_2 = 0
+    T_3 = 0
+    T_4 = 0
+    T_5 = 0
+    T_6 = 0
+    T_7 = 0
+    T_8 = 0
+
+    CoolingLatched = 0
+    HumStandbyLatch = 0
+
+    ActiveMode = 0
+    HeatingActive = 0
+    CoolingActive = 0
+    HumidActive = 0
+    DehumActive = 0
+
+    SAT_SP = SAT_RESET_SP
+    DEHUMID_SAT_SP = 0
+    HumStandbyActive = 0
+
+    Goto MAIN
+
+
+    '==============================================================================
+MAIN:
+    '==============================================================================
+
+    '-----------------------------
+    ' Standby trigger / hold done flags (direct assignment)
+    '-----------------------------
+    Done_HumStandbyTrig = Sectimer(OA_DEWPOINT > OA_DEWPOINT_HIGH, HUMIDITY_STANDBY_TRIGGER_TIME, T_3, 0)
+
+    Done_HumStandbyHold = 0
+    If HumStandbyLatch is ON then
+        Done_HumStandbyHold = Sectimer(1, HUMIDITY_STANDBY_DURATION, T_4, 0)
+    EndIf
+
+    '-----------------------------
+    ' Standby latch logic
+    '-----------------------------
+    If HumStandbyLatch is OFF then
+        If Done_HumStandbyTrig is ON then
+            HumStandbyLatch = 1
+            T_4 = 0
+        EndIf
+    EndIf
+
+    If HumStandbyLatch is ON then
+        If Done_HumStandbyHold is ON then
+            HumStandbyLatch = 0
+            T_4 = 0
+        EndIf
+    EndIf
+
+    HumStandbyActive = 0
+    If HumStandbyLatch is ON then HumStandbyActive = 1
+
+
+    '-----------------------------
+    ' Cooling enable/disable done flags (direct assignment)
+    '-----------------------------
+    Done_CoolEnable = Sectimer((OA_TEMP > COOLING_ENABLE_OAT) AND (OA_DEWPOINT < COOLING_ENABLE_DEWPOINT), COOLING_ENABLE_TIME, T_5, 0)
+    Done_CoolDisable = Sectimer(OA_TEMP < COOLING_DISABLE_OAT, COOLING_DISABLE_TIME, T_6, 0)
+
+    '-----------------------------
+    ' Cooling latch logic
+    '-----------------------------
+    If Done_CoolDisable is ON then
+        CoolingLatched = 0
+    EndIf
+
+    If CoolingLatched is OFF then
+        If Done_CoolEnable is ON then
+            CoolingLatched = 1
+        EndIf
+    EndIf
+
+
+    '-----------------------------
+    ' Humidity enable done flags (direct assignment)
+    '-----------------------------
+    Done_HumDewLow = Sectimer(OA_DEWPOINT < OA_DEWPOINT_LOW, HUMIDITY_ENABLE_TIME, T_1, 0)
+    Done_HumRHLow = Sectimer(SPACE_RH < SPACE_RH_SP, HUMIDITY_ENABLE_TIME, T_2, 0)
+
+    '-----------------------------
+    ' Dehumidification enable done flags (direct assignment)
+    '-----------------------------
+    Done_DehumDewHigh = Sectimer(OA_DEWPOINT > DEHUMIDIFICATION_ENABLE_DEWPOINT, DEHUMIDIFICATION_ENABLE_DEWPOINT_TIME, T_7, 0)
+    Done_DehumRHHigh = Sectimer(SPACE_RH > (SPACE_RH_SP + DEHUMIDIFICATION_ENABLE_RH_OFFSET), DEHUMIDIFICATION_ENABLE_RH_TIME, T_8, 0)
+
+
+    '-----------------------------
+    ' Force OFF when disabled (after timers so lockouts/latches can still evolve)
+    '-----------------------------
+    If UNIT_Enable is OFF then
+        ActiveMode = 0
+        HeatingActive = 0
+        CoolingActive = 0
+        HumidActive = 0
+        DehumActive = 0
+
+        SAT_SP = SAT_RESET_SP
+        DEHUMID_SAT_SP = 0
+
+        Wait 1
+        Goto MAIN
+    EndIf
+
+
+    '-----------------------------
+    ' Compute mode requests
+    '-----------------------------
+    HumReq = 0
+    If HumStandbyActive is OFF then
+        If Done_HumDewLow is ON then
+            HumReq = 1
+        Else
+            If Done_HumRHLow is ON then
+                HumReq = 1
+            EndIf
+        EndIf
+    EndIf
+
+    CoolReq = 0
+    If CoolingLatched is ON then CoolReq = 1
+
+    DehumReq = 0
+    If Done_DehumDewHigh is ON then
+        DehumReq = 1
+    Else
+        If Done_DehumRHHigh is ON then
+            DehumReq = 1
+        EndIf
+    EndIf
+
+
+    '-----------------------------
+    ' Mode arbitration by priority: DEHUM > HUM > COOL > HEAT
+    '-----------------------------
+    ActiveMode = 1
+    If CoolReq is ON then ActiveMode = 2
+    If HumReq is ON then ActiveMode = 3
+    If DehumReq is ON then ActiveMode = 4
+
+
+    '-----------------------------
+    ' Outputs
+    '-----------------------------
+    HeatingActive = 0
+    CoolingActive = 0
+    HumidActive = 0
+    DehumActive = 0
+
+    DEHUMID_SAT_SP = 0
+
+    If ActiveMode EQUALS 1 then
+        HeatingActive = 1
+        SAT_SP = SAT_RESET_SP
+    EndIf
+
+    If ActiveMode EQUALS 2 then
+        CoolingActive = 1
+        SAT_SP = SAT_COOL_SETPOINT
+    EndIf
+
+    If ActiveMode EQUALS 3 then
+        HumidActive = 1
+        SAT_SP = SAT_HUMIDIFY_SETPOINT
+    EndIf
+
+    If ActiveMode EQUALS 4 then
+        DehumActive = 1
+        DEHUMID_SAT_SP = SAT_DEHUMIDIFY_SETPOINT
+        SAT_SP = SAT_RESET_SP
+    EndIf
+
+    Wait 1
+    Goto MAIN

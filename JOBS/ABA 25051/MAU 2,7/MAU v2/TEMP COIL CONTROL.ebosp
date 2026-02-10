@@ -1,0 +1,278 @@
+'==============================================================================
+' MAU_AHU_TEMP_COIL_CONTROL
+'
+' PURPOSE
+' Generate valve position requests for:
+'   - HW preheat valve (HW_PREHEAT_REQ)
+'   - CHW cooling valve (CHW_VALVE_REQ)
+'   - HW reheat valve (HW_REHEAT_REQ)
+'
+' SOO REQUIREMENTS COVERED
+' - Heating Mode (default when not Cooling/Dehum/Hum):
+'     * Maintain LAT minimum (PH_DAT_SP) as a hard clamp override
+'     * Preheat valve modulates to maintain SAT_SP
+'     * If SAT cannot be maintained by preheat alone, reheat modulates to maintain SAT_SP
+'
+' - Cooling Mode:
+'     * CHW valve modulates to maintain SAT_SP (mode manager provides SAT_COOL_SETPOINT)
+'
+' - Dehumidification Mode:
+'     * CHW valve modulates to maintain DEHUMID_DAT_SP (dehum coil leaving setpoint)
+'     * Reheat valve modulates to maintain SAT_SP
+'
+' - Humidification Mode:
+'     * SAT setpoint is provided by SAT_SP (mode manager provides SAT_HUMIDIFY_SETPOINT)
+'     * Coil control is treated same as Heating (SAT control + LAT min clamp)
+'
+' NOTES
+' - Final authority remains in IO_AND_SAFETIES (PrimeCmd override handled there).
+' - PID integrals/old errors are NOT reset in MAIN; only initialized in INIT.
+' - No ElseIf used.
+'==============================================================================
+
+'-----------------------------
+' INPUTS (Bindings)
+'-----------------------------
+NUMERIC INPUT UNIT_ENABLE
+NUMERIC INPUT UNIT_MAINT
+NUMERIC INPUT SAFETY_OK
+NUMERIC INPUT E_POWER
+NUMERIC INPUT ActiveMode          ' 0=OFF, 1=HEAT, 2=COOL, 3=HUM, 4=DEHUM
+NUMERIC INPUT SAT_SP
+NUMERIC INPUT DEHUMID_DAT_SP       ' meaningful in DEHUM mode
+NUMERIC INPUT SAT_F
+NUMERIC INPUT PH_DAT
+NUMERIC INPUT PH_DAT_SP              ' 45F per SoO
+
+' Reheat enable logic (to satisfy "if preheat cannot maintain SAT")
+NUMERIC INPUT PREHEAT_SAT_ENABLE_PCT  ' e.g. 95 (preheat considered "at limit")
+NUMERIC INPUT REHEAT_ENABLE_DB_F      ' e.g. 0.5 (SAT below SP by this much enables reheat assist)
+
+' PID tunings (Bindings)
+NUMERIC INPUT PH_KP
+NUMERIC INPUT PH_KI
+NUMERIC INPUT PH_KD
+NUMERIC INPUT CHW_KP
+NUMERIC INPUT CHW_KI
+NUMERIC INPUT CHW_KD
+NUMERIC INPUT RH_KP
+NUMERIC INPUT RH_KI
+NUMERIC INPUT RH_KD
+
+'-----------------------------
+' OUTPUTS (Bindings)
+'-----------------------------
+NUMERIC OUTPUT HW_PREHEAT_REQ         ' 0..100
+NUMERIC OUTPUT CHW_VALVE_REQ          ' 0..100
+NUMERIC OUTPUT HW_REHEAT_REQ          ' 0..100
+
+'-----------------------------
+' INTERNAL VARIABLES
+'-----------------------------
+NUMERIC UnitPermit
+NUMERIC HeatMode
+NUMERIC CoolMode
+NUMERIC HumMode
+NUMERIC DehumMode
+NUMERIC PH_Out
+NUMERIC CHW_Out
+NUMERIC RH_Out
+NUMERIC PH_Int
+NUMERIC PH_OldErr
+NUMERIC CHW_Int
+NUMERIC CHW_OldErr
+NUMERIC RH_Int
+NUMERIC RH_OldErr
+NUMERIC PH_DAT_MIN_ACTIVE
+NUMERIC ReheatAssistEnable
+
+'-----------------------------
+' FUNCTIONS USED
+'-----------------------------
+FUNCTION PIDControl
+
+'==============================================================================
+INIT:
+'==============================================================================
+
+HW_PREHEAT_REQ = 0
+CHW_VALVE_REQ = 0
+HW_REHEAT_REQ = 0
+
+UnitPermit = 0
+
+HeatMode = 0
+CoolMode = 0
+HumMode = 0
+DehumMode = 0
+
+PH_Out = 0
+CHW_Out = 0
+RH_Out = 0
+
+PH_Int = 0
+PH_OldErr = 0
+
+CHW_Int = 0
+CHW_OldErr = 0
+
+RH_Int = 0
+RH_OldErr = 0
+
+PH_DAT_MIN_ACTIVE = 0
+ReheatAssistEnable = 0
+
+Goto MAIN
+
+
+'==============================================================================
+MAIN:
+'==============================================================================
+
+'-----------------------------
+' Determine unit permit
+'-----------------------------
+UnitPermit = 0
+If UNIT_ENABLE is ON then
+    If UNIT_MAINT is OFF then
+        If SAFETY_OK is ON then
+            If E_POWER is OFF then
+                UnitPermit = 1
+            EndIf
+        EndIf
+    EndIf
+EndIf
+
+'-----------------------------
+' Decode modes
+'-----------------------------
+HeatMode = 0
+CoolMode = 0
+HumMode = 0
+DehumMode = 0
+
+If ActiveMode EQUALS 1 then HeatMode = 1
+If ActiveMode EQUALS 2 then CoolMode = 1
+If ActiveMode EQUALS 3 then HumMode = 1
+If ActiveMode EQUALS 4 then DehumMode = 1
+
+
+'-----------------------------
+' Default requests
+'-----------------------------
+HW_PREHEAT_REQ = 0
+CHW_VALVE_REQ = 0
+HW_REHEAT_REQ = 0
+
+PH_DAT_MIN_ACTIVE = 0
+ReheatAssistEnable = 0
+
+
+'-----------------------------
+' If not permitted, hold requests at 0
+'-----------------------------
+If UnitPermit is OFF then
+    Wait 1
+    Goto MAIN
+EndIf
+
+
+'-----------------------------
+' LAT minimum clamp (hard override driver)
+' - If LAT < PH_DAT_SP, force preheat demand high regardless of mode.
+' - Implemented as: preheat PID targets PH_DAT_SP using LAT as PV when below min,
+'   otherwise preheat uses SAT control in Heat/Hum (or stays 0 in Cool/Dehum).
+'-----------------------------
+If PH_DAT < PH_DAT_SP then
+    PH_DAT_MIN_ACTIVE = 1
+EndIf
+
+
+'-----------------------------
+' Cooling valve control
+' - COOL: CHW PID on SAT to SAT_SP
+' - DEHUM: CHW PID on LAT to DEHUMID_DAT_SP
+' - Otherwise: CHW = 0
+'-----------------------------
+CHW_Out = 0
+
+If CoolMode is ON then
+    CHW_Out = PIDControl(0, SAT_F, SAT_SP, CHW_Int, CHW_KP, CHW_KI, CHW_KD, CHW_OldErr)
+EndIf
+
+If DehumMode is ON then
+    CHW_Out = PIDControl(0, PH_DAT, DEHUMID_DAT_SP, CHW_Int, CHW_KP, CHW_KI, CHW_KD, CHW_OldErr)
+EndIf
+
+If CHW_Out < 0 then CHW_Out = 0
+If CHW_Out > 100 then CHW_Out = 100
+
+CHW_VALVE_REQ = CHW_Out
+
+
+'-----------------------------
+' Preheat control
+' - If LAT min active: preheat PID on LAT to PH_DAT_SP
+' - Else if HEAT or HUM: preheat PID on SAT to SAT_SP
+' - Else: preheat = 0
+'-----------------------------
+PH_Out = 0
+
+If PH_DAT_MIN_ACTIVE is ON then
+    PH_Out = PIDControl(0, PH_DAT, PH_DAT_SP, PH_Int, PH_KP, PH_KI, PH_KD, PH_OldErr)
+Else
+    If HeatMode is ON then
+        PH_Out = PIDControl(0, SAT_F, SAT_SP, PH_Int, PH_KP, PH_KI, PH_KD, PH_OldErr)
+    Else
+        If HumMode is ON then
+            PH_Out = PIDControl(0, SAT_F, SAT_SP, PH_Int, PH_KP, PH_KI, PH_KD, PH_OldErr)
+        EndIf
+    EndIf
+EndIf
+
+If PH_Out < 0 then PH_Out = 0
+If PH_Out > 100 then PH_Out = 100
+
+HW_PREHEAT_REQ = PH_Out
+
+
+'-----------------------------
+' Reheat control
+' - DEHUM: Reheat PID on SAT to SAT_SP (always active in dehum)
+' - HEAT/HUM: Enable reheat only when preheat "at limit" AND SAT is below SP by DB
+' - Otherwise: reheat = 0
+'-----------------------------
+RH_Out = 0
+
+If DehumMode is ON then
+    RH_Out = PIDControl(0, SAT_F, SAT_SP, RH_Int, RH_KP, RH_KI, RH_KD, RH_OldErr)
+Else
+    If HeatMode is ON then
+        If HW_PREHEAT_REQ >= PREHEAT_SAT_ENABLE_PCT then
+            If SAT_F < (SAT_SP - REHEAT_ENABLE_DB_F) then
+                ReheatAssistEnable = 1
+            EndIf
+        EndIf
+    Else
+        If HumMode is ON then
+            If HW_PREHEAT_REQ >= PREHEAT_SAT_ENABLE_PCT then
+                If SAT_F < (SAT_SP - REHEAT_ENABLE_DB_F) then
+                    ReheatAssistEnable = 1
+                EndIf
+            EndIf
+        EndIf
+    EndIf
+
+    If ReheatAssistEnable is ON then
+        RH_Out = PIDControl(0, SAT_F, SAT_SP, RH_Int, RH_KP, RH_KI, RH_KD, RH_OldErr)
+    EndIf
+EndIf
+
+If RH_Out < 0 then RH_Out = 0
+If RH_Out > 100 then RH_Out = 100
+
+HW_REHEAT_REQ = RH_Out
+
+
+Wait 1
+Goto MAIN

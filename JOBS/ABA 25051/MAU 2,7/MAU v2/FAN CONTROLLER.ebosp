@@ -3,10 +3,10 @@
 '
 ' PURPOSE
 ' Generate fan speed request to maintain SPACE differential pressure setpoint.
-' Provide fan failure alarm based on SAF_STATUS_A / SAF_STATUS_B.
+' Provide fan failure alarm based on SAF_STATUS_A / SAF_STATUS_B (+ optional extra fan statuses).
 '
 ' SOO REQUIREMENTS COVERED
-' - Fan speed modulates to maintain SPACE_DP_SP.
+' - Fan speed modulates to maintain DUCT_STATIC_SP.
 ' - Fan failure detected via status feedback (here: SAF_STATUS_A, SAF_STATUS_B).
 ' - Upon failure of any fan: alarm to BAS (speed demand will naturally rise via PID).
 '
@@ -20,7 +20,7 @@
 '-----------------------------
 ' INPUTS (Bindings)
 '-----------------------------
-NUMERIC INPUT UNIT_EnableCmd
+NUMERIC INPUT UNIT_ENABLE
 NUMERIC INPUT UNIT_MAINT_MODE
 
 NUMERIC INPUT SAFETY_OK
@@ -29,11 +29,14 @@ NUMERIC INPUT E_POWER
 NUMERIC INPUT OA_DAMPER_PROOF
 NUMERIC INPUT SA_DAMPER_PROOF
 
-NUMERIC INPUT SPACE_DP
-NUMERIC INPUT SPACE_DP_SP
+NUMERIC INPUT DUCT_STATIC
+NUMERIC INPUT DUCT_STATIC_SP
 
 NUMERIC INPUT SAF_STATUS_A
 NUMERIC INPUT SAF_STATUS_B
+NUMERIC INPUT SAF_STATUS_C          ' optional extra fan status
+NUMERIC INPUT SAF_STATUS_D          ' optional extra fan status
+NUMERIC INPUT FAN_STATUS_ANY_FAIL   ' optional pre-aggregated fail input
 
 ' PID tuning (Bindings / Adjustable)
 NUMERIC INPUT DP_KP
@@ -101,7 +104,7 @@ MAIN:
 ' Determine permits (mirror of IO gating for request generation only)
 '-----------------------------
 UnitPermit = 0
-If UNIT_EnableCmd is ON then
+If UNIT_ENABLE is ON then
     If UNIT_MAINT_MODE is OFF then
         If SAFETY_OK is ON then
             If E_POWER is OFF then
@@ -133,7 +136,7 @@ FAN_SPEED_REQ = 0
 
 If FanPermit is ON then
     ' ReverseActing = 0 (Direct acting): DP low -> increase output
-    DP_Out = PIDControl(0, SPACE_DP, SPACE_DP_SP, DP_PID_Int, DP_KP, DP_KI, DP_KD, DP_PID_OldErr)
+    DP_Out = PIDControl(0, DUCT_STATIC, DUCT_STATIC_SP, DP_PID_Int, DP_KP, DP_KI, DP_KD, DP_PID_OldErr)
 
     ' Clamp to 0..100 (do not invent min speed unless you provide limits)
     If DP_Out < 0 then DP_Out = 0
@@ -144,12 +147,15 @@ EndIf
 
 
 '-----------------------------
-' Fan failure detection (SAF_STATUS_A / SAF_STATUS_B)
+' Fan failure detection (any fan status or pre-aggregated fail)
 ' Alarm if commanded to run (FanPermit) AND either status is NOT ON for FAN_FAIL_TIME
 '-----------------------------
 AnyStatusFail = 0
+If FAN_STATUS_ANY_FAIL is ON then AnyStatusFail = 1
 If SAF_STATUS_A is OFF then AnyStatusFail = 1
 If SAF_STATUS_B is OFF then AnyStatusFail = 1
+If SAF_STATUS_C is OFF then AnyStatusFail = 1
+If SAF_STATUS_D is OFF then AnyStatusFail = 1
 
 FailCond = 0
 If FanPermit is ON then

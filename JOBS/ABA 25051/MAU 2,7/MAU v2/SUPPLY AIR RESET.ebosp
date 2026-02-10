@@ -1,0 +1,59 @@
+'==============================================================================
+' MAU_SYS_SAT_RESET
+'
+' Responsibilities (per SoO):
+' - Compute SAT reset setpoint as a linear function of the associated space
+'   sensible cooling valve aggregate position (0-100%).
+'
+' Reset definition:
+'   SmartSenseValvePos = 0%   -> SAT_RESET_SP = SAT_RESET_MAX_SP
+'   SmartSenseValvePos = 100% -> SAT_RESET_SP = SAT_RESET_MIN_SP
+'
+' Notes:
+' - Clamps SmartSenseValvePos to 0..100.
+' - No assumptions are made about how aggregation is computed; that is external.
+'==============================================================================
+
+'-----------------------------
+' INPUTS (Bindings)
+'-----------------------------
+NUMERIC INPUT SmartSenseValvePos
+
+NUMERIC INPUT SAT_RESET_MAX_SP
+NUMERIC INPUT SAT_RESET_MIN_SP
+
+'-----------------------------
+' OUTPUTS (Bindings)
+'-----------------------------
+NUMERIC OUTPUT SAT_RESET_SP
+
+'-----------------------------
+' INTERNAL VARIABLES
+'-----------------------------
+NUMERIC ValvePct_Clamped
+
+'==============================================================================
+INIT:
+'==============================================================================
+
+SAT_RESET_SP = SAT_RESET_MAX_SP
+ValvePct_Clamped = 0
+
+Goto MAIN
+
+
+'==============================================================================
+MAIN:
+'==============================================================================
+
+ValvePct_Clamped = SmartSenseValvePos
+
+If ValvePct_Clamped < 0 then ValvePct_Clamped = 0
+If ValvePct_Clamped > 100 then ValvePct_Clamped = 100
+
+' Linear interpolation:
+' SAT_RESET_SP = MAX + (MIN - MAX) * (Pct/100)
+SAT_RESET_SP = SAT_RESET_MAX_SP + (SAT_RESET_MIN_SP - SAT_RESET_MAX_SP) * (ValvePct_Clamped / 100)
+
+Wait 1
+Goto MAIN

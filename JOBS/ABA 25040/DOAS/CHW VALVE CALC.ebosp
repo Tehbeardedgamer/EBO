@@ -95,13 +95,21 @@ MAIN:
 '---------------------------------------------------------
 CHW_CMD_CALC = 0
 CHW_FAIL = FALSE
-'---------------- SAFETY / OFF -----------------------------
-IF (SAFETY_OK = 0) OR (FREEZE_LATCH = 1) THEN
-    CHW_CMD_CALC = 100
+'---------------- SAFETY / FREEZE -----------------------------
+' - Any non-freeze safety trip: CHW closed
+' - Freeze latch: CHW forced 100% for max flow (your freeze strategy)
+
+IF SAFETY_OK = 0 THEN
+    CHW_CMD_CALC = 0
     WAIT 1
     GOTO MAIN
 ENDIF
 
+IF FREEZE_LATCH = 1 THEN
+    CHW_CMD_CALC = 100
+    WAIT 1
+    GOTO MAIN
+ENDIF
 IF (DOAS_MODE = 0) OR (DOAS_MODE = 2) THEN
     ' OFF or WARMUP ? no cooling allowed
     CHW_CMD_CALC = 0

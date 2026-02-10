@@ -1,0 +1,123 @@
+'==============================================================================
+' MAU_AHU_HUMID_CONTROL
+'
+' PURPOSE
+' Generate humidifier enable and 0-100% demand (0-10V) to maintain SPACE RH setpoint.
+'
+' SOO REQUIREMENTS COVERED
+' - Humidification Mode:
+'     * Enabled by mode manager logic (timers + dewpoint/RH criteria)
+'     * Airflow proof required prior to humidifier enable
+'     * Modulate humidifier output to maintain SPACE_RH_SP
+' - 24-hour standby lockout handled by mode manager; this script obeys standby input.
+'
+' NOTES
+' - Final output authority remains in IO_AND_SAFETIES. This script outputs REQUESTS.
+' - PID storage is preserved (not reset in MAIN).
+'==============================================================================
+
+'-----------------------------
+' INPUTS (Bindings)
+'-----------------------------
+NUMERIC INPUT UNIT_ENABLE
+NUMERIC INPUT UNIT_MAINT
+NUMERIC INPUT SAFETY_OK
+NUMERIC INPUT E_POWER
+NUMERIC INPUT AIRFLOW_PROOF
+NUMERIC INPUT HUMID_MODE_ACTIVE         ' from mode manager (Sys_HumidActive)
+NUMERIC INPUT HUMID_STANDBY_ACTIVE      ' from mode manager (Sys_HumStandbyActive)
+NUMERIC INPUT SPACE_RH
+NUMERIC INPUT SPACE_RH_SP
+
+' PID tuning (Bindings / Adjustable)
+NUMERIC INPUT HUM_KP
+NUMERIC INPUT HUM_KI
+NUMERIC INPUT HUM_KD
+
+'-----------------------------
+' OUTPUTS (Bindings)
+'-----------------------------
+NUMERIC OUTPUT HUM_ENABLE_REQ           ' 0/1
+NUMERIC OUTPUT HUM_OUTPUT_REQ           ' 0..100 (% demand -> 0-10V scaling externally)
+
+'-----------------------------
+' INTERNAL VARIABLES
+'-----------------------------
+NUMERIC UnitPermit
+NUMERIC HumPermit
+NUMERIC HUM_Int
+NUMERIC HUM_OldErr
+NUMERIC HUM_Out
+
+'-----------------------------
+' FUNCTIONS USED
+'-----------------------------
+FUNCTION PIDControl
+
+'==============================================================================
+INIT:
+    '==============================================================================
+
+    HUM_ENABLE_REQ = 0
+    HUM_OUTPUT_REQ = 0
+    UnitPermit = 0
+    HumPermit = 0
+    HUM_Int = 0
+    HUM_OldErr = 0
+    HUM_Out = 0
+
+    Goto MAIN
+
+
+    '==============================================================================
+MAIN:
+    '==============================================================================
+
+    '-----------------------------
+    ' Determine unit permit (do not command humidifier in maint/safety/disconnect)
+    '-----------------------------
+    UnitPermit = 0
+    If UNIT_ENABLE is ON then
+        If UNIT_MAINT is OFF then
+            If SAFETY_OK is ON then
+                If E_POWER is OFF then
+                    UnitPermit = 1
+                EndIf
+            EndIf
+        EndIf
+    EndIf
+
+    '-----------------------------
+    ' Humidifier permit (mode + no standby + airflow proven)
+    '-----------------------------
+    HumPermit = 0
+    If UnitPermit is ON then
+        If HUMID_MODE_ACTIVE is ON then
+            If HUMID_STANDBY_ACTIVE is OFF then
+                If AIRFLOW_PROOF is ON then
+                    HumPermit = 1
+                EndIf
+            EndIf
+        EndIf
+    EndIf
+
+    '-----------------------------
+    ' Outputs (safe default)
+    '-----------------------------
+    HUM_ENABLE_REQ = 0
+    HUM_OUTPUT_REQ = 0
+
+    If HumPermit is ON then
+        HUM_ENABLE_REQ = 1
+
+        ' Direct acting: RH low -> increase output
+        HUM_Out = PIDControl(0, SPACE_RH, SPACE_RH_SP, HUM_Int, HUM_KP, HUM_KI, HUM_KD, HUM_OldErr)
+
+        If HUM_Out < 0 then HUM_Out = 0
+        If HUM_Out > 100 then HUM_Out = 100
+
+        HUM_OUTPUT_REQ = HUM_Out
+    EndIf
+
+    Wait 1
+    Goto MAIN
