@@ -1,0 +1,81 @@
+'==============================================================================
+' DOAS_N4_MODE_MANAGER (table-driven)
+'
+' COOLING MODE:
+'   (EA_T5 < OA_T0 + 2F) OR (OA enthalpy > 26 BTU/LB)
+'
+' ECONOMIZER COOLING MODE:
+'   (OA_T0 < EA_T5) AND (OA_T0 > DAT_SP) AND (enthalpy < 26)
+'
+' ECONOMIZER MODE:
+'   (OA_T0 < DAT_SP - 2F)
+'
+' Else -> HEATING MODE
+'==============================================================================
+
+NUMERIC INPUT  UNIT_ENABLE
+NUMERIC INPUT  OCCUPIED_EFFECTIVE
+
+NUMERIC INPUT  OA_TEMP                  ' OutsideAirTemp
+NUMERIC INPUT  EA_TEMP                  ' ExhaustAirTemp
+NUMERIC INPUT  OA_H_BtuLb               ' OA_Enthalpy_BtuLb
+
+NUMERIC INPUT  DAT_SP                 ' 55F adjustable
+
+NUMERIC INPUT  DB_EA_OA               ' 2.0
+NUMERIC INPUT  DB_ECON                ' 2.0
+NUMERIC INPUT  ENTHALPY_HL          ' 26.0
+
+NUMERIC OUTPUT ActiveMode
+
+NUMERIC CondCool
+NUMERIC CondEconCool
+NUMERIC CondEcon
+
+INIT:
+ActiveMode = 0
+Goto MAIN
+
+MAIN:
+
+If UNIT_ENABLE is OFF then
+    ActiveMode = 0
+    Wait 1
+    Goto MAIN
+EndIf
+
+If OCCUPIED_EFFECTIVE is OFF then
+    ActiveMode = 0
+    Wait 1
+    Goto MAIN
+EndIf
+
+CondCool = 0
+CondEconCool = 0
+CondEcon = 0
+
+' Cooling condition
+If EA_TEMP < (OA_TEMP + DB_EA_OA) then CondCool = 1
+If OA_H_BtuLb > ENTHALPY_HL then CondCool = 1
+
+' Economizer Cooling condition
+If OA_TEMP < EA_TEMP then
+    If OA_TEMP > DAT_SP then
+        If OA_H_BtuLb < ENTHALPY_HL then
+            CondEconCool = 1
+        EndIf
+    EndIf
+EndIf
+
+' Economizer condition
+If OA_TEMP < (DAT_SP - DB_ECON) then CondEcon = 1
+
+' Default heat
+ActiveMode = 1
+
+If CondEconCool is ON then ActiveMode = 3
+If CondEcon is ON then ActiveMode = 4
+If CondCool is ON then ActiveMode = 2
+
+Wait 1
+Goto MAIN

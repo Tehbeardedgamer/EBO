@@ -1,0 +1,308 @@
+'==============================================================================
+' DOAS_N4_IO_AUTHORITY
+'==============================================================================
+
+NUMERIC INPUT UNIT_ENABLE
+
+NUMERIC INPUT SCHED_OCCUPIED
+NUMERIC INPUT OVAV_CALL
+NUMERIC INPUT NET_COMM_OK
+
+NUMERIC INPUT Devshop_RTU_Proof
+NUMERIC INPUT Future_RTU_Proof
+
+NUMERIC INPUT SAFETY_OK
+STRING  INPUT ACTIVE_SAFETIES
+
+NUMERIC INPUT OA_DAMPER_STATUS
+NUMERIC INPUT EA_DAMPER_STATUS
+NUMERIC INPUT SAF_STATUS_1
+NUMERIC INPUT SAF_STATUS_2
+NUMERIC INPUT EAF_STATUS_1
+NUMERIC INPUT EAF_STATUS_2
+
+NUMERIC INPUT ActiveMode
+
+NUMERIC INPUT ERW_SS_REQ
+NUMERIC INPUT OA_BYPASS_DAMPER_REQ
+NUMERIC INPUT EA_BYPASS_DAMPER_REQ
+
+NUMERIC INPUT SAF_SPEED_REQ
+NUMERIC INPUT EAF_SPEED_REQ
+
+NUMERIC INPUT CHW_VALVE_REQ
+NUMERIC INPUT HW_VALVE_REQ
+
+NUMERIC INPUT MaxVentOverride
+NUMERIC INPUT MAXV_DURATION_SEC
+NUMERIC INPUT MAX_SF_SPEED
+NUMERIC INPUT MAX_EF_SPEED
+NUMERIC INPUT MAXV_BYPASS_WHEEL
+
+NUMERIC INPUT CHW_PREOPEN_TIME
+
+NUMERIC OUTPUT OCCUPIED_EFFECTIVE
+STRING  OUTPUT CURRENT_TASK
+
+NUMERIC OUTPUT ERW_SS
+NUMERIC OUTPUT OA_DAMPER_CMD
+NUMERIC OUTPUT EA_DAMPER_CMD
+NUMERIC OUTPUT OA_BYPASS_DAMPER_CMD
+NUMERIC OUTPUT EA_BYPASS_DAMPER_CMD
+NUMERIC OUTPUT EAF_SS
+NUMERIC OUTPUT SAF_SS
+NUMERIC OUTPUT SAF_SPEED_CMD
+NUMERIC OUTPUT EAF_SPEED_CMD
+NUMERIC OUTPUT CHW_VALVE_CMD
+NUMERIC OUTPUT HW_VALVE_CMD
+
+NUMERIC RTU_OK
+NUMERIC WantOcc
+NUMERIC MaxVentLatched
+NUMERIC T_MaxV
+NUMERIC Stage
+NUMERIC T_PreOpen
+
+FUNCTION Sectimer
+
+INIT:
+OCCUPIED_EFFECTIVE = 0
+CURRENT_TASK = "INIT"
+
+ERW_SS = 0
+OA_DAMPER_CMD = 0
+EA_DAMPER_CMD = 0
+OA_BYPASS_DAMPER_CMD = 0
+EA_BYPASS_DAMPER_CMD = 0
+EAF_SS = 0
+SAF_SS = 0
+SAF_SPEED_CMD = 0
+EAF_SPEED_CMD = 0
+CHW_VALVE_CMD = 0
+HW_VALVE_CMD = 0
+
+RTU_OK = 0
+WantOcc = 0
+MaxVentLatched = 0
+T_MaxV = 0
+Stage = 0
+T_PreOpen = 0
+
+Wait 1
+Goto MAIN
+
+MAIN:
+
+RTU_OK = 0
+If Devshop_RTU_Proof is ON then RTU_OK = 1
+If Future_RTU_Proof is ON then RTU_OK = 1
+
+WantOcc = 0
+If NET_COMM_OK is OFF then
+    WantOcc = 1
+Else
+    If SCHED_OCCUPIED is ON then WantOcc = 1
+    If OVAV_CALL is ON then WantOcc = 1
+EndIf
+
+OCCUPIED_EFFECTIVE = 0
+If UNIT_ENABLE is ON then
+    If WantOcc is ON then
+        OCCUPIED_EFFECTIVE = 1
+    EndIf
+EndIf
+
+If MaxVentLatched is OFF then
+    If MaxVentOverride is ON then
+        MaxVentLatched = 1
+        T_MaxV = 0
+    EndIf
+EndIf
+
+If MaxVentLatched is ON then
+    If Sectimer(1, MAXV_DURATION_SEC, T_MaxV, 0) is ON then
+        MaxVentLatched = 0
+        T_MaxV = 0
+    EndIf
+EndIf
+
+If (UNIT_ENABLE is OFF) OR (SAFETY_OK is OFF) OR (RTU_OK is OFF) then
+
+    If UNIT_ENABLE is OFF then
+        CURRENT_TASK = "OFF: UNIT DISABLED"
+    Else
+        If RTU_OK is OFF then
+            CURRENT_TASK = "OFF: WAITING FOR RTU PROOF"
+        Else
+            CURRENT_TASK = "OFF / SAFETY TRIP: " + ACTIVE_SAFETIES
+        EndIf
+    EndIf
+
+    ERW_SS = 0
+    OA_DAMPER_CMD = 0
+    EA_DAMPER_CMD = 0
+    OA_BYPASS_DAMPER_CMD = 0
+    EA_BYPASS_DAMPER_CMD = 0
+    EAF_SS = 0
+    SAF_SS = 0
+    SAF_SPEED_CMD = 0
+    EAF_SPEED_CMD = 0
+    CHW_VALVE_CMD = 0
+    HW_VALVE_CMD = 0
+
+    Stage = 0
+    T_PreOpen = 0
+
+    Wait 1
+    Goto MAIN
+EndIf
+
+If OCCUPIED_EFFECTIVE is OFF then
+    CURRENT_TASK = "UNOCCUPIED"
+
+    ERW_SS = 0
+    OA_DAMPER_CMD = 0
+    EA_DAMPER_CMD = 0
+    OA_BYPASS_DAMPER_CMD = 0
+    EA_BYPASS_DAMPER_CMD = 0
+    EAF_SS = 0
+    SAF_SS = 0
+    SAF_SPEED_CMD = 0
+    EAF_SPEED_CMD = 0
+    CHW_VALVE_CMD = 0
+    HW_VALVE_CMD = 0
+
+    Stage = 0
+    T_PreOpen = 0
+
+    Wait 1
+    Goto MAIN
+EndIf
+
+If MaxVentLatched is ON then
+    CURRENT_TASK = "MAX VENT OVERRIDE"
+
+    OA_DAMPER_CMD = 1
+    EA_DAMPER_CMD = 1
+
+    EAF_SS = 1
+    SAF_SS = 1
+    EAF_SPEED_CMD = MAX_EF_SPEED
+    SAF_SPEED_CMD = MAX_SF_SPEED
+
+    ERW_SS = 1
+    If MAXV_BYPASS_WHEEL is ON then
+        OA_BYPASS_DAMPER_CMD = 1
+        EA_BYPASS_DAMPER_CMD = 100     ' FIX: modulating D-5 full open (was 1)
+    Else
+        OA_BYPASS_DAMPER_CMD = OA_BYPASS_DAMPER_REQ
+        EA_BYPASS_DAMPER_CMD = EA_BYPASS_DAMPER_REQ
+    EndIf
+
+    CHW_VALVE_CMD = CHW_VALVE_REQ
+    HW_VALVE_CMD = HW_VALVE_REQ
+
+    Wait 1
+    Goto MAIN
+EndIf
+
+If Stage EQUALS 0 then
+    CURRENT_TASK = "STAGE 0: ENABLE WHEEL + OPEN EA DAMPER"
+    ERW_SS = ERW_SS_REQ
+
+    EA_DAMPER_CMD = 1
+    OA_DAMPER_CMD = 0
+
+    OA_BYPASS_DAMPER_CMD = OA_BYPASS_DAMPER_REQ
+    EA_BYPASS_DAMPER_CMD = EA_BYPASS_DAMPER_REQ
+
+    EAF_SS = 0
+    SAF_SS = 0
+    EAF_SPEED_CMD = 0
+    SAF_SPEED_CMD = 0
+
+    CHW_VALVE_CMD = 0
+    HW_VALVE_CMD = 0
+
+    Stage = 10
+EndIf
+
+If Stage EQUALS 10 then
+    CURRENT_TASK = "STAGE 10: PROVE D-3 OPEN"
+    EA_DAMPER_CMD = 1
+    If EA_DAMPER_STATUS is ON then
+        Stage = 20
+    EndIf
+EndIf
+
+If Stage EQUALS 20 then
+    CURRENT_TASK = "STAGE 20: START EXHAUST FANS + PROVE"
+    EAF_SS = 1
+    EAF_SPEED_CMD = EAF_SPEED_REQ
+
+    If EAF_STATUS_1 is ON then
+        If EAF_STATUS_2 is ON then
+            Stage = 30
+        EndIf
+    EndIf
+EndIf
+
+If Stage EQUALS 30 then
+    CURRENT_TASK = "STAGE 30: OPEN OA DAMPER"
+    OA_DAMPER_CMD = 1
+    If OA_DAMPER_STATUS is ON then
+        Stage = 40
+        T_PreOpen = 0
+    EndIf
+EndIf
+
+If Stage EQUALS 40 then
+    If (ActiveMode EQUALS 2) OR (ActiveMode EQUALS 3) then
+        CURRENT_TASK = "STAGE 40: PRE-OPEN CV-1 100%"
+        CHW_VALVE_CMD = 100
+        HW_VALVE_CMD = 0
+
+        T_PreOpen = T_PreOpen + 1
+        If T_PreOpen >= CHW_PREOPEN_TIME then
+            Stage = 50
+            T_PreOpen = 0
+        EndIf
+    Else
+        Stage = 50
+    EndIf
+EndIf
+
+If Stage EQUALS 50 then
+    CURRENT_TASK = "STAGE 50: START SUPPLY FANS + PROVE"
+    SAF_SS = 1
+    SAF_SPEED_CMD = SAF_SPEED_REQ
+
+    If SAF_STATUS_1 is ON then
+        If SAF_STATUS_2 is ON then
+            Stage = 60
+        EndIf
+    EndIf
+EndIf
+
+If Stage EQUALS 60 then
+    CURRENT_TASK = "RUN"
+
+    ERW_SS = ERW_SS_REQ
+
+    OA_DAMPER_CMD = 1
+    EA_DAMPER_CMD = 1
+
+    OA_BYPASS_DAMPER_CMD = OA_BYPASS_DAMPER_REQ
+    EA_BYPASS_DAMPER_CMD = EA_BYPASS_DAMPER_REQ
+
+    EAF_SS = 1
+    SAF_SS = 1
+    EAF_SPEED_CMD = EAF_SPEED_REQ
+    SAF_SPEED_CMD = SAF_SPEED_REQ
+
+    CHW_VALVE_CMD = CHW_VALVE_REQ
+    HW_VALVE_CMD = HW_VALVE_REQ
+EndIf
+
+Wait 1
+Goto MAIN

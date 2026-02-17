@@ -1,36 +1,44 @@
 '==============================================================================
-' MAU_AHU_IO_AND_SAFETIES
+' MAU_AHU_IO_AND_SAFETIES  (State / Task driven)  - FULLY PATCHED
 '
-' PURPOSE
-' Final output authority for a single MAU air handler (use one instance per MAU).
+' PURPOSE:
+' Final output authority for a single MAU air handler.
+' Uses explicit GOTO stages for:
+'   - Permit checks
+'   - Damper open command
+'   - Damper proof verify
+'   - Fan startup
+'   - Run commands (valves, humidifier)
+'   - Status + alarm masking
 '
-' UPDATE (per request)
-' - Added humidifier analog demand handling (0-100% -> 0-10V scaled externally):
-'     * HUM_OUTPUT_REQ (input request)
-'     * HUM_OUTPUT_CMD (final commanded output, gated by airflow proof + permits)
+' PATCH SUMMARY (per your requirements):
+' 1) LOAD SHED: If building is on E_POWER (E_POWER = TRUE), unit MUST shut down.
+' 2) MAINT / DISABLE: If UNIT_MAINT = TRUE OR UNIT_ENABLE = FALSE, unit MUST shut down.
+' 3) NO "LATCHED RUN": Permits are re-evaluated every loop (STATUS always returns to CHECK_PERMITS).
+' 4) Intelligent routing from CHECK_PERMITS:
+'       - If dampers not proven -> open/verify dampers
+'       - If not running -> fan startup
+'       - Else -> normal run loop
 '
-' ALSO ALIGNED TO YOUR HARDWARE NOTE
-' - Single fan start/stop and single fan speed output:
-'     * SAF_SS
-'     * SAF_SPEED_CMD
-'
+' NOTES:
+' - CURRENT_TASK updates each stage for front-end visibility.
+' - Includes proof timeouts to prevent infinite waiting.
 '==============================================================================
 
 '-----------------------------
 ' INPUTS (Bindings)
 '-----------------------------
-NUMERIC INPUT UNIT_EnableCmd
-NUMERIC INPUT UNIT_PrimeCmd
-NUMERIC INPUT UNIT_MAINT_MODE
+NUMERIC INPUT UNIT_ENABLE
+NUMERIC INPUT UNIT_PRIME
+NUMERIC INPUT UNIT_MAINT
 
 NUMERIC INPUT SAFETY_OK              ' 1=OK, 0=Trip/Not OK
-NUMERIC INPUT E_POWER               ' 1=OK, 0=Manual disconnect open
+NUMERIC INPUT E_POWER               ' LOAD SHED FLAG: 1=ON (shed load), 0=OFF
 
-NUMERIC INPUT OA_DAMPER_PROOF        ' end switch proof
-NUMERIC INPUT SA_DAMPER_PROOF        ' end switch proof
+NUMERIC INPUT OA_DAMPER_STATUS       ' end switch proof
+NUMERIC INPUT SA_DAMPER_STATUS       ' end switch proof
 NUMERIC INPUT AIRFLOW_PROOF          ' airflow switch proof
 
-' Control requests from other modules
 NUMERIC INPUT FAN_SPEED_REQ          ' 0..100
 NUMERIC INPUT HW_PREHEAT_REQ         ' 0..100
 NUMERIC INPUT CHW_VALVE_REQ          ' 0..100
@@ -40,7 +48,6 @@ NUMERIC INPUT HUM_ENABLE_REQ         ' 1=enable request
 NUMERIC INPUT HUM_OUTPUT_REQ         ' 0..100 (humidifier demand request)
 NUMERIC INPUT SPACE_RH_SP            ' optional if device accepts setpoint
 
-' Alarm inputs from other modules
 NUMERIC INPUT FAN_FAIL_ALM_IN        ' 1=fan failure alarm (from fan module)
 
 '-----------------------------
@@ -60,11 +67,11 @@ NUMERIC OUTPUT HUM_ENABLE_CMD        ' 0/1
 NUMERIC OUTPUT HUM_OUTPUT_CMD        ' 0..100 (scale to 0-10V externally)
 NUMERIC OUTPUT HUM_RH_SP_CMD         ' numeric (if applicable)
 
-' Status / interlocks back to system scripts
 NUMERIC OUTPUT UNIT_RunningProof     ' 0/1
 NUMERIC OUTPUT UNIT_Failure          ' 0/1 (masked in maintenance)
 NUMERIC OUTPUT FAN_FAIL_ALM_OUT      ' 0/1 (masked in maintenance)
 NUMERIC OUTPUT SAFETY_SHUTDOWN       ' 0/1
+STRING  OUTPUT CURRENT_TASK
 
 '-----------------------------
 ' INTERNAL VARIABLES
@@ -73,12 +80,17 @@ NUMERIC UnitPermit
 NUMERIC DampersProven
 NUMERIC FanPermit
 NUMERIC HumPermit
-
 NUMERIC HumOutClamped
+NUMERIC DamperProofTimer
+NUMERIC AirflowProofTimer
+NUMERIC DAMPER_PROOF_TIMEOUT_SEC
+NUMERIC AIRFLOW_PROOF_TIMEOUT_SEC
+
 
 '==============================================================================
 INIT:
 '==============================================================================
+CURRENT_TASK = "INIT / FAILSAFE OUTPUTS"
 
 OA_DAMPER_CMD = 0
 SA_DAMPER_CMD = 0
@@ -87,12 +99,12 @@ SAF_SS = 0
 SAF_SPEED_CMD = 0
 
 HW_PREHEAT_CMD = 0
-CHW_VALVE_CMD = 0
-HW_REHEAT_CMD = 0
+CHW_VALVE_CMD  = 0
+HW_REHEAT_CMD  = 0
 
 HUM_ENABLE_CMD = 0
 HUM_OUTPUT_CMD = 0
-HUM_RH_SP_CMD = SPACE_RH_SP
+HUM_RH_SP_CMD  = SPACE_RH_SP
 
 UNIT_RunningProof = 0
 UNIT_Failure = 0
@@ -105,142 +117,362 @@ FanPermit = 0
 HumPermit = 0
 
 HumOutClamped = 0
+DamperProofTimer = 0
+AirflowProofTimer = 0
 
-Goto MAIN
+' Default timeouts (tune to your job standard)
+DAMPER_PROOF_TIMEOUT_SEC = 120     ' 2 minutes
+AIRFLOW_PROOF_TIMEOUT_SEC = 45     ' 45 seconds
+
+WAIT 1
+GOTO STAGE_CHECK_PERMITS
 
 
 '==============================================================================
-MAIN:
+' STAGE 1: CHECK PERMITS / SAFETIES  (ALWAYS RE-EVALUATED)
 '==============================================================================
+STAGE_CHECK_PERMITS:
+CURRENT_TASK = "CHECKING PERMITS / SAFETIES"
 
-'-----------------------------
-' Global permit evaluation
-'-----------------------------
+'----------------------------------------------------------
+' SAFETY_SHUTDOWN meaning: 1 = MUST SHUT DOWN UNIT
+' Conditions that force shutdown:
+' - SAFETY_OK = FALSE (any safety trip)
+' - E_POWER = TRUE (load shed active)
+' - UNIT_MAINT = TRUE (maintenance mode)
+' - UNIT_ENABLE = FALSE (unit disabled)
+'----------------------------------------------------------
 SAFETY_SHUTDOWN = 0
-If SAFETY_OK is OFF then SAFETY_SHUTDOWN = 1
-If E_POWER is OFF then SAFETY_SHUTDOWN = 1
 
+If SAFETY_OK = FALSE then
+    SAFETY_SHUTDOWN = 1
+EndIf
+
+' LOAD SHED: If E_POWER is active, shut down unit
+If E_POWER = TRUE then
+    SAFETY_SHUTDOWN = 1
+EndIf
+
+' Maintenance forces shutdown
+If UNIT_MAINT = TRUE then
+    SAFETY_SHUTDOWN = 1
+EndIf
+
+' Disabled forces shutdown
+If UNIT_ENABLE = FALSE then
+    SAFETY_SHUTDOWN = 1
+EndIf
+
+
+' Build UnitPermit (only true if NOT shutdown)
 UnitPermit = 0
-If UNIT_EnableCmd is ON then
-    If UNIT_MAINT_MODE is OFF then
-        If SAFETY_SHUTDOWN is OFF then
-            UnitPermit = 1
-        EndIf
-    EndIf
+If SAFETY_SHUTDOWN = FALSE then
+    UnitPermit = 1
 EndIf
 
-'-----------------------------
-' Damper commands and proof gating
-'-----------------------------
-OA_DAMPER_CMD = 0
-SA_DAMPER_CMD = 0
 
-If UnitPermit is ON then
-    OA_DAMPER_CMD = 1
-    SA_DAMPER_CMD = 1
+' If not permitted, force safe outputs and go update status/alarms
+If UnitPermit = FALSE then
+    CURRENT_TASK = "NOT PERMITTED: SHUTTING DOWN OUTPUTS"
+
+    OA_DAMPER_CMD = 0
+    SA_DAMPER_CMD = 0
+
+    SAF_SS = 0
+    SAF_SPEED_CMD = 0
+
+    HW_PREHEAT_CMD = 0
+    CHW_VALVE_CMD  = 0
+    HW_REHEAT_CMD  = 0
+
+    HUM_ENABLE_CMD = 0
+    HUM_OUTPUT_CMD = 0
+    HUM_RH_SP_CMD  = SPACE_RH_SP
+
+    UNIT_RunningProof = 0
+
+    DampersProven = 0
+    FanPermit = 0
+    HumPermit = 0
+
+    DamperProofTimer = 0
+    AirflowProofTimer = 0
+
+    GOTO STAGE_STATUS_ALARMS
 EndIf
 
+
+'-----------------------------
+' Permitted routing
+'-----------------------------
+' Determine dampers proven status based on proofs
 DampersProven = 0
-If OA_DAMPER_PROOF is ON then
-    If SA_DAMPER_PROOF is ON then
+If OA_DAMPER_STATUS = TRUE then
+    If SA_DAMPER_STATUS = TRUE then
         DampersProven = 1
     EndIf
 EndIf
 
-'-----------------------------
-' Fan permit and commands
-'-----------------------------
-FanPermit = 0
-If UnitPermit is ON then
-    If DampersProven is ON then
-        FanPermit = 1
+' Determine running proof (fan permit + airflow)
+UNIT_RunningProof = 0
+If SAF_SS = TRUE then
+    If AIRFLOW_PROOF = TRUE then
+        UNIT_RunningProof = 1
     EndIf
 EndIf
 
-SAF_SS = 0
-SAF_SPEED_CMD = 0
-
-If FanPermit is ON then
-    SAF_SS = 1
-    SAF_SPEED_CMD = FAN_SPEED_REQ
+' If dampers not proven open, go open/verify them
+If DampersProven = FALSE then
+    GOTO STAGE_OPEN_DAMPERS
 EndIf
 
-'-----------------------------
-' Valve commands (with Prime override)
-'-----------------------------
+' If not running (no airflow proof), go fan startup stage
+If UNIT_RunningProof = FALSE then
+    GOTO STAGE_FAN_STARTUP
+EndIf
+
+' Otherwise, normal run
+GOTO STAGE_RUN_COMMANDS
+
+
+'==============================================================================
+' STAGE 2: ISSUE DAMPER OPEN COMMANDS
+'==============================================================================
+STAGE_OPEN_DAMPERS:
+CURRENT_TASK = "OPENING OA/SA DAMPERS (COMMAND)"
+
+OA_DAMPER_CMD = 1
+SA_DAMPER_CMD = 1
+
+' Reset proof timer when we enter the proof stage
+DamperProofTimer = 0
+
+WAIT 1
+GOTO STAGE_VERIFY_DAMPERS
+
+
+'==============================================================================
+' STAGE 3: VERIFY DAMPERS OPEN (WITH TIMEOUT)
+'==============================================================================
+STAGE_VERIFY_DAMPERS:
+CURRENT_TASK = "VERIFYING DAMPERS OPEN (PROOF)"
+
+' Re-check permits each scan to avoid latching run while waiting on proof
+GOTO STAGE_CHECK_PERMITS_VERIFY_DAMPERS
+
+
+STAGE_CHECK_PERMITS_VERIFY_DAMPERS:
+' Inline permit check (keeps behavior deterministic while in this stage)
+' If not permitted, shut down immediately
+If SAFETY_OK = FALSE then GOTO STAGE_IMMEDIATE_SHUTDOWN
+If E_POWER = TRUE then GOTO STAGE_IMMEDIATE_SHUTDOWN
+If UNIT_MAINT = TRUE then GOTO STAGE_IMMEDIATE_SHUTDOWN
+If UNIT_ENABLE = FALSE then GOTO STAGE_IMMEDIATE_SHUTDOWN
+
+' Continue damper proof logic
+DampersProven = 0
+If OA_DAMPER_STATUS = TRUE then
+    If SA_DAMPER_STATUS = TRUE then
+        DampersProven = 1
+    EndIf
+EndIf
+
+If DampersProven = TRUE then
+    CURRENT_TASK = "DAMPERS PROVEN OPEN"
+    WAIT 1
+    GOTO STAGE_FAN_STARTUP
+EndIf
+
+' Not proven yet -> increment timer and keep waiting
+DamperProofTimer = DamperProofTimer + 1
+
+If DamperProofTimer >= DAMPER_PROOF_TIMEOUT_SEC then
+    CURRENT_TASK = "DAMPER PROOF TIMEOUT: SHUTTING DOWN"
+    SAFETY_SHUTDOWN = 1
+    GOTO STAGE_IMMEDIATE_SHUTDOWN
+EndIf
+
+WAIT 1
+GOTO STAGE_VERIFY_DAMPERS
+
+
+'==============================================================================
+' STAGE 4: FAN STARTUP (COMMAND SPEED + START)
+'==============================================================================
+STAGE_FAN_STARTUP:
+CURRENT_TASK = "FAN STARTUP (START + SPEED COMMAND)"
+
+' Re-check permits before starting fan
+If SAFETY_OK = FALSE then GOTO STAGE_IMMEDIATE_SHUTDOWN
+If E_POWER = TRUE then GOTO STAGE_IMMEDIATE_SHUTDOWN
+If UNIT_MAINT = TRUE then GOTO STAGE_IMMEDIATE_SHUTDOWN
+If UNIT_ENABLE = FALSE then GOTO STAGE_IMMEDIATE_SHUTDOWN
+
+' Require dampers proven
+DampersProven = 0
+If OA_DAMPER_STATUS = TRUE then
+    If SA_DAMPER_STATUS = TRUE then
+        DampersProven = 1
+    EndIf
+EndIf
+
+If DampersProven = FALSE then
+    CURRENT_TASK = "FAN START BLOCKED: DAMPERS NOT PROVEN"
+    SAF_SS = 0
+    SAF_SPEED_CMD = 0
+    GOTO STAGE_OPEN_DAMPERS
+EndIf
+
+' Start fan
+SAF_SS = 1
+SAF_SPEED_CMD = FAN_SPEED_REQ
+
+' Optional airflow proof timer (available if you want to enforce it later)
+AirflowProofTimer = 0
+
+WAIT 1
+GOTO STAGE_RUN_COMMANDS
+
+
+'==============================================================================
+' STAGE 5: RUN COMMANDS (VALVES + PRIME OVERRIDE)
+'==============================================================================
+STAGE_RUN_COMMANDS:
+CURRENT_TASK = "RUNNING: UPDATING VALVE COMMANDS"
+
+' Defense-in-depth: if any shutdown condition appears mid-stage, stop fan immediately
+If SAFETY_OK = FALSE then GOTO STAGE_IMMEDIATE_SHUTDOWN
+If E_POWER = TRUE then GOTO STAGE_IMMEDIATE_SHUTDOWN
+If UNIT_MAINT = TRUE then GOTO STAGE_IMMEDIATE_SHUTDOWN
+If UNIT_ENABLE = FALSE then GOTO STAGE_IMMEDIATE_SHUTDOWN
+
+' Default follow requests
 HW_PREHEAT_CMD = HW_PREHEAT_REQ
-CHW_VALVE_CMD = CHW_VALVE_REQ
-HW_REHEAT_CMD = HW_REHEAT_REQ
+CHW_VALVE_CMD  = CHW_VALVE_REQ
+HW_REHEAT_CMD  = HW_REHEAT_REQ
 
-If UNIT_MAINT_MODE is ON then
-    HW_PREHEAT_CMD = 0
-    CHW_VALVE_CMD = 0
-    HW_REHEAT_CMD = 0
+' Prime override (only if allowed)
+If UNIT_PRIME = TRUE then
+    CURRENT_TASK = "PRIME ACTIVE: FORCING COILS OPEN"
+    HW_PREHEAT_CMD = 100
+    CHW_VALVE_CMD  = 100
 EndIf
 
-If SAFETY_SHUTDOWN is ON then
-    HW_PREHEAT_CMD = 0
-    CHW_VALVE_CMD = 0
-    HW_REHEAT_CMD = 0
-EndIf
+WAIT 1
+GOTO STAGE_HUMIDIFIER
 
-If UNIT_PrimeCmd is ON then
-    If UNIT_MAINT_MODE is OFF then
-        If SAFETY_SHUTDOWN is OFF then
-            HW_PREHEAT_CMD = 100
-            CHW_VALVE_CMD = 100
-        EndIf
-    EndIf
-EndIf
 
-'-----------------------------
-' Humidifier enable + analog demand interlock
-'-----------------------------
+'==============================================================================
+' STAGE 6: HUMIDIFIER ENABLE + ANALOG DEMAND (GATED BY AIRFLOW PROOF)
+'==============================================================================
+STAGE_HUMIDIFIER:
+CURRENT_TASK = "UPDATING HUMIDIFIER COMMANDS"
+
+' Defense-in-depth: if any shutdown condition appears mid-stage, stop immediately
+If SAFETY_OK = FALSE then GOTO STAGE_IMMEDIATE_SHUTDOWN
+If E_POWER = TRUE then GOTO STAGE_IMMEDIATE_SHUTDOWN
+If UNIT_MAINT = TRUE then GOTO STAGE_IMMEDIATE_SHUTDOWN
+If UNIT_ENABLE = FALSE then GOTO STAGE_IMMEDIATE_SHUTDOWN
+
 HUM_RH_SP_CMD = SPACE_RH_SP
 
 HUM_ENABLE_CMD = 0
 HUM_OUTPUT_CMD = 0
 
 HumPermit = 0
-If UnitPermit is ON then
-    If AIRFLOW_PROOF is ON then
-        HumPermit = 1
-    EndIf
+If AIRFLOW_PROOF = TRUE then
+    HumPermit = 1
 EndIf
 
+' Clamp humidifier output request
 HumOutClamped = HUM_OUTPUT_REQ
 If HumOutClamped < 0 then HumOutClamped = 0
 If HumOutClamped > 100 then HumOutClamped = 100
 
-If HumPermit is ON then
-    If HUM_ENABLE_REQ is ON then
+If HumPermit = TRUE then
+    If HUM_ENABLE_REQ = TRUE then
         HUM_ENABLE_CMD = 1
         HUM_OUTPUT_CMD = HumOutClamped
     EndIf
 EndIf
 
-'-----------------------------
-' Status points
-'-----------------------------
+WAIT 1
+GOTO STAGE_STATUS_ALARMS
+
+
+'==============================================================================
+' STAGE 7: STATUS + ALARMS (WITH MAINT MASKING)
+' NOTE: ALWAYS RETURNS TO STAGE_CHECK_PERMITS TO PREVENT LATCHED RUN
+'==============================================================================
+STAGE_STATUS_ALARMS:
+CURRENT_TASK = "UPDATING STATUS / ALARMS"
+
+' Running proof (fan start + airflow)
 UNIT_RunningProof = 0
-If FanPermit is ON then
-    If AIRFLOW_PROOF is ON then
+If SAF_SS = TRUE then
+    If AIRFLOW_PROOF = TRUE then
         UNIT_RunningProof = 1
     EndIf
 EndIf
 
-'-----------------------------
-' Alarm forwarding / masking (Maintenance Mode requirement)
-'-----------------------------
+' Forward alarm, then mask in maintenance
 FAN_FAIL_ALM_OUT = FAN_FAIL_ALM_IN
 
 UNIT_Failure = 0
-If FAN_FAIL_ALM_IN is ON then UNIT_Failure = 1
+If FAN_FAIL_ALM_IN = TRUE then
+    UNIT_Failure = 1
+EndIf
 
-If UNIT_MAINT_MODE is ON then
+If UNIT_MAINT = TRUE then
     FAN_FAIL_ALM_OUT = 0
     UNIT_Failure = 0
 EndIf
 
-Wait 1
-Goto MAIN
+' If safety shutdown active, ensure fail-safe outputs
+If SAFETY_SHUTDOWN = TRUE then
+    OA_DAMPER_CMD = 0
+    SA_DAMPER_CMD = 0
+    SAF_SS = 0
+    SAF_SPEED_CMD = 0
+    HUM_ENABLE_CMD = 0
+    HUM_OUTPUT_CMD = 0
+EndIf
+
+WAIT 1
+GOTO STAGE_CHECK_PERMITS
+
+
+'==============================================================================
+' IMMEDIATE SHUTDOWN (HARD DROP OUTPUTS)
+' Used as a single exit point for any "must stop now" condition.
+'==============================================================================
+STAGE_IMMEDIATE_SHUTDOWN:
+CURRENT_TASK = "IMMEDIATE SHUTDOWN: DROPPING ALL OUTPUTS"
+
+SAFETY_SHUTDOWN = 1
+UnitPermit = 0
+FanPermit = 0
+HumPermit = 0
+DampersProven = 0
+
+OA_DAMPER_CMD = 0
+SA_DAMPER_CMD = 0
+
+SAF_SS = 0
+SAF_SPEED_CMD = 0
+
+HW_PREHEAT_CMD = 0
+CHW_VALVE_CMD  = 0
+HW_REHEAT_CMD  = 0
+
+HUM_ENABLE_CMD = 0
+HUM_OUTPUT_CMD = 0
+HUM_RH_SP_CMD  = SPACE_RH_SP
+
+UNIT_RunningProof = 0
+
+DamperProofTimer = 0
+AirflowProofTimer = 0
+
+WAIT 1
+GOTO STAGE_STATUS_ALARMS

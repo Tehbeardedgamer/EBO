@@ -1,0 +1,119 @@
+'==============================================================================
+' DOAS_N4_SAFETY_MONITOR
+'==============================================================================
+
+NUMERIC INPUT FREEZE_STAT
+NUMERIC INPUT HI_STATIC_SW
+NUMERIC INPUT LO_STATIC_SW          ' FIXED NAME (was LO_STATIC__SW)
+NUMERIC INPUT FireAlert
+NUMERIC INPUT EPO_ACTIVE
+
+NUMERIC INPUT LOW_TEMP_SAFETY
+NUMERIC INPUT SA_DUCT_DETECTOR
+NUMERIC INPUT RA_DUCT_DETECTOR
+
+NUMERIC OUTPUT SAFETY_OK
+NUMERIC OUTPUT TRIP_ANY
+
+NUMERIC OUTPUT TRIP_LO_TEMP
+NUMERIC OUTPUT TRIP_HI_PRESS
+NUMERIC OUTPUT TRIP_LO_PRESS
+NUMERIC OUTPUT TRIP_FIRE
+NUMERIC OUTPUT TRIP_EPO
+NUMERIC OUTPUT TRIP_FREEZESTAT
+NUMERIC OUTPUT TRIP_SMOKE_SA
+NUMERIC OUTPUT TRIP_SMOKE_RA
+
+STRING  OUTPUT ACTIVE_SAFETIES
+
+STRING S
+
+INIT:
+SAFETY_OK = 1
+TRIP_ANY = 0
+TRIP_LO_TEMP = 0
+TRIP_HI_PRESS = 0
+TRIP_LO_PRESS = 0
+TRIP_FIRE = 0
+TRIP_EPO = 0
+TRIP_FREEZESTAT = 0
+TRIP_SMOKE_SA = 0
+TRIP_SMOKE_RA = 0
+ACTIVE_SAFETIES = "OK"
+S = ""
+Goto MAIN
+
+MAIN:
+
+TRIP_LO_TEMP = 0
+TRIP_HI_PRESS = 0
+TRIP_LO_PRESS = 0
+TRIP_FIRE = 0
+TRIP_EPO = 0
+TRIP_FREEZESTAT = 0
+TRIP_SMOKE_SA = 0
+TRIP_SMOKE_RA = 0
+S = ""
+
+' Severity-ordered build
+If FireAlert is ON then
+    TRIP_FIRE = 1
+    If S = "" then S = "FIRE/SMOKE" Else S = S + ", FIRE/SMOKE"
+EndIf
+
+If EPO_ACTIVE is ON then
+    TRIP_EPO = 1
+    If S = "" then S = "EPO" Else S = S + ", EPO"
+EndIf
+
+If HI_STATIC_SW is ON then
+    TRIP_HI_PRESS = 1
+    If S = "" then S = "HI STATIC" Else S = S + ", HI STATIC"
+EndIf
+
+If LO_STATIC_SW is ON then
+    TRIP_LO_PRESS = 1
+    If S = "" then S = "LO STATIC" Else S = S + ", LO STATIC"
+EndIf
+
+If FREEZE_STAT is ON then
+    TRIP_FREEZESTAT = 1
+    If S = "" then S = "FREEZE STAT" Else S = S + ", FREEZE STAT"
+EndIf
+
+If LOW_TEMP_SAFETY is ON then
+    TRIP_LO_TEMP = 1
+    If S = "" then S = "LOW TEMP" Else S = S + ", LOW TEMP"
+EndIf
+
+If SA_DUCT_DETECTOR is ON then
+    TRIP_SMOKE_SA = 1
+    If S = "" then S = "SMOKE SA" Else S = S + ", SMOKE SA"
+EndIf
+
+If RA_DUCT_DETECTOR is ON then
+    TRIP_SMOKE_RA = 1
+    If S = "" then S = "SMOKE RA" Else S = S + ", SMOKE RA"
+EndIf
+
+TRIP_ANY = 0
+If TRIP_FIRE is ON then TRIP_ANY = 1
+If TRIP_EPO is ON then TRIP_ANY = 1
+If TRIP_HI_PRESS is ON then TRIP_ANY = 1
+If TRIP_LO_PRESS is ON then TRIP_ANY = 1
+If TRIP_FREEZESTAT is ON then TRIP_ANY = 1
+If TRIP_LO_TEMP is ON then TRIP_ANY = 1
+If TRIP_SMOKE_SA is ON then TRIP_ANY = 1
+If TRIP_SMOKE_RA is ON then TRIP_ANY = 1
+
+SAFETY_OK = 1
+If TRIP_ANY is ON then SAFETY_OK = 0
+
+If SAFETY_OK is ON then
+    ACTIVE_SAFETIES = "OK"
+Else
+    ACTIVE_SAFETIES = S
+EndIf
+
+Wait 1
+Goto MAIN

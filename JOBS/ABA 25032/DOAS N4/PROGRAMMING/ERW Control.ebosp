@@ -1,0 +1,119 @@
+'==============================================================================
+' DOAS_N4_WHEEL_BYPASS_CONTROL
+'
+' Commands:
+'  - ERW_ENABLE_CMD (0/1)
+'  - OA_BYPASS_DAMPER_REQ (0/1)     1=open, 0=closed
+'  - EA_BYPASS_DAMPER_REQ (0..100)  0=closed, 100=open
+'
+' Modes (from Mode Manager):
+'  0=OFF, 1=HEAT, 2=COOL, 3=ECON_COOL, 4=ECON
+'
+' COOL:      ERW ON,  D4 CLOSED, D5 CLOSED
+' ECON_COOL: ERW OFF, D4 OPEN,   D5 OPEN
+' ECON:      ERW ON,  D4 CLOSED, D5 MODULATE to hold DAT_SP (T3)
+' HEAT:      ERW ON,  D4 CLOSED, D5 CLOSED
+'
+' Frost protection (SoO):
+'  If T6(EA) < LO_TEMP_SP -> force D5 OPEN (bypass wheel), regardless of mode.
+'==============================================================================
+
+NUMERIC INPUT  UNIT_ENABLE
+NUMERIC INPUT  OCCUPIED_EFFECTIVE
+NUMERIC INPUT  ActiveMode
+
+NUMERIC INPUT  CHW_DAT
+NUMERIC INPUT  CHW_DAT_SP
+
+NUMERIC INPUT  EA_TEMP
+NUMERIC INPUT  LO_TEMP_SP
+
+NUMERIC INPUT  D5_KP
+NUMERIC INPUT  D5_KI
+NUMERIC INPUT  D5_KD
+
+NUMERIC OUTPUT ERW_ENABLE_CMD
+NUMERIC OUTPUT OA_BYPASS_DAMPER_REQ
+NUMERIC OUTPUT EA_BYPASS_DAMPER_REQ
+
+NUMERIC  D5_Int
+NUMERIC  D5_OldErr
+NUMERIC  D5_Out
+NUMERIC  FrostActive
+
+FUNCTION PIDControl
+
+INIT:
+ERW_ENABLE_CMD = 0
+OA_BYPASS_DAMPER_REQ = 0
+EA_BYPASS_DAMPER_REQ = 0
+D5_Int = 0
+D5_OldErr = 0
+D5_Out = 0
+FrostActive = 0
+Goto MAIN
+
+MAIN:
+
+' Defaults
+ERW_ENABLE_CMD = 0
+OA_BYPASS_DAMPER_REQ = 0
+EA_BYPASS_DAMPER_REQ = 0
+FrostActive = 0
+
+If UNIT_ENABLE is OFF then
+    Wait 1
+    Goto MAIN
+EndIf
+
+If OCCUPIED_EFFECTIVE is OFF then
+    ' Unit off: wheel off, bypass safe-open not required by SoO; keep closed.
+    Wait 1
+    Goto MAIN
+EndIf
+
+' Frost override
+If EA_TEMP < LO_TEMP_SP then FrostActive = 1
+
+' Mode handling
+If ActiveMode EQUALS 2 then
+    ' COOL
+    ERW_ENABLE_CMD = 1
+    OA_BYPASS_DAMPER_REQ = 0
+    EA_BYPASS_DAMPER_REQ = 0
+EndIf
+
+If ActiveMode EQUALS 3 then
+    ' ECONOMIZER COOLING
+    ERW_ENABLE_CMD = 0
+    OA_BYPASS_DAMPER_REQ = 1
+    EA_BYPASS_DAMPER_REQ = 100
+EndIf
+
+If ActiveMode EQUALS 4 then
+    ' ECONOMIZER MODE (D5 modulates to maintain T3)
+    ERW_ENABLE_CMD = 1
+    OA_BYPASS_DAMPER_REQ = 0
+
+    ' Direct acting: if T3 above SP, open bypass more (less recovery)
+    D5_Out = PIDControl(0, CHW_DAT, CHW_DAT_SP, D5_Int, D5_KP, D5_KI, D5_KD, D5_OldErr)
+    If D5_Out < 0 then D5_Out = 0
+    If D5_Out > 100 then D5_Out = 100
+    EA_BYPASS_DAMPER_REQ = D5_Out
+EndIf
+
+If ActiveMode EQUALS 1 then
+    ' HEAT
+    ERW_ENABLE_CMD = 1
+    OA_BYPASS_DAMPER_REQ = 0
+    EA_BYPASS_DAMPER_REQ = 0
+EndIf
+
+' Frost protection final authority
+If FrostActive is ON then
+    ERW_ENABLE_CMD = 1          ' keep wheel enabled; bypass prevents freezing risk
+    EA_BYPASS_DAMPER_REQ = 100  ' bypass wheel
+EndIf
+
+Wait 1
+Goto MAIN

@@ -1,0 +1,78 @@
+'==============================================================================
+' DOAS_N4_SUPPLY_FAN_ARRAY_DP
+'==============================================================================
+
+NUMERIC INPUT UNIT_ENABLE
+NUMERIC INPUT OCCUPIED_EFFECTIVE
+NUMERIC INPUT SAFETY_OK
+
+NUMERIC INPUT OA_DAMPER_STATUS               ' OADmprPos
+NUMERIC INPUT OA_Static                  ' OADuctPress
+NUMERIC INPUT OA_DP_SP                      ' OA-DS-P (1.0" initial)
+
+NUMERIC INPUT SAF_STATUS_1
+NUMERIC INPUT SAF_STATUS_2
+
+NUMERIC INPUT KP
+NUMERIC INPUT KI
+NUMERIC INPUT KD
+
+NUMERIC INPUT FAIL_TIME_SEC
+
+NUMERIC OUTPUT SF_SS                     ' SFStrtStp
+NUMERIC OUTPUT SF_SPEED_CMD              ' SFSpdCtl
+NUMERIC OUTPUT SF_FAIL_ALM
+
+NUMERIC Permit
+NUMERIC Int
+NUMERIC OldErr
+NUMERIC Out
+NUMERIC AnyFail
+NUMERIC T1
+
+FUNCTION PIDControl
+FUNCTION Sectimer
+
+INIT:
+SF_SS = 0
+SF_SPEED_CMD = 0
+SF_FAIL_ALM = 0
+Int = 0
+OldErr = 0
+T1 = 0
+Goto MAIN
+
+MAIN:
+
+Permit = 0
+If UNIT_ENABLE is ON then
+    If OCCUPIED_EFFECTIVE is ON then
+        If SAFETY_OK is ON then
+            If OA_DAMPER_STATUS is ON then
+                Permit = 1
+            EndIf
+        EndIf
+    EndIf
+EndIf
+
+SF_SS = 0
+SF_SPEED_CMD = 0
+
+If Permit is ON then
+    SF_SS = 1
+    Out = PIDControl(0, OA_Static, OA_DP_SP, Int, KP, KI, KD, OldErr)
+    If Out < 0 then Out = 0
+    If Out > 100 then Out = 100
+    SF_SPEED_CMD = Out
+EndIf
+
+AnyFail = 0
+If SF_SS is ON then
+    If SAF_STATUS_1 is OFF then AnyFail = 1
+    If SAF_STATUS_2 is OFF then AnyFail = 1
+EndIf
+
+SF_FAIL_ALM = Sectimer(AnyFail, FAIL_TIME_SEC, T1, 0)
+
+Wait 1
+Goto MAIN

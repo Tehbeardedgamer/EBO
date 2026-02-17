@@ -1,0 +1,78 @@
+'==============================================================================
+' DOAS_N4_EXHAUST_FAN_ARRAY_DP
+'==============================================================================
+
+NUMERIC INPUT UNIT_ENABLE
+NUMERIC INPUT OCCUPIED_EFFECTIVE
+NUMERIC INPUT SAFETY_OK
+
+NUMERIC INPUT EA_DAMPER_STATUS               ' EADmprPos
+NUMERIC INPUT EA_STATIC                  ' EADuctPress
+NUMERIC INPUT EA_DP_SP                      ' EA-DS-P (-1.0" initial)
+
+NUMERIC INPUT EAF_STATUS_1
+NUMERIC INPUT EAF_STATUS_2
+
+NUMERIC INPUT KP
+NUMERIC INPUT KI
+NUMERIC INPUT KD
+
+NUMERIC INPUT FAIL_TIME_SEC
+
+NUMERIC OUTPUT EF_SS                     ' EFStrtStp
+NUMERIC OUTPUT EF_SPEED_CMD              ' EFSpdCtl
+NUMERIC OUTPUT EF_FAIL_ALM
+
+NUMERIC Permit
+NUMERIC Int
+NUMERIC OldErr
+NUMERIC Out
+NUMERIC AnyFail
+NUMERIC T1
+
+FUNCTION PIDControl
+FUNCTION Sectimer
+
+INIT:
+EF_SS = 0
+EF_SPEED_CMD = 0
+EF_FAIL_ALM = 0
+Int = 0
+OldErr = 0
+T1 = 0
+Goto MAIN
+
+MAIN:
+
+Permit = 0
+If UNIT_ENABLE is ON then
+    If OCCUPIED_EFFECTIVE is ON then
+        If SAFETY_OK is ON then
+            If EA_DAMPER_STATUS is ON then
+                Permit = 1
+            EndIf
+        EndIf
+    EndIf
+EndIf
+
+EF_SS = 0
+EF_SPEED_CMD = 0
+
+If Permit is ON then
+    EF_SS = 1
+    Out = PIDControl(1, EA_STATIC, EA_DP_SP, Int, KP, KI, KD, OldErr)
+    If Out < 0 then Out = 0
+    If Out > 100 then Out = 100
+    EF_SPEED_CMD = Out
+EndIf
+
+AnyFail = 0
+If EF_SS is ON then
+    If EAF_STATUS_1 is OFF then AnyFail = 1
+    If EAF_STATUS_2 is OFF then AnyFail = 1
+EndIf
+
+EF_FAIL_ALM = Sectimer(AnyFail, FAIL_TIME_SEC, T1, 0)
+
+Wait 1
+Goto MAIN

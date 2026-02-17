@@ -1,0 +1,57 @@
+'==============================================================================
+' DOAS_N4_ENTHALPY_CALC
+' Calculates outside air enthalpy (BTU/lb dry air) from:
+'   - OutsideAirTemp (F)
+'   - OutsideAirHumid (%RH)
+' Assumes standard pressure 101.325 kPa.
+'==============================================================================
+
+NUMERIC INPUT  OA_DB_          ' OutsideAirTemp
+NUMERIC INPUT  OA_RH        ' OutsideAirHumid (0..100)
+
+NUMERIC OUTPUT OA_Enthalpy_BtuLb
+
+NUMERIC  RH
+NUMERIC  T_C
+NUMERIC  Pws_kPa
+NUMERIC  Pw_kPa
+NUMERIC  P_kPa
+NUMERIC  W
+NUMERIC  h_kJkg
+NUMERIC  h_BtuLb
+
+INIT:
+OA_Enthalpy_BtuLb = 0
+Goto MAIN
+
+MAIN:
+
+RH = OA_RH
+If RH < 0 then RH = 0
+If RH > 100 then RH = 100
+RH = RH / 100
+
+T_C = (OA_DB_ - 32) * (5.0/9.0)
+
+P_kPa = 101.325
+
+' Saturation vapor pressure (kPa), Magnus-Tetens
+Pws_kPa = 0.61094 * Exp((17.625 * T_C) / (T_C + 243.04))
+
+Pw_kPa = RH * Pws_kPa
+If Pw_kPa < 0 then Pw_kPa = 0
+If Pw_kPa > (P_kPa * 0.98) then Pw_kPa = (P_kPa * 0.98)
+
+' Humidity ratio W (kg/kg dry air)
+W = 0.62198 * Pw_kPa / (P_kPa - Pw_kPa)
+
+' Enthalpy (kJ/kg dry air)
+h_kJkg = (1.006 * T_C) + (W * (2501 + (1.86 * T_C)))
+
+' Convert to BTU/lb (1 kJ/kg = 0.429922614 BTU/lb)
+h_BtuLb = h_kJkg * 0.429922614
+
+OA_Enthalpy_BtuLb = h_BtuLb
+
+Wait 2
+Goto MAIN

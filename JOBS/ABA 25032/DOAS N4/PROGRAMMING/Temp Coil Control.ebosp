@@ -1,0 +1,108 @@
+'==============================================================================
+' DOAS_N4_COIL_CONTROL_T3
+' Controls CHW/HW valves to maintain T-3 (CHW_DAT) at DAT_SP (55F).
+'==============================================================================
+
+NUMERIC INPUT  UNIT_ENABLE
+NUMERIC INPUT  OCCUPIED_EFFECTIVE
+NUMERIC INPUT  ActiveMode
+
+NUMERIC INPUT  CHW_DAT            ' T-3
+NUMERIC INPUT  DAT_SP                  ' 55F
+
+NUMERIC INPUT  ERW_DAT           ' OAWheelExitTemp (T-1)
+NUMERIC INPUT  ERW_SS            ' WheelStrtStp command (from wheel script)
+NUMERIC INPUT  EA_BYPASS_DAMPER_STATUS              ' EABypassDmprPos (1=open)
+
+NUMERIC INPUT  HEAT_ENABLE_DB          ' 2.0
+NUMERIC INPUT  ECON_COOL_ASSIST_DB     ' e.g. 0.5F
+
+NUMERIC INPUT  CV_KP
+NUMERIC INPUT  CV_KI
+NUMERIC INPUT  CV_KD
+
+NUMERIC INPUT  HV_KP
+NUMERIC INPUT  HV_KI
+NUMERIC INPUT  HV_KD
+
+NUMERIC OUTPUT CHW_VALVE_REQ                   ' CVCValveCtl (0..100)
+NUMERIC OUTPUT HW_VALVE_REQ                   ' HCValveCtl (0..100)
+
+NUMERIC CV_Int
+NUMERIC CV_OldErr
+NUMERIC HV_Int
+NUMERIC HV_OldErr
+
+NUMERIC CoolPermit
+NUMERIC HeatPermit
+NUMERIC D5_Closed
+
+FUNCTION PIDControl
+
+INIT:
+CHW_VALVE_REQ = 0
+HW_VALVE_REQ = 0
+CV_Int = 0
+CV_OldErr = 0
+HV_Int = 0
+HV_OldErr = 0
+Goto MAIN
+
+MAIN:
+
+CHW_VALVE_REQ = 0
+HW_VALVE_REQ = 0
+CoolPermit = 0
+HeatPermit = 0
+
+If UNIT_ENABLE is OFF then
+    Wait 1
+    Goto MAIN
+EndIf
+
+If OCCUPIED_EFFECTIVE is OFF then
+    Wait 1
+    Goto MAIN
+EndIf
+
+D5_Closed = 0
+If EA_BYPASS_DAMPER_STATUS is < 5 then D5_Closed = 1
+
+' Cooling permit
+If ActiveMode EQUALS 2 then CoolPermit = 1
+If ActiveMode EQUALS 3 then CoolPermit = 1
+
+' Economizer assist
+If ActiveMode EQUALS 4 then
+    If CHW_DAT > (DAT_SP + ECON_COOL_ASSIST_DB) then
+        CoolPermit = 1
+    EndIf
+EndIf
+
+' Heating permit (table intent)
+If ActiveMode EQUALS 1 then
+    If ERW_SS is ON then
+        If D5_Closed is ON then
+            If ERW_DAT < (DAT_SP - HEAT_ENABLE_DB) then
+                HeatPermit = 1
+            EndIf
+        EndIf
+    EndIf
+EndIf
+
+' CV control (reverse acting)
+If CoolPermit is ON then
+    CHW_VALVE_REQ = PIDControl(1, CHW_DAT, DAT_SP, CV_Int, CV_KP, CV_KI, CV_KD, CV_OldErr)
+    If CHW_VALVE_REQ < 0 then CHW_VALVE_REQ = 0
+    If CHW_VALVE_REQ > 100 then CHW_VALVE_REQ = 100
+EndIf
+
+' HV control (direct acting)
+If HeatPermit is ON then
+    HW_VALVE_REQ = PIDControl(0, CHW_DAT, DAT_SP, HV_Int, HV_KP, HV_KI, HV_KD, HV_OldErr)
+    If HW_VALVE_REQ < 0 then HW_VALVE_REQ = 0
+    If HW_VALVE_REQ > 100 then HW_VALVE_REQ = 100
+EndIf
+
+Wait 1
+Goto MAIN
