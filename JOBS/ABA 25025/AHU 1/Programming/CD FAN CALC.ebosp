@@ -1,0 +1,221 @@
+'==============================================================================
+' AHU_COLD_DECK_FAN_STATIC_CONTROL
+'
+' PURPOSE:
+'   Start/stop the cold deck fan and modulate fan speed to maintain cold deck
+'   duct static pressure.
+'
+' SEQUENCE:
+'   - In occupied operation, cold deck fan is enabled and speed modulates to
+'     maintain CD_STATIC_SP.
+'   - In MAT low protection, fan remains enabled and continues static control.
+'   - In safety shutdown, smoke override, system disabled, or unoccupied mode,
+'     fan is commanded off and speed goes to CD_FAN_OFF_SPEED.
+'
+' NOTES:
+'   - This script does not own alarms.
+'   - PIDControl function is assumed to already exist in the project.
+'   - PID output is expected to be 0-100%.
+'==============================================================================
+
+'-----------------------------
+' FUNCTIONS
+'-----------------------------
+FUNCTION PIDControl
+
+'-----------------------------
+' MODE INPUTS
+'-----------------------------
+NUMERIC INPUT UNIT_AVAILABLE
+NUMERIC INPUT OCC_MODE
+NUMERIC INPUT UNOCC_MODE
+NUMERIC INPUT SMOKE_OVERRIDE
+NUMERIC INPUT SAFETY_LOCKOUT
+NUMERIC INPUT MAT_LOW
+
+'-----------------------------
+' PROCESS INPUTS
+'-----------------------------
+NUMERIC INPUT CD_DUCT_STATIC
+NUMERIC INPUT CD_STATIC_SP
+
+'-----------------------------
+' HARDWARE INPUTS
+'-----------------------------
+NUMERIC INPUT CD_VFD_FAULT
+
+'-----------------------------
+' ADJUSTABLE INPUTS
+'-----------------------------
+NUMERIC INPUT CD_FAN_PID_P
+NUMERIC INPUT CD_FAN_PID_I
+NUMERIC INPUT CD_FAN_PID_D
+NUMERIC INPUT CD_FAN_MIN_SPEED
+NUMERIC INPUT CD_FAN_MAX_SPEED
+NUMERIC INPUT CD_FAN_OFF_SPEED
+NUMERIC INPUT CD_FAN_ON_CMD
+
+'-----------------------------
+' OUTPUTS
+'-----------------------------
+NUMERIC OUTPUT CD_FAN_SS
+NUMERIC OUTPUT CD_FAN_SPEED_CMD
+NUMERIC OUTPUT CD_FAN_PID_OUT
+NUMERIC OUTPUT CD_FAN_MODE_CODE
+
+'-----------------------------
+' INTERNAL VARIABLES
+'-----------------------------
+NUMERIC CD_FAN_PID_I_TERM
+NUMERIC CD_FAN_PID_OLD_ERR
+NUMERIC CD_FAN_ACTIVE_SPEED
+NUMERIC CD_FAN_ENABLE
+
+'==============================================================================
+' DEFAULTS EACH PASS
+'==============================================================================
+
+CD_FAN_ENABLE = 0
+CD_FAN_ACTIVE_SPEED = CD_FAN_OFF_SPEED
+CD_FAN_PID_OUT = 0
+CD_FAN_MODE_CODE = 0
+
+'==============================================================================
+' MODE-BASED COMMAND SELECTION
+' PRIORITY:
+'   1. SAFETY LOCKOUT
+'   2. SMOKE OVERRIDE
+'   3. VFD FAULT
+'   4. DISABLED / UNOCCUPIED
+'   5. OCCUPIED / DEHUM / MAT LOW STATIC CONTROL
+'==============================================================================
+
+'-----------------------------
+' PRIORITY 1 - SAFETY LOCKOUT
+'-----------------------------
+IF SAFETY_LOCKOUT = 1 THEN
+  CD_FAN_ENABLE = 0
+  CD_FAN_ACTIVE_SPEED = CD_FAN_OFF_SPEED
+  CD_FAN_MODE_CODE = 5
+ENDIF
+
+IF SAFETY_LOCKOUT = 0 THEN
+
+  '-----------------------------
+  ' PRIORITY 2 - SMOKE OVERRIDE
+  '-----------------------------
+  IF SMOKE_OVERRIDE = 1 THEN
+    CD_FAN_ENABLE = 0
+    CD_FAN_ACTIVE_SPEED = CD_FAN_OFF_SPEED
+    CD_FAN_MODE_CODE = 6
+  ENDIF
+
+  IF SMOKE_OVERRIDE = 0 THEN
+
+    '-----------------------------
+    ' PRIORITY 3 - VFD FAULT
+    '-----------------------------
+    IF CD_VFD_FAULT = 1 THEN
+      CD_FAN_ENABLE = 0
+      CD_FAN_ACTIVE_SPEED = CD_FAN_OFF_SPEED
+      CD_FAN_MODE_CODE = 7
+    ENDIF
+
+    IF CD_VFD_FAULT = 0 THEN
+
+      '-----------------------------
+      ' PRIORITY 4 - DISABLED / UNOCCUPIED
+      '-----------------------------
+      IF UNIT_AVAILABLE = 0 THEN
+        CD_FAN_ENABLE = 0
+        CD_FAN_ACTIVE_SPEED = CD_FAN_OFF_SPEED
+        CD_FAN_MODE_CODE = 0
+      ENDIF
+
+      IF UNIT_AVAILABLE = 1 THEN
+
+        IF UNOCC_MODE = 1 THEN
+          CD_FAN_ENABLE = 0
+          CD_FAN_ACTIVE_SPEED = CD_FAN_OFF_SPEED
+          CD_FAN_MODE_CODE = 0
+        ENDIF
+
+        IF UNOCC_MODE = 0 THEN
+
+          '-----------------------------
+          ' PRIORITY 5 - OCCUPIED / DEHUM / MAT LOW
+          '-----------------------------
+          IF OCC_MODE = 1 THEN
+            CD_FAN_ENABLE = CD_FAN_ON_CMD
+            CD_FAN_PID_OUT = PIDControl(1, CD_DUCT_STATIC, CD_STATIC_SP, CD_FAN_PID_I_TERM, CD_FAN_PID_P, CD_FAN_PID_I, CD_FAN_PID_D, CD_FAN_PID_OLD_ERR)
+            CD_FAN_ACTIVE_SPEED = CD_FAN_PID_OUT
+            CD_FAN_MODE_CODE = 1
+          ENDIF
+
+          IF OCC_MODE = 0 THEN
+            IF MAT_LOW = 1 THEN
+              CD_FAN_ENABLE = CD_FAN_ON_CMD
+              CD_FAN_PID_OUT = PIDControl(1, CD_DUCT_STATIC, CD_STATIC_SP, CD_FAN_PID_I_TERM, CD_FAN_PID_P, CD_FAN_PID_I, CD_FAN_PID_D, CD_FAN_PID_OLD_ERR)
+              CD_FAN_ACTIVE_SPEED = CD_FAN_PID_OUT
+              CD_FAN_MODE_CODE = 4
+            ENDIF
+          ENDIF
+
+        ENDIF
+
+      ENDIF
+
+    ENDIF
+
+  ENDIF
+
+ENDIF
+
+'==============================================================================
+' NORMAL CONTROL CLAMPS
+'==============================================================================
+
+IF CD_FAN_MODE_CODE = 1 THEN
+
+  IF CD_FAN_ACTIVE_SPEED < CD_FAN_MIN_SPEED THEN
+    CD_FAN_ACTIVE_SPEED = CD_FAN_MIN_SPEED
+  ENDIF
+
+  IF CD_FAN_ACTIVE_SPEED > CD_FAN_MAX_SPEED THEN
+    CD_FAN_ACTIVE_SPEED = CD_FAN_MAX_SPEED
+  ENDIF
+
+ENDIF
+
+IF CD_FAN_MODE_CODE = 4 THEN
+
+  IF CD_FAN_ACTIVE_SPEED < CD_FAN_MIN_SPEED THEN
+    CD_FAN_ACTIVE_SPEED = CD_FAN_MIN_SPEED
+  ENDIF
+
+  IF CD_FAN_ACTIVE_SPEED > CD_FAN_MAX_SPEED THEN
+    CD_FAN_ACTIVE_SPEED = CD_FAN_MAX_SPEED
+  ENDIF
+
+ENDIF
+
+'==============================================================================
+' FINAL OUTPUT CLAMPS
+'==============================================================================
+
+IF CD_FAN_ACTIVE_SPEED < 0 THEN
+  CD_FAN_ACTIVE_SPEED = 0
+ENDIF
+
+IF CD_FAN_ACTIVE_SPEED > 100 THEN
+  CD_FAN_ACTIVE_SPEED = 100
+ENDIF
+
+'==============================================================================
+' FINAL OUTPUTS
+'==============================================================================
+
+CD_FAN_SS = CD_FAN_ENABLE
+CD_FAN_SPEED_CMD = CD_FAN_ACTIVE_SPEED
+
+WAIT 1

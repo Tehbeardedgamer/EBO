@@ -1,0 +1,155 @@
+'==============================================================================
+' AHU_SETPOINT_MANAGER
+'
+' PURPOSE:
+'   Generate all active control setpoints for the AHU based on system mode.
+'
+' OUTPUT SETPOINTS:
+'   - Cold Deck Discharge Air Temperature Setpoint
+'   - Hot Deck Discharge Air Temperature Setpoint
+'   - Cold Deck Static Pressure Setpoint
+'   - Hot Deck Static Pressure Setpoint
+'   - Building Pressure Setpoint
+'   - Humidity Setpoint
+'   - Minimum OA Damper Position Setpoint
+'
+' NOTES:
+'   - Adjustable operating parameters are exposed as NUMERIC INPUTS so they can
+'     be tuned from BAS graphics without modifying the script.
+'   - This script does not command hardware directly.
+'==============================================================================
+
+'-----------------------------
+' MODE / SENSOR INPUTS
+'-----------------------------
+NUMERIC INPUT OCC_MODE               ' Occupied mode flag from mode script
+NUMERIC INPUT UNOCC_MODE             ' Unoccupied mode flag from mode script
+NUMERIC INPUT DEHUM_ENABLE           ' Dehumidification mode flag
+NUMERIC INPUT MAT_LOW                ' Freeze protection mode flag
+NUMERIC INPUT OA_TEMP                ' Outdoor air temperature
+
+'-----------------------------
+' ADJUSTABLE SETPOINT INPUTS
+'-----------------------------
+NUMERIC INPUT CD_DAT_SP_OCC_NORM     ' Occupied normal cold deck DAT setpoint
+NUMERIC INPUT CD_DAT_SP_DEHUM        ' Occupied dehumidification cold deck DAT setpoint
+
+NUMERIC INPUT OA_WARM_RESET_PT       ' Warm OA reset endpoint
+NUMERIC INPUT OA_COLD_RESET_PT       ' Cold OA reset endpoint
+NUMERIC INPUT HD_DAT_SP_WARM_OA      ' Hot deck DAT SP at warm OA condition
+NUMERIC INPUT HD_DAT_SP_COLD_OA      ' Hot deck DAT SP at cold OA condition
+
+NUMERIC INPUT CD_STATIC_SP_OCC       ' Occupied cold deck static setpoint
+NUMERIC INPUT CD_STATIC_SP_UNOCC     ' Unoccupied cold deck static setpoint
+NUMERIC INPUT HD_STATIC_SP_OCC       ' Occupied hot deck static setpoint
+NUMERIC INPUT HD_STATIC_SP_UNOCC     ' Unoccupied hot deck static setpoint
+
+NUMERIC INPUT BLDG_PRESSURE_SP_OCC   ' Occupied building pressure setpoint
+NUMERIC INPUT BLDG_PRESSURE_SP_UNOCC ' Unoccupied building pressure setpoint
+
+NUMERIC INPUT RH_SP_OCC              ' Occupied humidity setpoint
+NUMERIC INPUT RH_SP_UNOCC            ' Unoccupied humidity setpoint
+
+NUMERIC INPUT MIN_OA_POS_DEFAULT     ' Default minimum OA position
+
+'-----------------------------
+' OUTPUTS
+'-----------------------------
+NUMERIC OUTPUT CD_DAT_SP             ' Cold deck discharge air temp setpoint
+NUMERIC OUTPUT HD_DAT_SP             ' Hot deck discharge air temp setpoint
+NUMERIC OUTPUT CD_STATIC_SP          ' Cold deck duct static setpoint
+NUMERIC OUTPUT HD_STATIC_SP          ' Hot deck duct static setpoint
+NUMERIC OUTPUT BLDG_PRESSURE_SP      ' Building pressure control setpoint
+NUMERIC OUTPUT RH_SP                 ' Building humidity setpoint
+NUMERIC OUTPUT MIN_OA_POS_SP         ' Default minimum OA damper position
+
+'-----------------------------
+' INTERNAL VARIABLES
+'-----------------------------
+NUMERIC RESET_SLOPE                  ' Slope for hot deck temperature reset
+
+'-----------------------------
+' DEFAULT OUTPUTS
+'-----------------------------
+CD_DAT_SP = CD_DAT_SP_OCC_NORM
+HD_DAT_SP = HD_DAT_SP_WARM_OA
+CD_STATIC_SP = CD_STATIC_SP_UNOCC
+HD_STATIC_SP = HD_STATIC_SP_UNOCC
+BLDG_PRESSURE_SP = BLDG_PRESSURE_SP_UNOCC
+RH_SP = RH_SP_UNOCC
+MIN_OA_POS_SP = MIN_OA_POS_DEFAULT
+
+'==============================================================================
+' COLD DECK DISCHARGE SETPOINT
+'==============================================================================
+
+IF DEHUM_ENABLE = 1 THEN
+  CD_DAT_SP = CD_DAT_SP_DEHUM
+ENDIF
+
+IF DEHUM_ENABLE = 0 THEN
+  CD_DAT_SP = CD_DAT_SP_OCC_NORM
+ENDIF
+
+'==============================================================================
+' HOT DECK DISCHARGE SETPOINT RESET FROM OA TEMP
+'
+' RESET EXAMPLE:
+'   OA = OA_WARM_RESET_PT -> HD_DAT_SP = HD_DAT_SP_WARM_OA
+'   OA = OA_COLD_RESET_PT -> HD_DAT_SP = HD_DAT_SP_COLD_OA
+'==============================================================================
+
+IF OA_WARM_RESET_PT <> OA_COLD_RESET_PT THEN
+  RESET_SLOPE = (HD_DAT_SP_COLD_OA - HD_DAT_SP_WARM_OA) / (OA_COLD_RESET_PT - OA_WARM_RESET_PT)
+ENDIF
+
+IF OA_TEMP >= OA_WARM_RESET_PT THEN
+  HD_DAT_SP = HD_DAT_SP_WARM_OA
+ENDIF
+
+IF OA_TEMP <= OA_COLD_RESET_PT THEN
+  HD_DAT_SP = HD_DAT_SP_COLD_OA
+ENDIF
+
+IF OA_TEMP < OA_WARM_RESET_PT THEN
+  IF OA_TEMP > OA_COLD_RESET_PT THEN
+    HD_DAT_SP = HD_DAT_SP_WARM_OA + ((OA_TEMP - OA_WARM_RESET_PT) * RESET_SLOPE)
+  ENDIF
+ENDIF
+
+'==============================================================================
+' STATIC PRESSURE / BUILDING PRESSURE / RH SETPOINTS
+'==============================================================================
+
+IF OCC_MODE = 1 THEN
+  CD_STATIC_SP = CD_STATIC_SP_OCC
+  HD_STATIC_SP = HD_STATIC_SP_OCC
+  BLDG_PRESSURE_SP = BLDG_PRESSURE_SP_OCC
+  RH_SP = RH_SP_OCC
+ENDIF
+
+IF UNOCC_MODE = 1 THEN
+  CD_STATIC_SP = CD_STATIC_SP_UNOCC
+  HD_STATIC_SP = HD_STATIC_SP_UNOCC
+  BLDG_PRESSURE_SP = BLDG_PRESSURE_SP_UNOCC
+  RH_SP = RH_SP_UNOCC
+ENDIF
+
+'==============================================================================
+' MAT LOW ADJUSTMENTS
+'==============================================================================
+
+IF MAT_LOW = 1 THEN
+  RH_SP = 0
+ENDIF
+
+'==============================================================================
+' MINIMUM OA POSITION DEFAULT
+'
+' This is the base minimum OA setpoint.
+' A later ventilation reset script can adjust from this baseline.
+'==============================================================================
+
+MIN_OA_POS_SP = MIN_OA_POS_DEFAULT
+
+WAIT 1

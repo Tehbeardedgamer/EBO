@@ -1,0 +1,266 @@
+'==============================================================================
+' AHU_RETURN_AIR_FAN_CONTROL
+'
+' PURPOSE:
+'   Start/stop the return air fans and modulate fan speed to maintain building
+'   pressure.
+'
+' SEQUENCE:
+'   - In occupied operation, available RA fans are enabled and speed modulates
+'     to maintain BLDG_PRESSURE_SP.
+'   - In MAT low protection, available RA fans remain enabled and continue
+'     pressure control.
+'   - In safety shutdown, smoke override, system disabled, or unoccupied mode,
+'     both RA fans are commanded off and speed goes to RA_FAN_OFF_SPEED.
+'   - If one VFD is faulted, the remaining healthy fan continues to run.
+'   - If both VFDs are faulted, both fans are commanded off.
+'
+' NOTES:
+'   - This script does not own alarms.
+'   - PIDControl function is assumed to already exist in the project.
+'   - PID output is expected to be 0-100%.
+'==============================================================================
+
+'-----------------------------
+' FUNCTIONS
+'-----------------------------
+FUNCTION PIDControl
+
+'-----------------------------
+' MODE INPUTS
+'-----------------------------
+NUMERIC INPUT UNIT_AVAILABLE
+NUMERIC INPUT OCC_MODE
+NUMERIC INPUT UNOCC_MODE
+NUMERIC INPUT SMOKE_OVERRIDE
+NUMERIC INPUT SAFETY_LOCKOUT
+NUMERIC INPUT MAT_LOW
+
+'-----------------------------
+' PROCESS INPUTS
+'-----------------------------
+NUMERIC INPUT BUILDING_PRESSURE
+NUMERIC INPUT BLDG_PRESSURE_SP
+
+'-----------------------------
+' HARDWARE INPUTS
+'-----------------------------
+NUMERIC INPUT RA_VFD_FAULT_1
+NUMERIC INPUT RA_VFD_FAULT_2
+
+'-----------------------------
+' ADJUSTABLE INPUTS
+'-----------------------------
+NUMERIC INPUT RA_FAN_PID_P
+NUMERIC INPUT RA_FAN_PID_I
+NUMERIC INPUT RA_FAN_PID_D
+NUMERIC INPUT RA_FAN_MIN_SPEED
+NUMERIC INPUT RA_FAN_MAX_SPEED
+NUMERIC INPUT RA_FAN_OFF_SPEED
+NUMERIC INPUT RA_FAN_ON_CMD
+
+'-----------------------------
+' OUTPUTS
+'-----------------------------
+NUMERIC OUTPUT RA_FAN_SS_1
+NUMERIC OUTPUT RA_FAN_SS_2
+NUMERIC OUTPUT RA_FAN_SPEED_CMD_1
+NUMERIC OUTPUT RA_FAN_SPEED_CMD_2
+NUMERIC OUTPUT RA_FAN_PID_OUT
+NUMERIC OUTPUT RA_FAN_MODE_CODE
+
+'-----------------------------
+' INTERNAL VARIABLES
+'-----------------------------
+NUMERIC RA_FAN_PID_I_TERM
+NUMERIC RA_FAN_PID_OLD_ERR
+NUMERIC RA_FAN_ACTIVE_SPEED
+NUMERIC RA_FAN_ENABLE_1
+NUMERIC RA_FAN_ENABLE_2
+NUMERIC RA_FAN_AVAIL_1
+NUMERIC RA_FAN_AVAIL_2
+
+'==============================================================================
+' DEFAULTS EACH PASS
+'==============================================================================
+
+RA_FAN_ENABLE_1 = 0
+RA_FAN_ENABLE_2 = 0
+RA_FAN_AVAIL_1 = 0
+RA_FAN_AVAIL_2 = 0
+RA_FAN_ACTIVE_SPEED = RA_FAN_OFF_SPEED
+RA_FAN_PID_OUT = 0
+RA_FAN_MODE_CODE = 0
+
+'==============================================================================
+' DETERMINE FAN AVAILABILITY
+'==============================================================================
+
+IF RA_VFD_FAULT_1 = 0 THEN
+  RA_FAN_AVAIL_1 = 1
+ENDIF
+
+IF RA_VFD_FAULT_2 = 0 THEN
+  RA_FAN_AVAIL_2 = 1
+ENDIF
+
+'==============================================================================
+' MODE-BASED COMMAND SELECTION
+' PRIORITY:
+'   1. SAFETY LOCKOUT
+'   2. SMOKE OVERRIDE
+'   3. DISABLED / UNOCCUPIED
+'   4. OCCUPIED / DEHUM / MAT LOW PRESSURE CONTROL
+'==============================================================================
+
+'-----------------------------
+' PRIORITY 1 - SAFETY LOCKOUT
+'-----------------------------
+IF SAFETY_LOCKOUT = 1 THEN
+  RA_FAN_ENABLE_1 = 0
+  RA_FAN_ENABLE_2 = 0
+  RA_FAN_ACTIVE_SPEED = RA_FAN_OFF_SPEED
+  RA_FAN_MODE_CODE = 5
+ENDIF
+
+IF SAFETY_LOCKOUT = 0 THEN
+
+  '-----------------------------
+  ' PRIORITY 2 - SMOKE OVERRIDE
+  '-----------------------------
+  IF SMOKE_OVERRIDE = 1 THEN
+    RA_FAN_ENABLE_1 = 0
+    RA_FAN_ENABLE_2 = 0
+    RA_FAN_ACTIVE_SPEED = RA_FAN_OFF_SPEED
+    RA_FAN_MODE_CODE = 6
+  ENDIF
+
+  IF SMOKE_OVERRIDE = 0 THEN
+
+    '-----------------------------
+    ' PRIORITY 3 - DISABLED / UNOCCUPIED
+    '-----------------------------
+    IF UNIT_AVAILABLE = 0 THEN
+      RA_FAN_ENABLE_1 = 0
+      RA_FAN_ENABLE_2 = 0
+      RA_FAN_ACTIVE_SPEED = RA_FAN_OFF_SPEED
+      RA_FAN_MODE_CODE = 0
+    ENDIF
+
+    IF UNIT_AVAILABLE = 1 THEN
+
+      IF UNOCC_MODE = 1 THEN
+        RA_FAN_ENABLE_1 = 0
+        RA_FAN_ENABLE_2 = 0
+        RA_FAN_ACTIVE_SPEED = RA_FAN_OFF_SPEED
+        RA_FAN_MODE_CODE = 0
+      ENDIF
+
+      IF UNOCC_MODE = 0 THEN
+
+        '-----------------------------
+        ' PRIORITY 4 - OCCUPIED / DEHUM / MAT LOW
+        '-----------------------------
+        IF OCC_MODE = 1 THEN
+          RA_FAN_PID_OUT = PIDControl(1, BUILDING_PRESSURE, BLDG_PRESSURE_SP, RA_FAN_PID_I_TERM, RA_FAN_PID_P, RA_FAN_PID_I, RA_FAN_PID_D, RA_FAN_PID_OLD_ERR)
+          RA_FAN_ACTIVE_SPEED = RA_FAN_PID_OUT
+
+          IF RA_FAN_AVAIL_1 = 1 THEN
+            RA_FAN_ENABLE_1 = RA_FAN_ON_CMD
+          ENDIF
+
+          IF RA_FAN_AVAIL_2 = 1 THEN
+            RA_FAN_ENABLE_2 = RA_FAN_ON_CMD
+          ENDIF
+
+          RA_FAN_MODE_CODE = 1
+        ENDIF
+
+        IF OCC_MODE = 0 THEN
+          IF MAT_LOW = 1 THEN
+            RA_FAN_PID_OUT = PIDControl(1, BUILDING_PRESSURE, BLDG_PRESSURE_SP, RA_FAN_PID_I_TERM, RA_FAN_PID_P, RA_FAN_PID_I, RA_FAN_PID_D, RA_FAN_PID_OLD_ERR)
+            RA_FAN_ACTIVE_SPEED = RA_FAN_PID_OUT
+
+            IF RA_FAN_AVAIL_1 = 1 THEN
+              RA_FAN_ENABLE_1 = RA_FAN_ON_CMD
+            ENDIF
+
+            IF RA_FAN_AVAIL_2 = 1 THEN
+              RA_FAN_ENABLE_2 = RA_FAN_ON_CMD
+            ENDIF
+
+            RA_FAN_MODE_CODE = 4
+          ENDIF
+        ENDIF
+
+      ENDIF
+
+    ENDIF
+
+  ENDIF
+
+ENDIF
+
+'==============================================================================
+' IF BOTH FANS UNAVAILABLE, FORCE OFF
+'==============================================================================
+
+IF RA_FAN_AVAIL_1 = 0 THEN
+  IF RA_FAN_AVAIL_2 = 0 THEN
+    RA_FAN_ENABLE_1 = 0
+    RA_FAN_ENABLE_2 = 0
+    RA_FAN_ACTIVE_SPEED = RA_FAN_OFF_SPEED
+    RA_FAN_MODE_CODE = 7
+  ENDIF
+ENDIF
+
+'==============================================================================
+' NORMAL CONTROL CLAMPS
+'==============================================================================
+
+IF RA_FAN_MODE_CODE = 1 THEN
+
+  IF RA_FAN_ACTIVE_SPEED < RA_FAN_MIN_SPEED THEN
+    RA_FAN_ACTIVE_SPEED = RA_FAN_MIN_SPEED
+  ENDIF
+
+  IF RA_FAN_ACTIVE_SPEED > RA_FAN_MAX_SPEED THEN
+    RA_FAN_ACTIVE_SPEED = RA_FAN_MAX_SPEED
+  ENDIF
+
+ENDIF
+
+IF RA_FAN_MODE_CODE = 4 THEN
+
+  IF RA_FAN_ACTIVE_SPEED < RA_FAN_MIN_SPEED THEN
+    RA_FAN_ACTIVE_SPEED = RA_FAN_MIN_SPEED
+  ENDIF
+
+  IF RA_FAN_ACTIVE_SPEED > RA_FAN_MAX_SPEED THEN
+    RA_FAN_ACTIVE_SPEED = RA_FAN_MAX_SPEED
+  ENDIF
+
+ENDIF
+
+'==============================================================================
+' FINAL OUTPUT CLAMPS
+'==============================================================================
+
+IF RA_FAN_ACTIVE_SPEED < 0 THEN
+  RA_FAN_ACTIVE_SPEED = 0
+ENDIF
+
+IF RA_FAN_ACTIVE_SPEED > 100 THEN
+  RA_FAN_ACTIVE_SPEED = 100
+ENDIF
+
+'==============================================================================
+' FINAL OUTPUTS
+'==============================================================================
+
+RA_FAN_SS_1 = RA_FAN_ENABLE_1
+RA_FAN_SS_2 = RA_FAN_ENABLE_2
+RA_FAN_SPEED_CMD_1 = RA_FAN_ACTIVE_SPEED
+RA_FAN_SPEED_CMD_2 = RA_FAN_ACTIVE_SPEED
+
+WAIT 1

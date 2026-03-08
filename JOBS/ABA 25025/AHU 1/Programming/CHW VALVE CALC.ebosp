@@ -1,0 +1,187 @@
+'==============================================================================
+' AHU_COOLING_VALVE_CONTROL
+'
+' PURPOSE:
+'   Modulate the cold deck chilled water valve to maintain cold deck discharge
+'   air temperature.
+'
+' SEQUENCE:
+'   - In occupied operation, valve modulates to maintain CD_DAT_SP.
+'   - In dehumidification mode, the setpoint manager resets CD_DAT_SP from
+'     normal to dehumidification value, and this script simply tracks that
+'     active setpoint.
+'   - In MAT low protection, valve is forced to CD_VALVE_FREEZE_POS.
+'   - In safety shutdown, system disabled, or unoccupied mode, valve goes to
+'     CD_VALVE_OFF_POS.
+'
+' NOTES:
+'   - This script does not own alarms.
+'   - PIDControl function is assumed to already exist in the project.
+'   - PID output is expected to be 0-100%.
+'==============================================================================
+
+'-----------------------------
+' MODE INPUTS
+'-----------------------------
+NUMERIC INPUT UNIT_AVAILABLE         ' From AHU_MODE_DETERMINATION
+NUMERIC INPUT OCC_MODE               ' From AHU_MODE_DETERMINATION
+NUMERIC INPUT UNOCC_MODE             ' From AHU_MODE_DETERMINATION
+NUMERIC INPUT SMOKE_OVERRIDE         ' From AHU_MODE_DETERMINATION
+NUMERIC INPUT SAFETY_LOCKOUT         ' From AHU_MODE_DETERMINATION
+NUMERIC INPUT MAT_LOW                ' From AHU_MODE_DETERMINATION
+
+'-----------------------------
+' PROCESS INPUTS
+'-----------------------------
+NUMERIC INPUT CD_DAT                 ' Cold deck discharge air temperature
+NUMERIC INPUT CD_DAT_SP              ' Active cold deck DAT setpoint
+
+'-----------------------------
+' ADJUSTABLE INPUTS
+'-----------------------------
+NUMERIC INPUT CD_PID_P               ' Cooling valve PID proportional gain
+NUMERIC INPUT CD_PID_I               ' Cooling valve PID integral gain
+NUMERIC INPUT CD_PID_D               ' Cooling valve PID derivative gain
+NUMERIC INPUT CD_VALVE_MIN_POS       ' Minimum allowed valve command in normal control
+NUMERIC INPUT CD_VALVE_MAX_POS       ' Maximum allowed valve command in normal control
+NUMERIC INPUT CD_VALVE_OFF_POS       ' Valve position when commanded off
+NUMERIC INPUT CD_VALVE_FREEZE_POS    ' Valve position during MAT low protection
+
+'-----------------------------
+' OUTPUTS
+'-----------------------------
+NUMERIC OUTPUT CD_VALVE_CMD          ' Final cold deck valve command
+NUMERIC OUTPUT CD_VALVE_PID_OUT      ' Raw PID output before final clamp
+NUMERIC OUTPUT CD_VALVE_MODE_CODE    ' Diagnostic mode code
+
+'-----------------------------
+' INTERNAL VARIABLES
+'-----------------------------
+NUMERIC CD_PID_I_TERM                ' PID integral storage
+NUMERIC CD_PID_OLD_ERR               ' PID previous error
+NUMERIC CD_ACTIVE_CMD                ' Working command before final output
+
+'-----------------------------
+' FUNCTIONS 
+'-----------------------------
+FUNCTION PIDControl 
+'==============================================================================
+' DEFAULTS EACH PASS
+'==============================================================================
+
+CD_ACTIVE_CMD = CD_VALVE_OFF_POS
+CD_VALVE_PID_OUT = 0
+CD_VALVE_MODE_CODE = 0
+
+'==============================================================================
+' MODE-BASED COMMAND SELECTION
+' PRIORITY:
+'   1. SAFETY LOCKOUT
+'   2. MAT LOW PROTECTION
+'   3. SYSTEM DISABLED / UNOCCUPIED / SMOKE
+'   4. OCCUPIED CONTROL
+'==============================================================================
+
+'-----------------------------
+' PRIORITY 1 - SAFETY LOCKOUT
+'-----------------------------
+IF SAFETY_LOCKOUT = 1 THEN
+  CD_ACTIVE_CMD = CD_VALVE_OFF_POS
+  CD_VALVE_MODE_CODE = 5
+ENDIF
+
+'-----------------------------
+' PRIORITY 2 - MAT LOW PROTECTION
+'-----------------------------
+IF SAFETY_LOCKOUT = 0 THEN
+
+  IF MAT_LOW = 1 THEN
+    CD_ACTIVE_CMD = CD_VALVE_FREEZE_POS
+    CD_VALVE_MODE_CODE = 4
+  ENDIF
+
+  IF MAT_LOW = 0 THEN
+
+    '-----------------------------
+    ' PRIORITY 3 - DISABLED / UNOCCUPIED / SMOKE
+    '-----------------------------
+    IF UNIT_AVAILABLE = 0 THEN
+      CD_ACTIVE_CMD = CD_VALVE_OFF_POS
+      CD_VALVE_MODE_CODE = 0
+    ENDIF
+
+    IF UNIT_AVAILABLE = 1 THEN
+
+      IF UNOCC_MODE = 1 THEN
+        CD_ACTIVE_CMD = CD_VALVE_OFF_POS
+        CD_VALVE_MODE_CODE = 0
+      ENDIF
+
+      IF UNOCC_MODE = 0 THEN
+
+        IF SMOKE_OVERRIDE = 1 THEN
+          CD_ACTIVE_CMD = CD_VALVE_OFF_POS
+          CD_VALVE_MODE_CODE = 6
+        ENDIF
+
+        IF SMOKE_OVERRIDE = 0 THEN
+
+          '-----------------------------
+          ' PRIORITY 4 - OCCUPIED NORMAL / DEHUM CONTROL
+          '-----------------------------
+          IF OCC_MODE = 1 THEN
+            CD_VALVE_PID_OUT = PIDControl(1, CD_DAT, CD_DAT_SP, CD_PID_I_TERM, CD_PID_P, CD_PID_I, CD_PID_D, CD_PID_OLD_ERR)
+            CD_ACTIVE_CMD = CD_VALVE_PID_OUT
+            CD_VALVE_MODE_CODE = 1
+          ENDIF
+
+          IF OCC_MODE = 0 THEN
+            CD_ACTIVE_CMD = CD_VALVE_OFF_POS
+            CD_VALVE_MODE_CODE = 0
+          ENDIF
+
+        ENDIF
+
+      ENDIF
+
+    ENDIF
+
+  ENDIF
+
+ENDIF
+
+'==============================================================================
+' NORMAL CONTROL CLAMPS
+'==============================================================================
+
+IF CD_VALVE_MODE_CODE = 1 THEN
+
+  IF CD_ACTIVE_CMD < CD_VALVE_MIN_POS THEN
+    CD_ACTIVE_CMD = CD_VALVE_MIN_POS
+  ENDIF
+
+  IF CD_ACTIVE_CMD > CD_VALVE_MAX_POS THEN
+    CD_ACTIVE_CMD = CD_VALVE_MAX_POS
+  ENDIF
+
+ENDIF
+
+'==============================================================================
+' FINAL OUTPUT CLAMPS
+'==============================================================================
+
+IF CD_ACTIVE_CMD < 0 THEN
+  CD_ACTIVE_CMD = 0
+ENDIF
+
+IF CD_ACTIVE_CMD > 100 THEN
+  CD_ACTIVE_CMD = 100
+ENDIF
+
+'==============================================================================
+' FINAL OUTPUT
+'==============================================================================
+
+CD_VALVE_CMD = CD_ACTIVE_CMD
+
+WAIT 1

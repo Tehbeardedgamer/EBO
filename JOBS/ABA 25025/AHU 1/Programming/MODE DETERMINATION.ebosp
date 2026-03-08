@@ -1,0 +1,263 @@
+'==============================================================================
+' AHU_MODE_DETERMINATION
+'
+' PURPOSE:
+'   Determine the active operating mode for the AHU and publish clean mode flags
+'   for all downstream scripts.
+'
+' MODES HANDLED:
+'   - Safety Shutdown
+'   - Smoke Override
+'   - System Disabled
+'   - Unoccupied
+'   - MAT Low Protection
+'   - Occupied Normal
+'   - Occupied Dehumidification
+'
+' NOTES:
+'   - SYSTEM_ENABLE is the master BAS enable.
+'   - OCC_CMD is intended to come from a schedule or operator command.
+'   - DEHUM_ENABLE turns on only after RA humidity stays above 40% for 300 sec.
+'   - DEHUM_ENABLE turns off when RA humidity falls below 36%.
+'   - MAT_LOW turns on at <= 38°F and releases at >= 40°F.
+'   - Safety and smoke take priority over all normal operating modes.
+'   - MAT low protection has priority over disabled and unoccupied states so the
+'     unit can still respond to freeze conditions.
+'
+' MODE_CODE VALUES:
+'   0 = Disabled / Off
+'   1 = Unoccupied
+'   2 = Occupied Normal
+'   3 = Occupied Dehumidification
+'   4 = MAT Low Protection
+'   5 = Smoke Override
+'   6 = Safety Shutdown
+'==============================================================================
+
+'-----------------------------
+' INPUTS
+'-----------------------------
+NUMERIC INPUT SYSTEM_ENABLE        ' Master BAS enable command
+NUMERIC INPUT OCC_CMD              ' Occupancy command from schedule / operator
+NUMERIC INPUT FIRE_ALARM           ' Fire alarm / smoke input
+NUMERIC INPUT SAFETY_SHUTDOWN      ' General safety shutdown input
+NUMERIC INPUT RA_HUMIDITY          ' Return air humidity (%RH)
+NUMERIC INPUT MA_TEMP              ' Mixed air temperature (°F)
+NUMERIC INPUT DEHUM_HIGH_LIMIT           ' High humidity threshold
+NUMERIC INPUT DEHUM_LOW_LIMIT            ' Low humidity threshold
+NUMERIC INPUT DEHUM_ENABLE_DELAY         ' Time required to enable dehum
+NUMERIC INPUT MAT_LOW_ON_SP              ' MAT low enable threshold
+NUMERIC INPUT MAT_LOW_OFF_SP             ' MAT low release threshold
+'-----------------------------
+' OUTPUTS
+'-----------------------------
+NUMERIC OUTPUT UNIT_AVAILABLE      ' 1 when system is allowed to operate normally
+NUMERIC OUTPUT OCC_MODE            ' 1 when occupied
+NUMERIC OUTPUT UNOCC_MODE          ' 1 when unoccupied
+NUMERIC OUTPUT DEHUM_ENABLE        ' 1 when dehumidification mode is active
+NUMERIC OUTPUT SMOKE_OVERRIDE      ' 1 when smoke override is active
+NUMERIC OUTPUT SAFETY_LOCKOUT      ' 1 when safety shutdown is active
+NUMERIC OUTPUT MAT_LOW             ' 1 when MAT low protection is active
+NUMERIC OUTPUT HUM_ENABLE_PERMIT   ' 1 when humidifier is permitted
+NUMERIC OUTPUT NORMAL_MODE         ' 1 when unit is in normal occupied control
+NUMERIC OUTPUT MODE_CODE           ' Numeric code for graphics / diagnostics
+STRING OUTPUT CURRENT_MODE_TEXT    ' Text description for graphics / diagnostics
+
+'-----------------------------
+' INTERNAL VARIABLES
+'-----------------------------
+NUMERIC OUTPUT DEHUM_HIGH_TIMER           ' Seconds RA humidity has remained above high threshold
+NUMERIC SCAN_SEC                   ' Assumed script scan time in seconds
+
+
+'-----------------------------
+' INITIAL VALUES / CONSTANTS
+'-----------------------------
+SCAN_SEC = 1
+
+'-----------------------------
+' DEFAULT OUTPUTS
+'-----------------------------
+UNIT_AVAILABLE = 0
+OCC_MODE = 0
+UNOCC_MODE = 0
+SMOKE_OVERRIDE = 0
+SAFETY_LOCKOUT = 0
+NORMAL_MODE = 0
+HUM_ENABLE_PERMIT = 0
+MODE_CODE = 0
+CURRENT_MODE_TEXT = ""
+
+'==============================================================================
+' STEP 1 - DETERMINE LATCHED SUB-MODES
+'==============================================================================
+
+'-----------------------------
+' MAT LOW WITH HYSTERESIS
+'-----------------------------
+IF MA_TEMP <= MAT_LOW_ON_SP THEN
+  MAT_LOW = 1
+ENDIF
+
+IF MA_TEMP >= MAT_LOW_OFF_SP THEN
+  MAT_LOW = 0
+ENDIF
+
+'-----------------------------
+' DEHUMIDIFICATION ENABLE TIMER
+'-----------------------------
+IF RA_HUMIDITY > DEHUM_HIGH_LIMIT THEN
+  DEHUM_HIGH_TIMER = DEHUM_HIGH_TIMER + SCAN_SEC
+ENDIF
+
+IF RA_HUMIDITY <= DEHUM_HIGH_LIMIT THEN
+  DEHUM_HIGH_TIMER = 0
+ENDIF
+
+IF DEHUM_HIGH_TIMER >= DEHUM_ENABLE_DELAY THEN
+  DEHUM_ENABLE = 1
+ENDIF
+
+IF RA_HUMIDITY < DEHUM_LOW_LIMIT THEN
+  DEHUM_ENABLE = 0
+ENDIF
+
+'==============================================================================
+' STEP 2 - MODE PRIORITY DECISION
+'==============================================================================
+
+'-----------------------------
+' PRIORITY 1 - SAFETY SHUTDOWN
+'-----------------------------
+IF SAFETY_SHUTDOWN = 1 THEN
+  SAFETY_LOCKOUT = 1
+  SMOKE_OVERRIDE = 0
+  UNIT_AVAILABLE = 0
+  OCC_MODE = 0
+  UNOCC_MODE = 0
+  NORMAL_MODE = 0
+  HUM_ENABLE_PERMIT = 0
+  MODE_CODE = 6
+  CURRENT_MODE_TEXT = "SAFETY SHUTDOWN"
+  GOTO MODE_DONE
+ENDIF
+
+'-----------------------------
+' PRIORITY 2 - SMOKE OVERRIDE
+'-----------------------------
+IF FIRE_ALARM = 1 THEN
+  SAFETY_LOCKOUT = 0
+  SMOKE_OVERRIDE = 1
+  UNIT_AVAILABLE = 0
+  OCC_MODE = 0
+  UNOCC_MODE = 0
+  NORMAL_MODE = 0
+  HUM_ENABLE_PERMIT = 0
+  MODE_CODE = 5
+  CURRENT_MODE_TEXT = "SMOKE OVERRIDE"
+  GOTO MODE_DONE
+ENDIF
+
+'-----------------------------
+' PRIORITY 3 - MAT LOW PROTECTION
+'-----------------------------
+IF MAT_LOW = 1 THEN
+  SAFETY_LOCKOUT = 0
+  SMOKE_OVERRIDE = 0
+  UNIT_AVAILABLE = 1
+  OCC_MODE = 0
+  UNOCC_MODE = 0
+  NORMAL_MODE = 0
+  HUM_ENABLE_PERMIT = 0
+  MODE_CODE = 4
+  CURRENT_MODE_TEXT = "FREEZE PROTECTION"
+  GOTO MODE_DONE
+ENDIF
+
+'-----------------------------
+' PRIORITY 4 - SYSTEM DISABLED
+'-----------------------------
+IF SYSTEM_ENABLE = 0 THEN
+  SAFETY_LOCKOUT = 0
+  SMOKE_OVERRIDE = 0
+  UNIT_AVAILABLE = 0
+  OCC_MODE = 0
+  UNOCC_MODE = 1
+  NORMAL_MODE = 0
+  HUM_ENABLE_PERMIT = 0
+  MODE_CODE = 0
+  CURRENT_MODE_TEXT = "SYSTEM DISABLED"
+  GOTO MODE_DONE
+ENDIF
+
+'-----------------------------
+' PRIORITY 5 - UNOCCUPIED
+'-----------------------------
+IF OCC_CMD = 0 THEN
+  SAFETY_LOCKOUT = 0
+  SMOKE_OVERRIDE = 0
+  UNIT_AVAILABLE = 0
+  OCC_MODE = 0
+  UNOCC_MODE = 1
+  NORMAL_MODE = 0
+  HUM_ENABLE_PERMIT = 0
+  MODE_CODE = 1
+  CURRENT_MODE_TEXT = "UNOCCUPIED"
+  GOTO MODE_DONE
+ENDIF
+
+'-----------------------------
+' PRIORITY 6 - OCCUPIED DEHUM
+'-----------------------------
+IF DEHUM_ENABLE = 1 THEN
+  SAFETY_LOCKOUT = 0
+  SMOKE_OVERRIDE = 0
+  UNIT_AVAILABLE = 1
+  OCC_MODE = 1
+  UNOCC_MODE = 0
+  NORMAL_MODE = 0
+  HUM_ENABLE_PERMIT = 0
+  MODE_CODE = 3
+  CURRENT_MODE_TEXT = "DEHUMIDIFICATION"
+  GOTO MODE_DONE
+ENDIF
+
+'-----------------------------
+' PRIORITY 7 - OCCUPIED NORMAL
+'-----------------------------
+SAFETY_LOCKOUT = 0
+SMOKE_OVERRIDE = 0
+UNIT_AVAILABLE = 1
+OCC_MODE = 1
+UNOCC_MODE = 0
+NORMAL_MODE = 1
+HUM_ENABLE_PERMIT = 1
+MODE_CODE = 2
+CURRENT_MODE_TEXT = "OCCUPIED NORMAL"
+
+'==============================================================================
+' FINAL MODE CLEANUP
+'==============================================================================
+MODE_DONE:
+
+IF SAFETY_LOCKOUT = 1 THEN
+  HUM_ENABLE_PERMIT = 0
+ENDIF
+
+IF SMOKE_OVERRIDE = 1 THEN
+  HUM_ENABLE_PERMIT = 0
+ENDIF
+
+IF UNOCC_MODE = 1 THEN
+  HUM_ENABLE_PERMIT = 0
+ENDIF
+
+IF MAT_LOW = 1 THEN
+  HUM_ENABLE_PERMIT = 0
+ENDIF
+
+IF DEHUM_ENABLE = 1 THEN
+  HUM_ENABLE_PERMIT = 0
+ENDIF
+
+WAIT 1

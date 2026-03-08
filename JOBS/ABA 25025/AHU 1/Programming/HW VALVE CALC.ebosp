@@ -1,0 +1,184 @@
+'==============================================================================
+' AHU_HEATING_VALVE_CONTROL
+'
+' PURPOSE:
+'   Modulate the hot deck heating valve to maintain hot deck discharge air
+'   temperature.
+'
+' SEQUENCE:
+'   - In occupied operation, valve modulates to maintain HD_DAT_SP.
+'   - In MAT low protection, valve is forced to HD_VALVE_FREEZE_POS.
+'   - In safety shutdown, system disabled, or unoccupied mode, valve goes to
+'     HD_VALVE_OFF_POS.
+'
+' NOTES:
+'   - This script does not own alarms.
+'   - PIDControl function is assumed to already exist in the project.
+'   - PID output is expected to be 0-100%.
+'==============================================================================
+
+'-----------------------------
+' MODE INPUTS
+'-----------------------------
+NUMERIC INPUT UNIT_AVAILABLE         ' From AHU_MODE_DETERMINATION
+NUMERIC INPUT OCC_MODE               ' From AHU_MODE_DETERMINATION
+NUMERIC INPUT UNOCC_MODE             ' From AHU_MODE_DETERMINATION
+NUMERIC INPUT SMOKE_OVERRIDE         ' From AHU_MODE_DETERMINATION
+NUMERIC INPUT SAFETY_LOCKOUT         ' From AHU_MODE_DETERMINATION
+NUMERIC INPUT MAT_LOW                ' From AHU_MODE_DETERMINATION
+
+'-----------------------------
+' PROCESS INPUTS
+'-----------------------------
+NUMERIC INPUT HD_DAT                 ' Hot deck discharge air temperature
+NUMERIC INPUT HD_DAT_SP              ' Active hot deck DAT setpoint
+
+'-----------------------------
+' ADJUSTABLE INPUTS
+'-----------------------------
+NUMERIC INPUT HD_PID_P               ' Heating valve PID proportional gain
+NUMERIC INPUT HD_PID_I               ' Heating valve PID integral gain
+NUMERIC INPUT HD_PID_D               ' Heating valve PID derivative gain
+NUMERIC INPUT HD_VALVE_MIN_POS       ' Minimum allowed valve command in normal control
+NUMERIC INPUT HD_VALVE_MAX_POS       ' Maximum allowed valve command in normal control
+NUMERIC INPUT HD_VALVE_OFF_POS       ' Valve position when commanded off
+NUMERIC INPUT HD_VALVE_FREEZE_POS    ' Valve position during MAT low protection
+
+'-----------------------------
+' OUTPUTS
+'-----------------------------
+NUMERIC OUTPUT HD_VALVE_CMD          ' Final hot deck valve command
+NUMERIC OUTPUT HD_VALVE_PID_OUT      ' Raw PID output before final clamp
+NUMERIC OUTPUT HD_VALVE_MODE_CODE    ' Diagnostic mode code
+
+'-----------------------------
+' INTERNAL VARIABLES
+'-----------------------------
+NUMERIC HD_PID_I_TERM                ' PID integral storage
+NUMERIC HD_PID_OLD_ERR               ' PID previous error
+NUMERIC HD_ACTIVE_CMD                ' Working command before final output
+
+'-----------------------------
+' FUNCTIONS 
+'-----------------------------
+FUNCTION PIDControl 
+'==============================================================================
+' DEFAULTS EACH PASS
+'==============================================================================
+
+HD_ACTIVE_CMD = HD_VALVE_OFF_POS
+HD_VALVE_PID_OUT = 0
+HD_VALVE_MODE_CODE = 0
+
+'==============================================================================
+' MODE-BASED COMMAND SELECTION
+' PRIORITY:
+'   1. SAFETY LOCKOUT
+'   2. MAT LOW PROTECTION
+'   3. SYSTEM DISABLED / UNOCCUPIED / SMOKE
+'   4. OCCUPIED CONTROL
+'==============================================================================
+
+'-----------------------------
+' PRIORITY 1 - SAFETY LOCKOUT
+'-----------------------------
+IF SAFETY_LOCKOUT = 1 THEN
+  HD_ACTIVE_CMD = HD_VALVE_OFF_POS
+  HD_VALVE_MODE_CODE = 5
+ENDIF
+
+'-----------------------------
+' PRIORITY 2 - MAT LOW PROTECTION
+'-----------------------------
+IF SAFETY_LOCKOUT = 0 THEN
+
+  IF MAT_LOW = 1 THEN
+    HD_ACTIVE_CMD = HD_VALVE_FREEZE_POS
+    HD_VALVE_MODE_CODE = 4
+  ENDIF
+
+  IF MAT_LOW = 0 THEN
+
+    '-----------------------------
+    ' PRIORITY 3 - DISABLED / UNOCCUPIED / SMOKE
+    '-----------------------------
+    IF UNIT_AVAILABLE = 0 THEN
+      HD_ACTIVE_CMD = HD_VALVE_OFF_POS
+      HD_VALVE_MODE_CODE = 0
+    ENDIF
+
+    IF UNIT_AVAILABLE = 1 THEN
+
+      IF UNOCC_MODE = 1 THEN
+        HD_ACTIVE_CMD = HD_VALVE_OFF_POS
+        HD_VALVE_MODE_CODE = 0
+      ENDIF
+
+      IF UNOCC_MODE = 0 THEN
+
+        IF SMOKE_OVERRIDE = 1 THEN
+          HD_ACTIVE_CMD = HD_VALVE_OFF_POS
+          HD_VALVE_MODE_CODE = 6
+        ENDIF
+
+        IF SMOKE_OVERRIDE = 0 THEN
+
+          '-----------------------------
+          ' PRIORITY 4 - OCCUPIED CONTROL
+          '-----------------------------
+          IF OCC_MODE = 1 THEN
+            HD_VALVE_PID_OUT = PIDControl(1, HD_DAT, HD_DAT_SP, HD_PID_I_TERM, HD_PID_P, HD_PID_I, HD_PID_D, HD_PID_OLD_ERR)
+            HD_ACTIVE_CMD = HD_VALVE_PID_OUT
+            HD_VALVE_MODE_CODE = 1
+          ENDIF
+
+          IF OCC_MODE = 0 THEN
+            HD_ACTIVE_CMD = HD_VALVE_OFF_POS
+            HD_VALVE_MODE_CODE = 0
+          ENDIF
+
+        ENDIF
+
+      ENDIF
+
+    ENDIF
+
+  ENDIF
+
+ENDIF
+
+'==============================================================================
+' NORMAL CONTROL CLAMPS
+'==============================================================================
+
+IF HD_VALVE_MODE_CODE = 1 THEN
+
+  IF HD_ACTIVE_CMD < HD_VALVE_MIN_POS THEN
+    HD_ACTIVE_CMD = HD_VALVE_MIN_POS
+  ENDIF
+
+  IF HD_ACTIVE_CMD > HD_VALVE_MAX_POS THEN
+    HD_ACTIVE_CMD = HD_VALVE_MAX_POS
+  ENDIF
+
+ENDIF
+
+'==============================================================================
+' FINAL OUTPUT CLAMPS
+'==============================================================================
+
+IF HD_ACTIVE_CMD < 0 THEN
+  HD_ACTIVE_CMD = 0
+ENDIF
+
+IF HD_ACTIVE_CMD > 100 THEN
+  HD_ACTIVE_CMD = 100
+ENDIF
+
+'==============================================================================
+' FINAL OUTPUT
+'==============================================================================
+
+HD_VALVE_CMD = HD_ACTIVE_CMD
+
+WAIT 1

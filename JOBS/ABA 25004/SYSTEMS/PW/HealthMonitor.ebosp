@@ -1,0 +1,341 @@
+' G1_Pump_Health – monitors per-pump health (A/B/C/D) and exposes flags for Sequencer
+' EBO-safe: no ":" separators, no in-loop declarations, no ELSEIF, arrays are simple, flow-style.
+
+' ---------------- INPUTS ----------------
+NUMERIC INPUT SS_A, SS_B, SS_C, SS_D                     ' Start/Stop command to VFD
+NUMERIC INPUT STS_A, STS_B, STS_C, STS_D                  ' VFD proven run (1=running)
+NUMERIC INPUT TRIP_A, TRIP_B, TRIP_C, TRIP_D               ' VFD fault/trip (1=tripped)
+NUMERIC INPUT HOA_AUTO_A, HOA_AUTO_B, HOA_AUTO_C, HOA_AUTO_D   ' 1=Auto
+NUMERIC INPUT MAINTENANCE_A, MAINTENANCE_B, MAINTENANCE_C, MAINTENANCE_D  ' 1=Down/locked out
+NUMERIC INPUT EXT_FAILED_A, EXT_FAILED_B, EXT_FAILED_C, EXT_FAILED_D      ' optional from per-pump startup
+
+' ---------------- OUTPUTS TO SEQUENCER ----------------
+NUMERIC PUBLIC DOWN_A, DOWN_B, DOWN_C, DOWN_D              ' 1=down (maintenance/HOA)
+NUMERIC PUBLIC FAILED_A, FAILED_B, FAILED_C, FAILED_D      ' 1=hard fail latch
+NUMERIC PUBLIC INHIBIT_A, INHIBIT_B, INHIBIT_C, INHIBIT_D  ' 1=soft inhibit (starts/hr or min-off)
+NUMERIC PUBLIC HEALTHY_A, HEALTHY_B, HEALTHY_C, HEALTHY_D  ' 1=available for sequencing
+NUMERIC OUTPUT PUMPS_AVAIL                                 ' 0..4
+
+' ---------------- PUBLIC TUNES / RESET ----------------
+NUMERIC PUBLIC START_PROVE_S                               ' e.g., 180
+NUMERIC PUBLIC LOSS_PROOF_S                                ' e.g., 30
+NUMERIC PUBLIC TRIP_DEBOUNCE_S                             ' e.g., 1
+NUMERIC PUBLIC MIN_OFF_S                                   ' e.g., 60
+NUMERIC PUBLIC MAX_STARTS_HR                               ' e.g., 6
+NUMERIC PUBLIC MAX_TRIPS_HR                                ' e.g., 3
+NUMERIC PUBLIC COUNT_WINDOW_S                              ' e.g., 3600
+NUMERIC PUBLIC IGNORE_EXT_FAILED                           ' 0=include external fails (default 0)
+NUMERIC PUBLIC RESET_ALL, RESET_A, RESET_B, RESET_C, RESET_D
+
+' ---------------- INTERNAL ARRAYS / VARS ----------------
+NUMERIC SS[4]
+NUMERIC STS[4]
+
+
+NUMERIC TRIPIN[4]
+NUMERIC HOA[4]
+NUMERIC LCK[4]
+NUMERIC EXTFL[4]
+
+NUMERIC PREV_STS[4]
+NUMERIC PREV_TRIP[4]
+
+NUMERIC T_START[4]
+NUMERIC T_LOSS[4]
+NUMERIC T_TRIP[4]
+NUMERIC T_OFF[4]
+NUMERIC T_WIN[4]
+
+NUMERIC STARTS_WIN[4]
+NUMERIC TRIPS_WIN[4]
+
+NUMERIC SOFT_INHIBIT[4]
+NUMERIC MINOFF_INH[4]
+
+NUMERIC i
+NUMERIC FIRST_INIT_DONE
+
+FUNCTION SECTIMER
+
+GOTO INIT
+
+
+INIT:
+  IF START_PROVE_S <= 0 THEN START_PROVE_S = 180
+  IF LOSS_PROOF_S <= 0 THEN LOSS_PROOF_S = 30
+  IF TRIP_DEBOUNCE_S <= 0 THEN TRIP_DEBOUNCE_S = 1
+  IF MIN_OFF_S < 0 THEN MIN_OFF_S = 60
+  IF COUNT_WINDOW_S <= 0 THEN COUNT_WINDOW_S = 3600
+  IF MAX_STARTS_HR < 0 THEN MAX_STARTS_HR = 6
+  IF MAX_TRIPS_HR < 0 THEN MAX_TRIPS_HR = 3
+  IF IGNORE_EXT_FAILED < 0 THEN IGNORE_EXT_FAILED = 0
+
+  IF FIRST_INIT_DONE = 0 THEN
+    FOR i = 1 TO 4
+      PREV_STS[i] = 0
+      PREV_TRIP[i] = 0
+      T_START[i] = 0
+      T_LOSS[i] = 0
+      T_TRIP[i] = 0
+      T_OFF[i] = 0
+      T_WIN[i] = 0
+      STARTS_WIN[i] = 0
+      TRIPS_WIN[i] = 0
+      SOFT_INHIBIT[i] = 0
+      MINOFF_INH[i] = 0
+    NEXT i
+
+    DOWN_A = 0
+    DOWN_B = 0
+    DOWN_C = 0
+    DOWN_D = 0
+
+    FAILED_A = 0
+    FAILED_B = 0
+    FAILED_C = 0
+    FAILED_D = 0
+
+    INHIBIT_A = 0
+    INHIBIT_B = 0
+    INHIBIT_C = 0
+    INHIBIT_D = 0
+
+    HEALTHY_A = 0
+    HEALTHY_B = 0
+    HEALTHY_C = 0
+    HEALTHY_D = 0
+
+    PUMPS_AVAIL = 0
+
+    FIRST_INIT_DONE = 1
+  ENDIF
+
+  GOTO LOOP
+
+
+LOOP:
+  ' ---- Load arrays (1=A,2=B,3=C,4=D) ----
+  SS[1] = SS_A
+  SS[2] = SS_B
+  SS[3] = SS_C
+  SS[4] = SS_D
+
+  STS[1] = STS_A
+  STS[2] = STS_B
+  STS[3] = STS_C
+  STS[4] = STS_D
+
+  TRIPIN[1] = TRIP_A
+  TRIPIN[2] = TRIP_B
+  TRIPIN[3] = TRIP_C
+  TRIPIN[4] = TRIP_D
+
+  HOA[1] = HOA_AUTO_A
+  HOA[2] = HOA_AUTO_B
+  HOA[3] = HOA_AUTO_C
+  HOA[4] = HOA_AUTO_D
+
+  LCK[1] = MAINTENANCE_A
+  LCK[2] = MAINTENANCE_B
+  LCK[3] = MAINTENANCE_C
+  LCK[4] = MAINTENANCE_D
+
+  EXTFL[1] = EXT_FAILED_A
+  EXTFL[2] = EXT_FAILED_B
+  EXTFL[3] = EXT_FAILED_C
+  EXTFL[4] = EXT_FAILED_D
+
+
+  ' ---- Resets ----
+  IF RESET_ALL = 1 THEN
+    FAILED_A = 0
+    FAILED_B = 0
+    FAILED_C = 0
+    FAILED_D = 0
+
+    FOR i = 1 TO 4
+      STARTS_WIN[i] = 0
+      TRIPS_WIN[i] = 0
+      T_WIN[i] = 0
+      SOFT_INHIBIT[i] = 0
+    NEXT i
+  ENDIF
+
+  IF RESET_A = 1 THEN FAILED_A = 0
+  IF RESET_B = 1 THEN FAILED_B = 0
+  IF RESET_C = 1 THEN FAILED_C = 0
+  IF RESET_D = 1 THEN FAILED_D = 0
+
+
+  ' ---- Clear soft outputs each scan before recompute ----
+  INHIBIT_A = 0
+  INHIBIT_B = 0
+  INHIBIT_C = 0
+  INHIBIT_D = 0
+
+
+  ' ---- Per-pump health evaluation ----
+  FOR i = 1 TO 4
+
+    ' Down (maintenance or not in Auto)
+    IF i = 1 THEN
+      DOWN_A = 0
+      IF LCK[1] = 1 THEN DOWN_A = 1
+      IF HOA[1] = 0 THEN DOWN_A = 1
+    ENDIF
+
+    IF i = 2 THEN
+      DOWN_B = 0
+      IF LCK[2] = 1 THEN DOWN_B = 1
+      IF HOA[2] = 0 THEN DOWN_B = 1
+    ENDIF
+
+    IF i = 3 THEN
+      DOWN_C = 0
+      IF LCK[3] = 1 THEN DOWN_C = 1
+      IF HOA[3] = 0 THEN DOWN_C = 1
+    ENDIF
+
+    IF i = 4 THEN
+      DOWN_D = 0
+      IF LCK[4] = 1 THEN DOWN_D = 1
+      IF HOA[4] = 0 THEN DOWN_D = 1
+    ENDIF
+
+
+    ' Fail-to-start (commanded ON, no proof, from stop)
+    IF SECTIMER( (SS[i]=1) & (STS[i]=0) & (PREV_STS[i]=0), START_PROVE_S, T_START[i], 0 ) THEN
+      IF i = 1 THEN FAILED_A = 1
+      IF i = 2 THEN FAILED_B = 1
+      IF i = 3 THEN FAILED_C = 1
+      IF i = 4 THEN FAILED_D = 1
+    ENDIF
+
+    ' Loss-of-proof (was running, then lost, still commanded)
+    IF SECTIMER( (SS[i]=1) & (PREV_STS[i]=1) & (STS[i]=0), LOSS_PROOF_S, T_LOSS[i], 0 ) THEN
+      IF i = 1 THEN FAILED_A = 1
+      IF i = 2 THEN FAILED_B = 1
+      IF i = 3 THEN FAILED_C = 1
+      IF i = 4 THEN FAILED_D = 1
+    ENDIF
+
+    ' Trip debounce + count per window
+    IF SECTIMER( TRIPIN[i]=1, TRIP_DEBOUNCE_S, T_TRIP[i], 0 ) THEN
+      IF PREV_TRIP[i] = 0 THEN TRIPS_WIN[i] = TRIPS_WIN[i] + 1
+    ENDIF
+
+    ' Starts per window (rising edge of STS)
+    IF (PREV_STS[i]=0) & (STS[i]=1) THEN
+      STARTS_WIN[i] = STARTS_WIN[i] + 1
+    ENDIF
+
+    ' Sliding window (hourly) – clears counters and soft inhibit
+    IF SECTIMER( 1, COUNT_WINDOW_S, T_WIN[i], 0 ) THEN
+      STARTS_WIN[i] = 0
+      TRIPS_WIN[i] = 0
+      T_WIN[i] = 0
+      SOFT_INHIBIT[i] = 0
+    ENDIF
+
+    ' Trip limit -> hard FAIL
+    IF MAX_TRIPS_HR > 0 THEN
+      IF TRIPS_WIN[i] > MAX_TRIPS_HR THEN
+        IF i = 1 THEN FAILED_A = 1
+        IF i = 2 THEN FAILED_B = 1
+        IF i = 3 THEN FAILED_C = 1
+        IF i = 4 THEN FAILED_D = 1
+      ENDIF
+    ENDIF
+
+    ' Starts/hr limit -> soft inhibit
+    IF MAX_STARTS_HR > 0 THEN
+      IF STARTS_WIN[i] > MAX_STARTS_HR THEN
+        SOFT_INHIBIT[i] = 1
+      ENDIF
+    ENDIF
+
+    ' Min-off accumulation (simple and explicit)
+    IF STS[i] = 0 THEN
+      T_OFF[i] = T_OFF[i] + TS
+      IF T_OFF[i] < 0 THEN T_OFF[i] = 0
+    ELSE
+      T_OFF[i] = 0
+    ENDIF
+
+    ' Min-off inhibit if a start is requested while off-time < MIN_OFF_S
+    MINOFF_INH[i] = 0
+    IF (SS[i]=1) & (STS[i]=0) THEN
+      IF MIN_OFF_S > 0 THEN
+        IF T_OFF[i] < MIN_OFF_S THEN MINOFF_INH[i] = 1
+      ENDIF
+    ENDIF
+
+    ' Apply soft inhibit to outputs
+    IF i = 1 THEN
+      IF SOFT_INHIBIT[1] = 1 THEN INHIBIT_A = 1
+      IF MINOFF_INH[1]  = 1 THEN INHIBIT_A = 1
+    ENDIF
+
+    IF i = 2 THEN
+      IF SOFT_INHIBIT[2] = 1 THEN INHIBIT_B = 1
+      IF MINOFF_INH[2]  = 1 THEN INHIBIT_B = 1
+    ENDIF
+
+    IF i = 3 THEN
+      IF SOFT_INHIBIT[3] = 1 THEN INHIBIT_C = 1
+      IF MINOFF_INH[3]  = 1 THEN INHIBIT_C = 1
+    ENDIF
+
+    IF i = 4 THEN
+      IF SOFT_INHIBIT[4] = 1 THEN INHIBIT_D = 1
+      IF MINOFF_INH[4]  = 1 THEN INHIBIT_D = 1
+    ENDIF
+
+    ' External fail OR-in (optional)
+    IF IGNORE_EXT_FAILED = 0 THEN
+      IF i = 1 THEN IF EXTFL[1] = 1 THEN FAILED_A = 1
+      IF i = 2 THEN IF EXTFL[2] = 1 THEN FAILED_B = 1
+      IF i = 3 THEN IF EXTFL[3] = 1 THEN FAILED_C = 1
+      IF i = 4 THEN IF EXTFL[4] = 1 THEN FAILED_D = 1
+    ENDIF
+
+    ' Save edges
+    PREV_TRIP[i] = TRIPIN[i]
+    PREV_STS[i] = STS[i]
+
+  NEXT i
+
+
+  ' ---- Healthy summary ----
+  HEALTHY_A = 0
+  IF DOWN_A = 0 THEN
+    IF FAILED_A = 0 THEN
+      IF INHIBIT_A = 0 THEN HEALTHY_A = 1
+    ENDIF
+  ENDIF
+
+  HEALTHY_B = 0
+  IF DOWN_B = 0 THEN
+    IF FAILED_B = 0 THEN
+      IF INHIBIT_B = 0 THEN HEALTHY_B = 1
+    ENDIF
+  ENDIF
+
+  HEALTHY_C = 0
+  IF DOWN_C = 0 THEN
+    IF FAILED_C = 0 THEN
+      IF INHIBIT_C = 0 THEN HEALTHY_C = 1
+    ENDIF
+  ENDIF
+
+  HEALTHY_D = 0
+  IF DOWN_D = 0 THEN
+    IF FAILED_D = 0 THEN
+      IF INHIBIT_D = 0 THEN HEALTHY_D = 1
+    ENDIF
+  ENDIF
+
+  PUMPS_AVAIL = HEALTHY_A + HEALTHY_B + HEALTHY_C + HEALTHY_D
+
+  WAIT 2
+  GOTO LOOP

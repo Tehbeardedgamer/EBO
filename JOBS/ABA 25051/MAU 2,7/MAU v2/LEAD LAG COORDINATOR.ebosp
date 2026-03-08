@@ -57,6 +57,8 @@ NUMERIC T_Maint1
 NUMERIC T_Maint2
 NUMERIC Done_Maint1
 NUMERIC Done_Maint2
+NUMERIC T_Purge
+NUMERIC Done_Purge
 
 '-----------------------------
 ' FUNCTIONS USED
@@ -87,6 +89,8 @@ INIT:
     T_Maint2 = 0
     Done_Maint1 = 0
     Done_Maint2 = 0
+    T_Purge = 0
+    Done_Purge = 0
 
     Goto MAIN
 
@@ -224,6 +228,9 @@ MAIN:
             MAU2_Lead = 1
         EndIf
 
+        T_Purge = 0
+        Done_Purge = 0
+
         SwState = 10
         Goto Lead_WAIT
     EndIf
@@ -252,8 +259,9 @@ Lead_WAIT:
         EndIf
     EndIf
 
-    ' Wait the specified Lead time on this line (TS counts time on current line)
-    If TS < PurgeTimer then
+    ' Wait the specified Lead time using persistent timer state
+    Done_Purge = Sectimer(1, PurgeTimer, T_Purge, 0)
+    If Done_Purge is OFF then
         Goto APPLY_OUTPUTS
     EndIf
 
@@ -269,6 +277,9 @@ Lead_WAIT:
             MAU2_EnableCmd = 1
         EndIf
     EndIf
+
+    T_Purge = 0
+    Done_Purge = 0
 
     SwState = 20
     Goto START_WAIT
