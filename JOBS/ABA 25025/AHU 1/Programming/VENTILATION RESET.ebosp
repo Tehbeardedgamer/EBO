@@ -16,76 +16,84 @@
 '   - This script does not directly command the damper.
 '   - It outputs the active reset minimum OA position for downstream use.
 '   - Reset is only active when the unit is available and occupied.
+'   - Uses SecTimer for step timing.
 '==============================================================================
+
+'-----------------------------
+' FUNCTIONS
+'-----------------------------
+FUNCTION SecTimer
 
 '-----------------------------
 ' INPUTS
 '-----------------------------
-NUMERIC INPUT UNIT_AVAILABLE         ' From AHU_MODE_DETERMINATION
-NUMERIC INPUT OCC_MODE               ' From AHU_MODE_DETERMINATION
-NUMERIC INPUT UNOCC_MODE             ' From AHU_MODE_DETERMINATION
-NUMERIC INPUT SMOKE_OVERRIDE         ' From AHU_MODE_DETERMINATION
-NUMERIC INPUT SAFETY_LOCKOUT         ' From AHU_MODE_DETERMINATION
+NUMERIC INPUT UNIT_AVAILABLE
+NUMERIC INPUT OCC_MODE
+NUMERIC INPUT UNOCC_MODE
+NUMERIC INPUT SMOKE_OVERRIDE
+NUMERIC INPUT SAFETY_LOCKOUT
 
-NUMERIC INPUT RA_CO2                 ' Return air CO2 ppm
-NUMERIC INPUT OA_CO2                 ' Outdoor air CO2 ppm
+NUMERIC INPUT RA_CO2
+NUMERIC INPUT OA_CO2
 
-NUMERIC INPUT MIN_OA_POS_BASE        ' Base minimum OA position from setpoint manager
-NUMERIC INPUT MIN_OA_POS_MAX         ' Maximum allowed OA minimum reset position
-NUMERIC INPUT CO2_DIFF_ENABLE        ' CO2 differential threshold to increase OA
-NUMERIC INPUT OA_STEP                ' OA position step size
-NUMERIC INPUT OA_STEP_DELAY          ' Delay between OA reset steps in seconds
+NUMERIC INPUT MIN_OA_POS_BASE
+NUMERIC INPUT MIN_OA_POS_MAX
+NUMERIC INPUT CO2_DIFF_ENABLE
+NUMERIC INPUT OA_STEP
+NUMERIC INPUT OA_STEP_DELAY
 
 '-----------------------------
 ' OUTPUTS
 '-----------------------------
-NUMERIC OUTPUT MIN_OA_POS_RESET      ' Active reset minimum OA position
-NUMERIC OUTPUT CO2_RESET_ACTIVE      ' 1 when CO2 reset logic is active
-NUMERIC OUTPUT CO2_HIGH_VENT_REQ     ' 1 when RA_CO2 is above threshold
-NUMERIC OUTPUT CO2_RESET_TIMER       ' Running timer for diagnostics
+NUMERIC OUTPUT MIN_OA_POS_RESET
+NUMERIC OUTPUT CO2_RESET_ACTIVE
+NUMERIC OUTPUT CO2_HIGH_VENT_REQ
+NUMERIC OUTPUT CO2_RESET_TIMER
 
 '-----------------------------
 ' INTERNAL VARIABLES
 '-----------------------------
-NUMERIC CO2_ENABLE_THRESHOLD         ' OA_CO2 + differential threshold
-NUMERIC STEP_READY                   ' Internal step trigger
-NUMERIC SCAN_SEC                     ' Script scan time in seconds
+NUMERIC CO2_ENABLE_THRESHOLD
+NUMERIC STEP_TIMER_DONE
+NUMERIC STEP_TIMER_COND
+
+GOTO INI
 
 '-----------------------------
-' INITIAL VALUES
+' INITIALIZATION
 '-----------------------------
-SCAN_SEC = 1
-
-'==============================================================================
-' SAFE STARTUP / INITIALIZATION
-'==============================================================================
-
-IF MIN_OA_POS_RESET < MIN_OA_POS_BASE THEN
-  MIN_OA_POS_RESET = MIN_OA_POS_BASE
-ENDIF
-
-IF MIN_OA_POS_RESET > MIN_OA_POS_MAX THEN
-  MIN_OA_POS_RESET = MIN_OA_POS_MAX
-ENDIF
-
-'==============================================================================
-' DEFAULT STATUS EACH PASS
-'==============================================================================
-
+INI:
+MIN_OA_POS_RESET = MIN_OA_POS_BASE
 CO2_RESET_ACTIVE = 0
 CO2_HIGH_VENT_REQ = 0
-STEP_READY = 0
+CO2_RESET_TIMER = 0
+CO2_ENABLE_THRESHOLD = 0
+STEP_TIMER_DONE = 0
+STEP_TIMER_COND = 0
+
+GOTO MAIN
 
 '==============================================================================
+' MAIN
+'==============================================================================
+MAIN:
+
+'-----------------------------
+' DEFAULT STATUS EACH PASS
+'-----------------------------
+CO2_RESET_ACTIVE = 0
+CO2_HIGH_VENT_REQ = 0
+STEP_TIMER_COND = 0
+STEP_TIMER_DONE = 0
+
+'-----------------------------
 ' DETERMINE CURRENT CO2 THRESHOLD
-'==============================================================================
-
+'-----------------------------
 CO2_ENABLE_THRESHOLD = OA_CO2 + CO2_DIFF_ENABLE
 
-'==============================================================================
+'-----------------------------
 ' DETERMINE WHETHER RESET LOGIC IS ACTIVE
-'==============================================================================
-
+'-----------------------------
 IF UNIT_AVAILABLE = 1 THEN
   IF OCC_MODE = 1 THEN
     IF UNOCC_MODE = 0 THEN
@@ -98,64 +106,52 @@ IF UNIT_AVAILABLE = 1 THEN
   ENDIF
 ENDIF
 
-'==============================================================================
+'-----------------------------
 ' IF RESET NOT ACTIVE, RETURN TO BASE MINIMUM
-'==============================================================================
-
+'-----------------------------
 IF CO2_RESET_ACTIVE = 0 THEN
   MIN_OA_POS_RESET = MIN_OA_POS_BASE
   CO2_RESET_TIMER = 0
   CO2_HIGH_VENT_REQ = 0
+  GOTO VENT_DONE
 ENDIF
 
-'==============================================================================
-' ACTIVE RESET LOGIC
-'==============================================================================
-
-IF CO2_RESET_ACTIVE = 1 THEN
-
-  '-----------------------------
-  ' DETERMINE WHETHER CO2 IS ABOVE THRESHOLD
-  '-----------------------------
-  IF RA_CO2 >= CO2_ENABLE_THRESHOLD THEN
-    CO2_HIGH_VENT_REQ = 1
-  ENDIF
-
-  IF RA_CO2 < CO2_ENABLE_THRESHOLD THEN
-    CO2_HIGH_VENT_REQ = 0
-  ENDIF
-
-  '-----------------------------
-  ' STEP TIMER
-  '-----------------------------
-  CO2_RESET_TIMER = CO2_RESET_TIMER + SCAN_SEC
-
-  IF CO2_RESET_TIMER >= OA_STEP_DELAY THEN
-    STEP_READY = 1
-  ENDIF
-
-  '-----------------------------
-  ' APPLY OA RESET STEP
-  '-----------------------------
-  IF STEP_READY = 1 THEN
-
-    IF CO2_HIGH_VENT_REQ = 1 THEN
-      MIN_OA_POS_RESET = MIN_OA_POS_RESET + OA_STEP
-    ENDIF
-
-    IF CO2_HIGH_VENT_REQ = 0 THEN
-      MIN_OA_POS_RESET = MIN_OA_POS_RESET - OA_STEP
-    ENDIF
-
-    CO2_RESET_TIMER = 0
-  ENDIF
-
+'-----------------------------
+' DETERMINE WHETHER CO2 IS ABOVE THRESHOLD
+'-----------------------------
+IF RA_CO2 >= CO2_ENABLE_THRESHOLD THEN
+  CO2_HIGH_VENT_REQ = 1
 ENDIF
 
-'==============================================================================
+IF RA_CO2 < CO2_ENABLE_THRESHOLD THEN
+  CO2_HIGH_VENT_REQ = 0
+ENDIF
+
+'-----------------------------
+' STEP TIMER CONDITION
+'-----------------------------
+STEP_TIMER_COND = 1
+STEP_TIMER_DONE = SecTimer(STEP_TIMER_COND, OA_STEP_DELAY, CO2_RESET_TIMER)
+
+'-----------------------------
+' APPLY OA RESET STEP
+'-----------------------------
+IF STEP_TIMER_DONE = 1 THEN
+
+  IF CO2_HIGH_VENT_REQ = 1 THEN
+    MIN_OA_POS_RESET = MIN_OA_POS_RESET + OA_STEP
+  ENDIF
+
+  IF CO2_HIGH_VENT_REQ = 0 THEN
+    MIN_OA_POS_RESET = MIN_OA_POS_RESET - OA_STEP
+  ENDIF
+
+  CO2_RESET_TIMER = 0
+ENDIF
+
+'-----------------------------
 ' CLAMP OUTPUT
-'==============================================================================
-
+'-----------------------------
 IF MIN_OA_POS_RESET < MIN_OA_POS_BASE THEN
   MIN_OA_POS_RESET = MIN_OA_POS_BASE
 ENDIF
@@ -164,4 +160,7 @@ IF MIN_OA_POS_RESET > MIN_OA_POS_MAX THEN
   MIN_OA_POS_RESET = MIN_OA_POS_MAX
 ENDIF
 
+VENT_DONE:
+
 WAIT 1
+GOTO MAIN
