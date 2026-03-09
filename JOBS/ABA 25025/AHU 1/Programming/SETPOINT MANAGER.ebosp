@@ -14,9 +14,8 @@
 '   - Minimum OA Damper Position Base Setpoint
 '
 ' NOTES:
-'   - Adjustable operating parameters are exposed as NUMERIC INPUTS so they can
-'     be tuned from BAS graphics without modifying the script.
-'   - This script does not command hardware directly.
+'   - Includes legacy Siemens-style static reset selection conditions:
+'       OCC OR RAH high OR RAT outside band
 '==============================================================================
 
 '-----------------------------
@@ -27,6 +26,8 @@ NUMERIC INPUT UNOCC_MODE
 NUMERIC INPUT DEHUM_ENABLE
 NUMERIC INPUT MAT_LOW
 NUMERIC INPUT OA_TEMP
+NUMERIC INPUT RA_HUMIDITY
+NUMERIC INPUT RA_TEMP
 
 '-----------------------------
 ' ADJUSTABLE SETPOINT INPUTS
@@ -53,6 +54,13 @@ NUMERIC INPUT RH_SP_UNOCC
 NUMERIC INPUT MIN_OA_POS_DEFAULT
 
 '-----------------------------
+' LEGACY CONDITION INPUTS
+'-----------------------------
+NUMERIC INPUT STATIC_RAH_HIGH_SP
+NUMERIC INPUT STATIC_RAT_HIGH_SP
+NUMERIC INPUT STATIC_RAT_LOW_SP
+
+'-----------------------------
 ' OUTPUTS
 '-----------------------------
 NUMERIC OUTPUT CD_DAT_SP
@@ -62,15 +70,18 @@ NUMERIC OUTPUT HD_STATIC_SP
 NUMERIC OUTPUT BLDG_PRESSURE_SP
 NUMERIC OUTPUT RH_SP
 NUMERIC OUTPUT MIN_OA_POS_BASE
+NUMERIC OUTPUT STATIC_OCC_SELECT
 
 '-----------------------------
 ' INTERNAL VARIABLES
 '-----------------------------
 NUMERIC RESET_SLOPE
 
+GOTO INI
 '-----------------------------
 ' DEFAULT OUTPUTS
 '-----------------------------
+INI:
 CD_DAT_SP = CD_DAT_SP_OCC_NORM
 HD_DAT_SP = HD_DAT_SP_WARM_OA
 CD_STATIC_SP = CD_STATIC_SP_UNOCC
@@ -78,11 +89,12 @@ HD_STATIC_SP = HD_STATIC_SP_UNOCC
 BLDG_PRESSURE_SP = BLDG_PRESSURE_SP_UNOCC
 RH_SP = RH_SP_UNOCC
 MIN_OA_POS_BASE = MIN_OA_POS_DEFAULT
-
+STATIC_OCC_SELECT = 0
+GOTO MAIN
 '==============================================================================
 ' COLD DECK DISCHARGE SETPOINT
 '==============================================================================
-
+MAIN:
 IF DEHUM_ENABLE = 1 THEN
   CD_DAT_SP = CD_DAT_SP_DEHUM
 ENDIF
@@ -114,26 +126,53 @@ IF OA_TEMP < OA_WARM_RESET_PT THEN
 ENDIF
 
 '==============================================================================
-' STATIC PRESSURE / BUILDING PRESSURE / RH SETPOINTS
+' LEGACY STATIC RESET SELECTION
+' Siemens:
+'   OCC OR RAH high OR RAT >= high OR RAT <= low -> OCC static SPs
+'   else -> UNOCC static SPs
 '==============================================================================
 
+STATIC_OCC_SELECT = 0
+
 IF OCC_MODE = 1 THEN
+  STATIC_OCC_SELECT = 1
+ENDIF
+
+IF RA_HUMIDITY >= STATIC_RAH_HIGH_SP THEN
+  STATIC_OCC_SELECT = 1
+ENDIF
+
+IF RA_TEMP >= STATIC_RAT_HIGH_SP THEN
+  STATIC_OCC_SELECT = 1
+ENDIF
+
+IF RA_TEMP <= STATIC_RAT_LOW_SP THEN
+  STATIC_OCC_SELECT = 1
+ENDIF
+
+IF STATIC_OCC_SELECT = 1 THEN
   CD_STATIC_SP = CD_STATIC_SP_OCC
   HD_STATIC_SP = HD_STATIC_SP_OCC
   BLDG_PRESSURE_SP = BLDG_PRESSURE_SP_OCC
-  RH_SP = RH_SP_OCC
 ENDIF
 
-IF UNOCC_MODE = 1 THEN
+IF STATIC_OCC_SELECT = 0 THEN
   CD_STATIC_SP = CD_STATIC_SP_UNOCC
   HD_STATIC_SP = HD_STATIC_SP_UNOCC
   BLDG_PRESSURE_SP = BLDG_PRESSURE_SP_UNOCC
-  RH_SP = RH_SP_UNOCC
 ENDIF
 
 '==============================================================================
-' MAT LOW ADJUSTMENTS
+' RH SETPOINT SELECTION
 '==============================================================================
+
+IF OCC_MODE = 1 THEN
+  RH_SP = RH_SP_OCC
+ENDIF
+
+IF OCC_MODE = 0 THEN
+  RH_SP = RH_SP_UNOCC
+ENDIF
 
 IF MAT_LOW = 1 THEN
   RH_SP = 0
