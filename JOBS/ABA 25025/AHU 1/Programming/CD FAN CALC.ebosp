@@ -9,19 +9,22 @@
 '   - In occupied operation, cold deck fan is enabled and speed modulates to
 '     maintain CD_STATIC_SP.
 '   - In MAT low protection, fan remains enabled and continues static control.
+'   - During active control, final commanded speed is the minimum of PID loop
+'     output and active ramp permissive.
 '   - In safety shutdown, smoke override, system disabled, or unoccupied mode,
 '     fan is commanded off and speed goes to CD_FAN_OFF_SPEED.
 '
 ' NOTES:
 '   - This script does not own alarms.
-'   - PIDControl function is assumed to already exist in the project.
-'   - PID output is expected to be 0-100%.
+'   - PIDControl and SecTimer functions are assumed to already exist in the
+'     project.
 '==============================================================================
 
 '-----------------------------
 ' FUNCTIONS
 '-----------------------------
 FUNCTION PIDControl
+FUNCTION SecTimer
 
 '-----------------------------
 ' MODE INPUTS
@@ -54,6 +57,8 @@ NUMERIC INPUT CD_FAN_MIN_SPEED
 NUMERIC INPUT CD_FAN_MAX_SPEED
 NUMERIC INPUT CD_FAN_OFF_SPEED
 NUMERIC INPUT CD_FAN_ON_CMD
+NUMERIC INPUT CD_FAN_RAMP_TIME_SEC
+NUMERIC INPUT CD_FAN_RAMP_START_SPEED
 
 '-----------------------------
 ' OUTPUTS
@@ -62,6 +67,7 @@ NUMERIC OUTPUT CD_FAN_SS
 NUMERIC OUTPUT CD_FAN_SPEED_CMD
 NUMERIC OUTPUT CD_FAN_PID_OUT
 NUMERIC OUTPUT CD_FAN_MODE_CODE
+NUMERIC OUTPUT CD_FAN_RAMP_PERM
 
 '-----------------------------
 ' INTERNAL VARIABLES
@@ -70,6 +76,10 @@ NUMERIC CD_FAN_PID_I_TERM
 NUMERIC CD_FAN_PID_OLD_ERR
 NUMERIC CD_FAN_ACTIVE_SPEED
 NUMERIC CD_FAN_ENABLE
+NUMERIC CD_FAN_LOOP_CMD
+NUMERIC CD_FAN_RAMP_TMR
+NUMERIC CD_FAN_RAMP_ENABLE
+NUMERIC CD_FAN_RAMP_DONE
 
 '==============================================================================
 ' DEFAULTS EACH PASS
@@ -79,20 +89,15 @@ CD_FAN_ENABLE = 0
 CD_FAN_ACTIVE_SPEED = CD_FAN_OFF_SPEED
 CD_FAN_PID_OUT = 0
 CD_FAN_MODE_CODE = 0
+CD_FAN_LOOP_CMD = CD_FAN_OFF_SPEED
+CD_FAN_RAMP_ENABLE = 0
+CD_FAN_RAMP_DONE = 0
+CD_FAN_RAMP_PERM = CD_FAN_OFF_SPEED
 
 '==============================================================================
 ' MODE-BASED COMMAND SELECTION
-' PRIORITY:
-'   1. SAFETY LOCKOUT
-'   2. SMOKE OVERRIDE
-'   3. VFD FAULT
-'   4. DISABLED / UNOCCUPIED
-'   5. OCCUPIED / DEHUM / MAT LOW STATIC CONTROL
 '==============================================================================
 
-'-----------------------------
-' PRIORITY 1 - SAFETY LOCKOUT
-'-----------------------------
 IF SAFETY_LOCKOUT = 1 THEN
   CD_FAN_ENABLE = 0
   CD_FAN_ACTIVE_SPEED = CD_FAN_OFF_SPEED
@@ -101,9 +106,6 @@ ENDIF
 
 IF SAFETY_LOCKOUT = 0 THEN
 
-  '-----------------------------
-  ' PRIORITY 2 - SMOKE OVERRIDE
-  '-----------------------------
   IF SMOKE_OVERRIDE = 1 THEN
     CD_FAN_ENABLE = 0
     CD_FAN_ACTIVE_SPEED = CD_FAN_OFF_SPEED
@@ -112,9 +114,6 @@ IF SAFETY_LOCKOUT = 0 THEN
 
   IF SMOKE_OVERRIDE = 0 THEN
 
-    '-----------------------------
-    ' PRIORITY 3 - VFD FAULT
-    '-----------------------------
     IF CD_VFD_FAULT = 1 THEN
       CD_FAN_ENABLE = 0
       CD_FAN_ACTIVE_SPEED = CD_FAN_OFF_SPEED
@@ -123,9 +122,6 @@ IF SAFETY_LOCKOUT = 0 THEN
 
     IF CD_VFD_FAULT = 0 THEN
 
-      '-----------------------------
-      ' PRIORITY 4 - DISABLED / UNOCCUPIED
-      '-----------------------------
       IF UNIT_AVAILABLE = 0 THEN
         CD_FAN_ENABLE = 0
         CD_FAN_ACTIVE_SPEED = CD_FAN_OFF_SPEED
@@ -142,13 +138,10 @@ IF SAFETY_LOCKOUT = 0 THEN
 
         IF UNOCC_MODE = 0 THEN
 
-          '-----------------------------
-          ' PRIORITY 5 - OCCUPIED / DEHUM / MAT LOW
-          '-----------------------------
           IF OCC_MODE = 1 THEN
             CD_FAN_ENABLE = CD_FAN_ON_CMD
             CD_FAN_PID_OUT = PIDControl(1, CD_DUCT_STATIC, CD_STATIC_SP, CD_FAN_PID_I_TERM, CD_FAN_PID_P, CD_FAN_PID_I, CD_FAN_PID_D, CD_FAN_PID_OLD_ERR)
-            CD_FAN_ACTIVE_SPEED = CD_FAN_PID_OUT
+            CD_FAN_LOOP_CMD = CD_FAN_PID_OUT
             CD_FAN_MODE_CODE = 1
           ENDIF
 
@@ -156,7 +149,7 @@ IF SAFETY_LOCKOUT = 0 THEN
             IF MAT_LOW = 1 THEN
               CD_FAN_ENABLE = CD_FAN_ON_CMD
               CD_FAN_PID_OUT = PIDControl(1, CD_DUCT_STATIC, CD_STATIC_SP, CD_FAN_PID_I_TERM, CD_FAN_PID_P, CD_FAN_PID_I, CD_FAN_PID_D, CD_FAN_PID_OLD_ERR)
-              CD_FAN_ACTIVE_SPEED = CD_FAN_PID_OUT
+              CD_FAN_LOOP_CMD = CD_FAN_PID_OUT
               CD_FAN_MODE_CODE = 4
             ENDIF
           ENDIF
@@ -172,31 +165,87 @@ IF SAFETY_LOCKOUT = 0 THEN
 ENDIF
 
 '==============================================================================
-' NORMAL CONTROL CLAMPS
+' NORMAL LOOP CLAMPS
 '==============================================================================
 
 IF CD_FAN_MODE_CODE = 1 THEN
-
-  IF CD_FAN_ACTIVE_SPEED < CD_FAN_MIN_SPEED THEN
-    CD_FAN_ACTIVE_SPEED = CD_FAN_MIN_SPEED
+  IF CD_FAN_LOOP_CMD < CD_FAN_MIN_SPEED THEN
+    CD_FAN_LOOP_CMD = CD_FAN_MIN_SPEED
   ENDIF
 
-  IF CD_FAN_ACTIVE_SPEED > CD_FAN_MAX_SPEED THEN
-    CD_FAN_ACTIVE_SPEED = CD_FAN_MAX_SPEED
+  IF CD_FAN_LOOP_CMD > CD_FAN_MAX_SPEED THEN
+    CD_FAN_LOOP_CMD = CD_FAN_MAX_SPEED
+  ENDIF
+ENDIF
+
+IF CD_FAN_MODE_CODE = 4 THEN
+  IF CD_FAN_LOOP_CMD < CD_FAN_MIN_SPEED THEN
+    CD_FAN_LOOP_CMD = CD_FAN_MIN_SPEED
+  ENDIF
+
+  IF CD_FAN_LOOP_CMD > CD_FAN_MAX_SPEED THEN
+    CD_FAN_LOOP_CMD = CD_FAN_MAX_SPEED
+  ENDIF
+ENDIF
+
+'==============================================================================
+' RAMP PERMISSIVE
+'==============================================================================
+
+IF CD_FAN_MODE_CODE = 1 THEN
+  IF CD_FAN_ENABLE = CD_FAN_ON_CMD THEN
+    CD_FAN_RAMP_ENABLE = 1
+  ENDIF
+ENDIF
+
+IF CD_FAN_MODE_CODE = 4 THEN
+  IF CD_FAN_ENABLE = CD_FAN_ON_CMD THEN
+    CD_FAN_RAMP_ENABLE = 1
+  ENDIF
+ENDIF
+
+CD_FAN_RAMP_DONE = SecTimer(CD_FAN_RAMP_ENABLE, CD_FAN_RAMP_TIME_SEC, CD_FAN_RAMP_TMR)
+
+IF CD_FAN_RAMP_ENABLE = 0 THEN
+  CD_FAN_RAMP_PERM = CD_FAN_OFF_SPEED
+ENDIF
+
+IF CD_FAN_RAMP_ENABLE = 1 THEN
+
+  IF CD_FAN_RAMP_DONE = 1 THEN
+    CD_FAN_RAMP_PERM = 100
+  ENDIF
+
+  IF CD_FAN_RAMP_DONE = 0 THEN
+    IF CD_FAN_RAMP_TIME_SEC > 0 THEN
+      CD_FAN_RAMP_PERM = CD_FAN_RAMP_START_SPEED + ((100 - CD_FAN_RAMP_START_SPEED) * (CD_FAN_RAMP_TMR / CD_FAN_RAMP_TIME_SEC))
+    ENDIF
   ENDIF
 
 ENDIF
 
+'==============================================================================
+' APPLY MINIMUM OF LOOP OUTPUT AND RAMP PERMISSIVE
+'==============================================================================
+
+IF CD_FAN_MODE_CODE = 1 THEN
+  IF CD_FAN_LOOP_CMD <= CD_FAN_RAMP_PERM THEN
+    CD_FAN_ACTIVE_SPEED = CD_FAN_LOOP_CMD
+  ENDIF
+
+  IF CD_FAN_LOOP_CMD > CD_FAN_RAMP_PERM THEN
+    CD_FAN_ACTIVE_SPEED = CD_FAN_RAMP_PERM
+  ENDIF
+ENDIF
+
 IF CD_FAN_MODE_CODE = 4 THEN
-
-  IF CD_FAN_ACTIVE_SPEED < CD_FAN_MIN_SPEED THEN
-    CD_FAN_ACTIVE_SPEED = CD_FAN_MIN_SPEED
+  IF CD_FAN_LOOP_CMD <= CD_FAN_RAMP_PERM THEN
+    CD_FAN_ACTIVE_SPEED = CD_FAN_LOOP_CMD
   ENDIF
 
-  IF CD_FAN_ACTIVE_SPEED > CD_FAN_MAX_SPEED THEN
-    CD_FAN_ACTIVE_SPEED = CD_FAN_MAX_SPEED
+  IF CD_FAN_LOOP_CMD > CD_FAN_RAMP_PERM THEN
+    CD_FAN_ACTIVE_SPEED = CD_FAN_RAMP_PERM
   ENDIF
-
 ENDIF
 
 '==============================================================================

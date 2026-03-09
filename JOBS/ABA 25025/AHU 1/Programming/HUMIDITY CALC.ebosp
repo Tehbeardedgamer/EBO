@@ -9,8 +9,8 @@
 '   - In occupied normal mode, humidifier may enable and the humidity valve
 '     modulates to maintain RH_SP.
 '   - In dehumidification mode, MAT low protection, smoke override, safety
-'     shutdown, unoccupied mode, or system disable, humidifier is disabled and
-'     valve goes to HUM_VALVE_OFF_POS.
+'     shutdown, OAT lockout, unoccupied mode, or system disable, humidifier is
+'     disabled and valve goes to HUM_VALVE_OFF_POS.
 '   - If humidifier low-pressure safety is active, humidifier is disabled and
 '     valve goes to HUM_VALVE_OFF_POS.
 '
@@ -28,52 +28,54 @@ FUNCTION PIDControl
 '-----------------------------
 ' MODE INPUTS
 '-----------------------------
-NUMERIC INPUT UNIT_AVAILABLE         ' From AHU_MODE_DETERMINATION
-NUMERIC INPUT OCC_MODE               ' From AHU_MODE_DETERMINATION
-NUMERIC INPUT UNOCC_MODE             ' From AHU_MODE_DETERMINATION
-NUMERIC INPUT DEHUM_ENABLE           ' From AHU_MODE_DETERMINATION
-NUMERIC INPUT SMOKE_OVERRIDE         ' From AHU_MODE_DETERMINATION
-NUMERIC INPUT SAFETY_LOCKOUT         ' From AHU_MODE_DETERMINATION
-NUMERIC INPUT MAT_LOW                ' From AHU_MODE_DETERMINATION
-NUMERIC INPUT HUM_ENABLE_PERMIT      ' From AHU_MODE_DETERMINATION
+NUMERIC INPUT UNIT_AVAILABLE
+NUMERIC INPUT OCC_MODE
+NUMERIC INPUT UNOCC_MODE
+NUMERIC INPUT DEHUM_ENABLE
+NUMERIC INPUT SMOKE_OVERRIDE
+NUMERIC INPUT SAFETY_LOCKOUT
+NUMERIC INPUT MAT_LOW
+NUMERIC INPUT HUM_ENABLE_PERMIT
 
 '-----------------------------
 ' PROCESS INPUTS
 '-----------------------------
-NUMERIC INPUT RA_HUMIDITY            ' Return air humidity
-NUMERIC INPUT RH_SP                  ' Active humidity setpoint
+NUMERIC INPUT RA_HUMIDITY
+NUMERIC INPUT RH_SP
+NUMERIC INPUT OA_TEMP
 
 '-----------------------------
 ' HARDWIRED / SAFETY INPUTS
 '-----------------------------
-NUMERIC INPUT HUMDIFIER_LP_SAFETY    ' Humidifier low-pressure safety
-NUMERIC INPUT HUMIDIFIER_ENABLE_CMD  ' BAS/operator enable for humidifier
+NUMERIC INPUT HUMDIFIER_LP_SAFETY
+NUMERIC INPUT HUMIDIFIER_ENABLE_CMD
 
 '-----------------------------
 ' ADJUSTABLE INPUTS
 '-----------------------------
-NUMERIC INPUT HUM_PID_P              ' Humidity PID proportional gain
-NUMERIC INPUT HUM_PID_I              ' Humidity PID integral gain
-NUMERIC INPUT HUM_PID_D              ' Humidity PID derivative gain
-NUMERIC INPUT HUM_VALVE_MIN_POS      ' Minimum allowed valve command in normal control
-NUMERIC INPUT HUM_VALVE_MAX_POS      ' Maximum allowed valve command in normal control
-NUMERIC INPUT HUM_VALVE_OFF_POS      ' Valve position when commanded off
-NUMERIC INPUT HUM_ENABLE_ON_POS      ' Minimum valve position required to enable humidifier
+NUMERIC INPUT HUM_PID_P
+NUMERIC INPUT HUM_PID_I
+NUMERIC INPUT HUM_PID_D
+NUMERIC INPUT HUM_VALVE_MIN_POS
+NUMERIC INPUT HUM_VALVE_MAX_POS
+NUMERIC INPUT HUM_VALVE_OFF_POS
+NUMERIC INPUT HUM_ENABLE_ON_POS
+NUMERIC INPUT HUM_OAT_LOCKOUT_SP
 
 '-----------------------------
 ' OUTPUTS
 '-----------------------------
-NUMERIC OUTPUT HUMIDITY_VALVE_CMD    ' Final humidity valve command
-NUMERIC OUTPUT HUMIDIFIER_ENABLE     ' Final humidifier enable command
-NUMERIC OUTPUT HUM_VALVE_PID_OUT     ' Raw PID output before final clamp
-NUMERIC OUTPUT HUM_MODE_CODE         ' Diagnostic mode code
+NUMERIC OUTPUT HUMIDITY_VALVE_CMD
+NUMERIC OUTPUT HUMIDIFIER_ENABLE
+NUMERIC OUTPUT HUM_VALVE_PID_OUT
+NUMERIC OUTPUT HUM_MODE_CODE
 
 '-----------------------------
 ' INTERNAL VARIABLES
 '-----------------------------
-NUMERIC HUM_PID_I_TERM               ' PID integral storage
-NUMERIC HUM_PID_OLD_ERR              ' PID previous error
-NUMERIC HUM_ACTIVE_CMD               ' Working command before final output
+NUMERIC HUM_PID_I_TERM
+NUMERIC HUM_PID_OLD_ERR
+NUMERIC HUM_ACTIVE_CMD
 
 '==============================================================================
 ' DEFAULTS EACH PASS
@@ -91,14 +93,12 @@ HUM_MODE_CODE = 0
 '   2. SMOKE OVERRIDE
 '   3. MAT LOW PROTECTION
 '   4. DEHUMIDIFICATION
-'   5. DISABLED / UNOCCUPIED
-'   6. LP SAFETY
-'   7. OCCUPIED NORMAL HUMIDITY CONTROL
+'   5. OAT LOCKOUT
+'   6. DISABLED / UNOCCUPIED
+'   7. LP SAFETY
+'   8. OCCUPIED NORMAL HUMIDITY CONTROL
 '==============================================================================
 
-'-----------------------------
-' PRIORITY 1 - SAFETY LOCKOUT
-'-----------------------------
 IF SAFETY_LOCKOUT = 1 THEN
   HUM_ACTIVE_CMD = HUM_VALVE_OFF_POS
   HUMIDIFIER_ENABLE = 0
@@ -107,9 +107,6 @@ ENDIF
 
 IF SAFETY_LOCKOUT = 0 THEN
 
-  '-----------------------------
-  ' PRIORITY 2 - SMOKE OVERRIDE
-  '-----------------------------
   IF SMOKE_OVERRIDE = 1 THEN
     HUM_ACTIVE_CMD = HUM_VALVE_OFF_POS
     HUMIDIFIER_ENABLE = 0
@@ -118,9 +115,6 @@ IF SAFETY_LOCKOUT = 0 THEN
 
   IF SMOKE_OVERRIDE = 0 THEN
 
-    '-----------------------------
-    ' PRIORITY 3 - MAT LOW
-    '-----------------------------
     IF MAT_LOW = 1 THEN
       HUM_ACTIVE_CMD = HUM_VALVE_OFF_POS
       HUMIDIFIER_ENABLE = 0
@@ -129,9 +123,6 @@ IF SAFETY_LOCKOUT = 0 THEN
 
     IF MAT_LOW = 0 THEN
 
-      '-----------------------------
-      ' PRIORITY 4 - DEHUM
-      '-----------------------------
       IF DEHUM_ENABLE = 1 THEN
         HUM_ACTIVE_CMD = HUM_VALVE_OFF_POS
         HUMIDIFIER_ENABLE = 0
@@ -140,53 +131,54 @@ IF SAFETY_LOCKOUT = 0 THEN
 
       IF DEHUM_ENABLE = 0 THEN
 
-        '-----------------------------
-        ' PRIORITY 5 - DISABLED / UNOCCUPIED
-        '-----------------------------
-        IF UNIT_AVAILABLE = 0 THEN
+        IF OA_TEMP > HUM_OAT_LOCKOUT_SP THEN
           HUM_ACTIVE_CMD = HUM_VALVE_OFF_POS
           HUMIDIFIER_ENABLE = 0
-          HUM_MODE_CODE = 0
+          HUM_MODE_CODE = 8
         ENDIF
 
-        IF UNIT_AVAILABLE = 1 THEN
+        IF OA_TEMP <= HUM_OAT_LOCKOUT_SP THEN
 
-          IF UNOCC_MODE = 1 THEN
+          IF UNIT_AVAILABLE = 0 THEN
             HUM_ACTIVE_CMD = HUM_VALVE_OFF_POS
             HUMIDIFIER_ENABLE = 0
             HUM_MODE_CODE = 0
           ENDIF
 
-          IF UNOCC_MODE = 0 THEN
+          IF UNIT_AVAILABLE = 1 THEN
 
-            '-----------------------------
-            ' PRIORITY 6 - LP SAFETY
-            '-----------------------------
-            IF HUMDIFIER_LP_SAFETY = 1 THEN
+            IF UNOCC_MODE = 1 THEN
               HUM_ACTIVE_CMD = HUM_VALVE_OFF_POS
               HUMIDIFIER_ENABLE = 0
-              HUM_MODE_CODE = 7
+              HUM_MODE_CODE = 0
             ENDIF
 
-            IF HUMDIFIER_LP_SAFETY = 0 THEN
+            IF UNOCC_MODE = 0 THEN
 
-              '-----------------------------
-              ' PRIORITY 7 - OCCUPIED NORMAL CONTROL
-              '-----------------------------
-              IF OCC_MODE = 1 THEN
-                IF HUM_ENABLE_PERMIT = 1 THEN
-                  IF HUMIDIFIER_ENABLE_CMD = 1 THEN
-                    HUM_VALVE_PID_OUT = PIDControl(1, RA_HUMIDITY, RH_SP, HUM_PID_I_TERM, HUM_PID_P, HUM_PID_I, HUM_PID_D, HUM_PID_OLD_ERR)
-                    HUM_ACTIVE_CMD = HUM_VALVE_PID_OUT
-                    HUM_MODE_CODE = 1
-                  ENDIF
-                ENDIF
-              ENDIF
-
-              IF OCC_MODE = 0 THEN
+              IF HUMDIFIER_LP_SAFETY = 1 THEN
                 HUM_ACTIVE_CMD = HUM_VALVE_OFF_POS
                 HUMIDIFIER_ENABLE = 0
-                HUM_MODE_CODE = 0
+                HUM_MODE_CODE = 7
+              ENDIF
+
+              IF HUMDIFIER_LP_SAFETY = 0 THEN
+
+                IF OCC_MODE = 1 THEN
+                  IF HUM_ENABLE_PERMIT = 1 THEN
+                    IF HUMIDIFIER_ENABLE_CMD = 1 THEN
+                      HUM_VALVE_PID_OUT = PIDControl(1, RA_HUMIDITY, RH_SP, HUM_PID_I_TERM, HUM_PID_P, HUM_PID_I, HUM_PID_D, HUM_PID_OLD_ERR)
+                      HUM_ACTIVE_CMD = HUM_VALVE_PID_OUT
+                      HUM_MODE_CODE = 1
+                    ENDIF
+                  ENDIF
+                ENDIF
+
+                IF OCC_MODE = 0 THEN
+                  HUM_ACTIVE_CMD = HUM_VALVE_OFF_POS
+                  HUMIDIFIER_ENABLE = 0
+                  HUM_MODE_CODE = 0
+                ENDIF
+
               ENDIF
 
             ENDIF

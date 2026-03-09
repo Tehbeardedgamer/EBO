@@ -10,6 +10,8 @@
 '     to maintain BLDG_PRESSURE_SP.
 '   - In MAT low protection, available RA fans remain enabled and continue
 '     pressure control.
+'   - Final commanded return fan speed is the minimum of loop output and active
+'     ramp permissive.
 '   - In safety shutdown, smoke override, system disabled, or unoccupied mode,
 '     both RA fans are commanded off and speed goes to RA_FAN_OFF_SPEED.
 '   - If one VFD is faulted, the remaining healthy fan continues to run.
@@ -17,14 +19,15 @@
 '
 ' NOTES:
 '   - This script does not own alarms.
-'   - PIDControl function is assumed to already exist in the project.
-'   - PID output is expected to be 0-100%.
+'   - PIDControl and SecTimer functions are assumed to already exist in the
+'     project.
 '==============================================================================
 
 '-----------------------------
 ' FUNCTIONS
 '-----------------------------
 FUNCTION PIDControl
+FUNCTION SecTimer
 
 '-----------------------------
 ' MODE INPUTS
@@ -58,6 +61,8 @@ NUMERIC INPUT RA_FAN_MIN_SPEED
 NUMERIC INPUT RA_FAN_MAX_SPEED
 NUMERIC INPUT RA_FAN_OFF_SPEED
 NUMERIC INPUT RA_FAN_ON_CMD
+NUMERIC INPUT RA_FAN_RAMP_TIME_SEC
+NUMERIC INPUT RA_FAN_RAMP_START_SPEED
 
 '-----------------------------
 ' OUTPUTS
@@ -68,6 +73,7 @@ NUMERIC OUTPUT RA_FAN_SPEED_CMD_1
 NUMERIC OUTPUT RA_FAN_SPEED_CMD_2
 NUMERIC OUTPUT RA_FAN_PID_OUT
 NUMERIC OUTPUT RA_FAN_MODE_CODE
+NUMERIC OUTPUT RA_FAN_RAMP_PERM
 
 '-----------------------------
 ' INTERNAL VARIABLES
@@ -79,6 +85,10 @@ NUMERIC RA_FAN_ENABLE_1
 NUMERIC RA_FAN_ENABLE_2
 NUMERIC RA_FAN_AVAIL_1
 NUMERIC RA_FAN_AVAIL_2
+NUMERIC RA_FAN_LOOP_CMD
+NUMERIC RA_FAN_RAMP_TMR
+NUMERIC RA_FAN_RAMP_ENABLE
+NUMERIC RA_FAN_RAMP_DONE
 
 '==============================================================================
 ' DEFAULTS EACH PASS
@@ -91,6 +101,10 @@ RA_FAN_AVAIL_2 = 0
 RA_FAN_ACTIVE_SPEED = RA_FAN_OFF_SPEED
 RA_FAN_PID_OUT = 0
 RA_FAN_MODE_CODE = 0
+RA_FAN_LOOP_CMD = RA_FAN_OFF_SPEED
+RA_FAN_RAMP_ENABLE = 0
+RA_FAN_RAMP_DONE = 0
+RA_FAN_RAMP_PERM = RA_FAN_OFF_SPEED
 
 '==============================================================================
 ' DETERMINE FAN AVAILABILITY
@@ -106,16 +120,8 @@ ENDIF
 
 '==============================================================================
 ' MODE-BASED COMMAND SELECTION
-' PRIORITY:
-'   1. SAFETY LOCKOUT
-'   2. SMOKE OVERRIDE
-'   3. DISABLED / UNOCCUPIED
-'   4. OCCUPIED / DEHUM / MAT LOW PRESSURE CONTROL
 '==============================================================================
 
-'-----------------------------
-' PRIORITY 1 - SAFETY LOCKOUT
-'-----------------------------
 IF SAFETY_LOCKOUT = 1 THEN
   RA_FAN_ENABLE_1 = 0
   RA_FAN_ENABLE_2 = 0
@@ -125,9 +131,6 @@ ENDIF
 
 IF SAFETY_LOCKOUT = 0 THEN
 
-  '-----------------------------
-  ' PRIORITY 2 - SMOKE OVERRIDE
-  '-----------------------------
   IF SMOKE_OVERRIDE = 1 THEN
     RA_FAN_ENABLE_1 = 0
     RA_FAN_ENABLE_2 = 0
@@ -137,9 +140,6 @@ IF SAFETY_LOCKOUT = 0 THEN
 
   IF SMOKE_OVERRIDE = 0 THEN
 
-    '-----------------------------
-    ' PRIORITY 3 - DISABLED / UNOCCUPIED
-    '-----------------------------
     IF UNIT_AVAILABLE = 0 THEN
       RA_FAN_ENABLE_1 = 0
       RA_FAN_ENABLE_2 = 0
@@ -158,12 +158,9 @@ IF SAFETY_LOCKOUT = 0 THEN
 
       IF UNOCC_MODE = 0 THEN
 
-        '-----------------------------
-        ' PRIORITY 4 - OCCUPIED / DEHUM / MAT LOW
-        '-----------------------------
         IF OCC_MODE = 1 THEN
           RA_FAN_PID_OUT = PIDControl(1, BUILDING_PRESSURE, BLDG_PRESSURE_SP, RA_FAN_PID_I_TERM, RA_FAN_PID_P, RA_FAN_PID_I, RA_FAN_PID_D, RA_FAN_PID_OLD_ERR)
-          RA_FAN_ACTIVE_SPEED = RA_FAN_PID_OUT
+          RA_FAN_LOOP_CMD = RA_FAN_PID_OUT
 
           IF RA_FAN_AVAIL_1 = 1 THEN
             RA_FAN_ENABLE_1 = RA_FAN_ON_CMD
@@ -179,7 +176,7 @@ IF SAFETY_LOCKOUT = 0 THEN
         IF OCC_MODE = 0 THEN
           IF MAT_LOW = 1 THEN
             RA_FAN_PID_OUT = PIDControl(1, BUILDING_PRESSURE, BLDG_PRESSURE_SP, RA_FAN_PID_I_TERM, RA_FAN_PID_P, RA_FAN_PID_I, RA_FAN_PID_D, RA_FAN_PID_OLD_ERR)
-            RA_FAN_ACTIVE_SPEED = RA_FAN_PID_OUT
+            RA_FAN_LOOP_CMD = RA_FAN_PID_OUT
 
             IF RA_FAN_AVAIL_1 = 1 THEN
               RA_FAN_ENABLE_1 = RA_FAN_ON_CMD
@@ -215,31 +212,93 @@ IF RA_FAN_AVAIL_1 = 0 THEN
 ENDIF
 
 '==============================================================================
-' NORMAL CONTROL CLAMPS
+' NORMAL LOOP CLAMPS
 '==============================================================================
 
 IF RA_FAN_MODE_CODE = 1 THEN
-
-  IF RA_FAN_ACTIVE_SPEED < RA_FAN_MIN_SPEED THEN
-    RA_FAN_ACTIVE_SPEED = RA_FAN_MIN_SPEED
+  IF RA_FAN_LOOP_CMD < RA_FAN_MIN_SPEED THEN
+    RA_FAN_LOOP_CMD = RA_FAN_MIN_SPEED
   ENDIF
 
-  IF RA_FAN_ACTIVE_SPEED > RA_FAN_MAX_SPEED THEN
-    RA_FAN_ACTIVE_SPEED = RA_FAN_MAX_SPEED
+  IF RA_FAN_LOOP_CMD > RA_FAN_MAX_SPEED THEN
+    RA_FAN_LOOP_CMD = RA_FAN_MAX_SPEED
+  ENDIF
+ENDIF
+
+IF RA_FAN_MODE_CODE = 4 THEN
+  IF RA_FAN_LOOP_CMD < RA_FAN_MIN_SPEED THEN
+    RA_FAN_LOOP_CMD = RA_FAN_MIN_SPEED
+  ENDIF
+
+  IF RA_FAN_LOOP_CMD > RA_FAN_MAX_SPEED THEN
+    RA_FAN_LOOP_CMD = RA_FAN_MAX_SPEED
+  ENDIF
+ENDIF
+
+'==============================================================================
+' RAMP PERMISSIVE
+'==============================================================================
+
+IF RA_FAN_MODE_CODE = 1 THEN
+  IF RA_FAN_ENABLE_1 = RA_FAN_ON_CMD THEN
+    RA_FAN_RAMP_ENABLE = 1
+  ENDIF
+  IF RA_FAN_ENABLE_2 = RA_FAN_ON_CMD THEN
+    RA_FAN_RAMP_ENABLE = 1
+  ENDIF
+ENDIF
+
+IF RA_FAN_MODE_CODE = 4 THEN
+  IF RA_FAN_ENABLE_1 = RA_FAN_ON_CMD THEN
+    RA_FAN_RAMP_ENABLE = 1
+  ENDIF
+  IF RA_FAN_ENABLE_2 = RA_FAN_ON_CMD THEN
+    RA_FAN_RAMP_ENABLE = 1
+  ENDIF
+ENDIF
+
+RA_FAN_RAMP_DONE = SecTimer(RA_FAN_RAMP_ENABLE, RA_FAN_RAMP_TIME_SEC, RA_FAN_RAMP_TMR)
+
+IF RA_FAN_RAMP_ENABLE = 0 THEN
+  RA_FAN_RAMP_PERM = RA_FAN_OFF_SPEED
+ENDIF
+
+IF RA_FAN_RAMP_ENABLE = 1 THEN
+
+  IF RA_FAN_RAMP_DONE = 1 THEN
+    RA_FAN_RAMP_PERM = 100
+  ENDIF
+
+  IF RA_FAN_RAMP_DONE = 0 THEN
+    IF RA_FAN_RAMP_TIME_SEC > 0 THEN
+      RA_FAN_RAMP_PERM = RA_FAN_RAMP_START_SPEED + ((100 - RA_FAN_RAMP_START_SPEED) * (RA_FAN_RAMP_TMR / RA_FAN_RAMP_TIME_SEC))
+    ENDIF
   ENDIF
 
 ENDIF
 
+'==============================================================================
+' APPLY MINIMUM OF LOOP OUTPUT AND RAMP PERMISSIVE
+'==============================================================================
+
+IF RA_FAN_MODE_CODE = 1 THEN
+  IF RA_FAN_LOOP_CMD <= RA_FAN_RAMP_PERM THEN
+    RA_FAN_ACTIVE_SPEED = RA_FAN_LOOP_CMD
+  ENDIF
+
+  IF RA_FAN_LOOP_CMD > RA_FAN_RAMP_PERM THEN
+    RA_FAN_ACTIVE_SPEED = RA_FAN_RAMP_PERM
+  ENDIF
+ENDIF
+
 IF RA_FAN_MODE_CODE = 4 THEN
-
-  IF RA_FAN_ACTIVE_SPEED < RA_FAN_MIN_SPEED THEN
-    RA_FAN_ACTIVE_SPEED = RA_FAN_MIN_SPEED
+  IF RA_FAN_LOOP_CMD <= RA_FAN_RAMP_PERM THEN
+    RA_FAN_ACTIVE_SPEED = RA_FAN_LOOP_CMD
   ENDIF
 
-  IF RA_FAN_ACTIVE_SPEED > RA_FAN_MAX_SPEED THEN
-    RA_FAN_ACTIVE_SPEED = RA_FAN_MAX_SPEED
+  IF RA_FAN_LOOP_CMD > RA_FAN_RAMP_PERM THEN
+    RA_FAN_ACTIVE_SPEED = RA_FAN_RAMP_PERM
   ENDIF
-
 ENDIF
 
 '==============================================================================

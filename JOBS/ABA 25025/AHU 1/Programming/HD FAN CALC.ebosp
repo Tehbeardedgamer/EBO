@@ -9,20 +9,23 @@
 '   - In occupied operation, hot deck fan is enabled and speed modulates to
 '     maintain HD_STATIC_SP.
 '   - In MAT low protection, fan remains enabled and continues static control.
+'   - During active normal/freeze control, final commanded speed is the minimum
+'     of PID loop output and active ramp permissive.
 '   - In smoke override, fan is enabled and speed goes to HD_FAN_SMOKE_SPEED.
 '   - In safety shutdown, system disabled, or unoccupied mode, fan is commanded
 '     off and speed goes to HD_FAN_OFF_SPEED.
 '
 ' NOTES:
 '   - This script does not own alarms.
-'   - PIDControl function is assumed to already exist in the project.
-'   - PID output is expected to be 0-100%.
+'   - PIDControl and SecTimer functions are assumed to already exist in the
+'     project.
 '==============================================================================
 
 '-----------------------------
 ' FUNCTIONS
 '-----------------------------
 FUNCTION PIDControl
+FUNCTION SecTimer
 
 '-----------------------------
 ' MODE INPUTS
@@ -56,6 +59,8 @@ NUMERIC INPUT HD_FAN_MAX_SPEED
 NUMERIC INPUT HD_FAN_OFF_SPEED
 NUMERIC INPUT HD_FAN_ON_CMD
 NUMERIC INPUT HD_FAN_SMOKE_SPEED
+NUMERIC INPUT HD_FAN_RAMP_TIME_SEC
+NUMERIC INPUT HD_FAN_RAMP_START_SPEED
 
 '-----------------------------
 ' OUTPUTS
@@ -64,6 +69,7 @@ NUMERIC OUTPUT HD_FAN_SS
 NUMERIC OUTPUT HD_FAN_SPEED_CMD
 NUMERIC OUTPUT HD_FAN_PID_OUT
 NUMERIC OUTPUT HD_FAN_MODE_CODE
+NUMERIC OUTPUT HD_FAN_RAMP_PERM
 
 '-----------------------------
 ' INTERNAL VARIABLES
@@ -72,6 +78,10 @@ NUMERIC HD_FAN_PID_I_TERM
 NUMERIC HD_FAN_PID_OLD_ERR
 NUMERIC HD_FAN_ACTIVE_SPEED
 NUMERIC HD_FAN_ENABLE
+NUMERIC HD_FAN_LOOP_CMD
+NUMERIC HD_FAN_RAMP_TMR
+NUMERIC HD_FAN_RAMP_ENABLE
+NUMERIC HD_FAN_RAMP_DONE
 
 '==============================================================================
 ' DEFAULTS EACH PASS
@@ -81,20 +91,15 @@ HD_FAN_ENABLE = 0
 HD_FAN_ACTIVE_SPEED = HD_FAN_OFF_SPEED
 HD_FAN_PID_OUT = 0
 HD_FAN_MODE_CODE = 0
+HD_FAN_LOOP_CMD = HD_FAN_OFF_SPEED
+HD_FAN_RAMP_ENABLE = 0
+HD_FAN_RAMP_DONE = 0
+HD_FAN_RAMP_PERM = HD_FAN_OFF_SPEED
 
 '==============================================================================
 ' MODE-BASED COMMAND SELECTION
-' PRIORITY:
-'   1. SAFETY LOCKOUT
-'   2. SMOKE OVERRIDE
-'   3. VFD FAULT
-'   4. DISABLED / UNOCCUPIED
-'   5. OCCUPIED / DEHUM / MAT LOW STATIC CONTROL
 '==============================================================================
 
-'-----------------------------
-' PRIORITY 1 - SAFETY LOCKOUT
-'-----------------------------
 IF SAFETY_LOCKOUT = 1 THEN
   HD_FAN_ENABLE = 0
   HD_FAN_ACTIVE_SPEED = HD_FAN_OFF_SPEED
@@ -103,9 +108,6 @@ ENDIF
 
 IF SAFETY_LOCKOUT = 0 THEN
 
-  '-----------------------------
-  ' PRIORITY 2 - SMOKE OVERRIDE
-  '-----------------------------
   IF SMOKE_OVERRIDE = 1 THEN
     HD_FAN_ENABLE = HD_FAN_ON_CMD
     HD_FAN_ACTIVE_SPEED = HD_FAN_SMOKE_SPEED
@@ -114,9 +116,6 @@ IF SAFETY_LOCKOUT = 0 THEN
 
   IF SMOKE_OVERRIDE = 0 THEN
 
-    '-----------------------------
-    ' PRIORITY 3 - VFD FAULT
-    '-----------------------------
     IF HD_VFD_FAULT = 1 THEN
       HD_FAN_ENABLE = 0
       HD_FAN_ACTIVE_SPEED = HD_FAN_OFF_SPEED
@@ -125,9 +124,6 @@ IF SAFETY_LOCKOUT = 0 THEN
 
     IF HD_VFD_FAULT = 0 THEN
 
-      '-----------------------------
-      ' PRIORITY 4 - DISABLED / UNOCCUPIED
-      '-----------------------------
       IF UNIT_AVAILABLE = 0 THEN
         HD_FAN_ENABLE = 0
         HD_FAN_ACTIVE_SPEED = HD_FAN_OFF_SPEED
@@ -144,13 +140,10 @@ IF SAFETY_LOCKOUT = 0 THEN
 
         IF UNOCC_MODE = 0 THEN
 
-          '-----------------------------
-          ' PRIORITY 5 - OCCUPIED / DEHUM / MAT LOW
-          '-----------------------------
           IF OCC_MODE = 1 THEN
             HD_FAN_ENABLE = HD_FAN_ON_CMD
             HD_FAN_PID_OUT = PIDControl(1, HD_DUCT_STATIC, HD_STATIC_SP, HD_FAN_PID_I_TERM, HD_FAN_PID_P, HD_FAN_PID_I, HD_FAN_PID_D, HD_FAN_PID_OLD_ERR)
-            HD_FAN_ACTIVE_SPEED = HD_FAN_PID_OUT
+            HD_FAN_LOOP_CMD = HD_FAN_PID_OUT
             HD_FAN_MODE_CODE = 1
           ENDIF
 
@@ -158,7 +151,7 @@ IF SAFETY_LOCKOUT = 0 THEN
             IF MAT_LOW = 1 THEN
               HD_FAN_ENABLE = HD_FAN_ON_CMD
               HD_FAN_PID_OUT = PIDControl(1, HD_DUCT_STATIC, HD_STATIC_SP, HD_FAN_PID_I_TERM, HD_FAN_PID_P, HD_FAN_PID_I, HD_FAN_PID_D, HD_FAN_PID_OLD_ERR)
-              HD_FAN_ACTIVE_SPEED = HD_FAN_PID_OUT
+              HD_FAN_LOOP_CMD = HD_FAN_PID_OUT
               HD_FAN_MODE_CODE = 4
             ENDIF
           ENDIF
@@ -174,43 +167,87 @@ IF SAFETY_LOCKOUT = 0 THEN
 ENDIF
 
 '==============================================================================
-' NORMAL CONTROL CLAMPS
+' NORMAL LOOP CLAMPS
 '==============================================================================
 
 IF HD_FAN_MODE_CODE = 1 THEN
-
-  IF HD_FAN_ACTIVE_SPEED < HD_FAN_MIN_SPEED THEN
-    HD_FAN_ACTIVE_SPEED = HD_FAN_MIN_SPEED
+  IF HD_FAN_LOOP_CMD < HD_FAN_MIN_SPEED THEN
+    HD_FAN_LOOP_CMD = HD_FAN_MIN_SPEED
   ENDIF
 
-  IF HD_FAN_ACTIVE_SPEED > HD_FAN_MAX_SPEED THEN
-    HD_FAN_ACTIVE_SPEED = HD_FAN_MAX_SPEED
+  IF HD_FAN_LOOP_CMD > HD_FAN_MAX_SPEED THEN
+    HD_FAN_LOOP_CMD = HD_FAN_MAX_SPEED
   ENDIF
-
 ENDIF
 
 IF HD_FAN_MODE_CODE = 4 THEN
-
-  IF HD_FAN_ACTIVE_SPEED < HD_FAN_MIN_SPEED THEN
-    HD_FAN_ACTIVE_SPEED = HD_FAN_MIN_SPEED
+  IF HD_FAN_LOOP_CMD < HD_FAN_MIN_SPEED THEN
+    HD_FAN_LOOP_CMD = HD_FAN_MIN_SPEED
   ENDIF
 
-  IF HD_FAN_ACTIVE_SPEED > HD_FAN_MAX_SPEED THEN
-    HD_FAN_ACTIVE_SPEED = HD_FAN_MAX_SPEED
+  IF HD_FAN_LOOP_CMD > HD_FAN_MAX_SPEED THEN
+    HD_FAN_LOOP_CMD = HD_FAN_MAX_SPEED
+  ENDIF
+ENDIF
+
+'==============================================================================
+' RAMP PERMISSIVE
+'==============================================================================
+
+IF HD_FAN_MODE_CODE = 1 THEN
+  IF HD_FAN_ENABLE = HD_FAN_ON_CMD THEN
+    HD_FAN_RAMP_ENABLE = 1
+  ENDIF
+ENDIF
+
+IF HD_FAN_MODE_CODE = 4 THEN
+  IF HD_FAN_ENABLE = HD_FAN_ON_CMD THEN
+    HD_FAN_RAMP_ENABLE = 1
+  ENDIF
+ENDIF
+
+HD_FAN_RAMP_DONE = SecTimer(HD_FAN_RAMP_ENABLE, HD_FAN_RAMP_TIME_SEC, HD_FAN_RAMP_TMR)
+
+IF HD_FAN_RAMP_ENABLE = 0 THEN
+  HD_FAN_RAMP_PERM = HD_FAN_OFF_SPEED
+ENDIF
+
+IF HD_FAN_RAMP_ENABLE = 1 THEN
+
+  IF HD_FAN_RAMP_DONE = 1 THEN
+    HD_FAN_RAMP_PERM = 100
+  ENDIF
+
+  IF HD_FAN_RAMP_DONE = 0 THEN
+    IF HD_FAN_RAMP_TIME_SEC > 0 THEN
+      HD_FAN_RAMP_PERM = HD_FAN_RAMP_START_SPEED + ((100 - HD_FAN_RAMP_START_SPEED) * (HD_FAN_RAMP_TMR / HD_FAN_RAMP_TIME_SEC))
+    ENDIF
   ENDIF
 
 ENDIF
 
-IF HD_FAN_MODE_CODE = 6 THEN
+'==============================================================================
+' APPLY MINIMUM OF LOOP OUTPUT AND RAMP PERMISSIVE
+'==============================================================================
 
-  IF HD_FAN_ACTIVE_SPEED < 0 THEN
-    HD_FAN_ACTIVE_SPEED = 0
+IF HD_FAN_MODE_CODE = 1 THEN
+  IF HD_FAN_LOOP_CMD <= HD_FAN_RAMP_PERM THEN
+    HD_FAN_ACTIVE_SPEED = HD_FAN_LOOP_CMD
   ENDIF
 
-  IF HD_FAN_ACTIVE_SPEED > 100 THEN
-    HD_FAN_ACTIVE_SPEED = 100
+  IF HD_FAN_LOOP_CMD > HD_FAN_RAMP_PERM THEN
+    HD_FAN_ACTIVE_SPEED = HD_FAN_RAMP_PERM
+  ENDIF
+ENDIF
+
+IF HD_FAN_MODE_CODE = 4 THEN
+  IF HD_FAN_LOOP_CMD <= HD_FAN_RAMP_PERM THEN
+    HD_FAN_ACTIVE_SPEED = HD_FAN_LOOP_CMD
   ENDIF
 
+  IF HD_FAN_LOOP_CMD > HD_FAN_RAMP_PERM THEN
+    HD_FAN_ACTIVE_SPEED = HD_FAN_RAMP_PERM
+  ENDIF
 ENDIF
 
 '==============================================================================
