@@ -14,7 +14,8 @@
 '
 ' NOTES:
 '   - This script does not directly command the damper.
-'   - It outputs the active reset minimum OA position for downstream use.
+'   - It outputs the active minimum OA reset target for the mixing damper
+'     control script.
 '   - Reset is only active when the unit is available and occupied.
 '   - Uses SecTimer for step timing.
 '==============================================================================

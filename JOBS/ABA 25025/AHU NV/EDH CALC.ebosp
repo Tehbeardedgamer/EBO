@@ -1,0 +1,177 @@
+'==============================================================================
+' HRC_AHU_B_NV_EDH_CONTROL
+'
+' PURPOSE:
+'   Modulate the electric duct heater to maintain vault space temperature.
+'
+' SEQUENCE:
+'   - In occupied heating, heater modulates to maintain SPACE_TEMP_SP_ACTIVE.
+'   - In high temp safety, heater is forced off.
+'   - In fire, shutdown, disabled, unoccupied, or no heating demand, heater
+'     goes to EDH_OFF_POS.
+'
+' NOTES:
+'   - EDH_SS is treated as the heater permissive / safety string input.
+'==============================================================================
+
+'-----------------------------
+' FUNCTIONS
+'-----------------------------
+FUNCTION PIDControl
+
+'-----------------------------
+' MODE INPUTS
+'-----------------------------
+NUMERIC INPUT UNIT_AVAILABLE
+NUMERIC INPUT OCC_MODE
+NUMERIC INPUT UNOCC_MODE
+NUMERIC INPUT HEAT_MODE
+NUMERIC INPUT FIRE_SHUTDOWN
+NUMERIC INPUT SAFETY_LOCKOUT
+NUMERIC INPUT HIGH_TEMP_MODE
+
+'-----------------------------
+' PROCESS INPUTS
+'-----------------------------
+NUMERIC INPUT SPACE_TEMP
+NUMERIC INPUT SPACE_TEMP_SP_ACTIVE
+
+'-----------------------------
+' HARDWARE INPUTS
+'-----------------------------
+NUMERIC INPUT EDH_SS
+NUMERIC INPUT EDH_STATUS
+
+'-----------------------------
+' ADJUSTABLE INPUTS
+'-----------------------------
+NUMERIC INPUT EDH_PID_P
+NUMERIC INPUT EDH_PID_I
+NUMERIC INPUT EDH_PID_D
+NUMERIC INPUT EDH_MIN_POS
+NUMERIC INPUT EDH_MAX_POS
+NUMERIC INPUT EDH_OFF_POS
+
+'-----------------------------
+' OUTPUTS
+'-----------------------------
+NUMERIC OUTPUT EDH_REQUEST
+NUMERIC OUTPUT EDH_PID_OUT
+NUMERIC OUTPUT EDH_AVAILABLE
+NUMERIC OUTPUT EDH_MODE_CODE
+
+'-----------------------------
+' INTERNALS
+'-----------------------------
+NUMERIC EDH_PID_I_TERM
+NUMERIC EDH_PID_OLD_ERR
+NUMERIC EDH_ACTIVE_CMD
+
+'==============================================================================
+' DEFAULTS EACH PASS
+'==============================================================================
+
+EDH_REQUEST = EDH_OFF_POS
+EDH_PID_OUT = 0
+EDH_AVAILABLE = 0
+EDH_MODE_CODE = 0
+EDH_ACTIVE_CMD = EDH_OFF_POS
+
+IF EDH_SS = 1 THEN
+    EDH_AVAILABLE = 1
+ENDIF
+
+'==============================================================================
+' PRIORITY SELECTION
+'==============================================================================
+
+IF FIRE_SHUTDOWN = 1 THEN
+    EDH_ACTIVE_CMD = EDH_OFF_POS
+    EDH_MODE_CODE = 7
+ENDIF
+
+IF FIRE_SHUTDOWN = 0 THEN
+
+    IF SAFETY_LOCKOUT = 1 THEN
+        EDH_ACTIVE_CMD = EDH_OFF_POS
+        EDH_MODE_CODE = 8
+    ENDIF
+
+    IF SAFETY_LOCKOUT = 0 THEN
+
+        IF HIGH_TEMP_MODE = 1 THEN
+            EDH_ACTIVE_CMD = EDH_OFF_POS
+            EDH_MODE_CODE = 5
+        ENDIF
+
+        IF HIGH_TEMP_MODE = 0 THEN
+
+            IF UNIT_AVAILABLE = 0 THEN
+                EDH_ACTIVE_CMD = EDH_OFF_POS
+                EDH_MODE_CODE = 0
+            ENDIF
+
+            IF UNIT_AVAILABLE = 1 THEN
+
+                IF UNOCC_MODE = 1 THEN
+                    EDH_ACTIVE_CMD = EDH_OFF_POS
+                    EDH_MODE_CODE = 0
+                ENDIF
+
+                IF UNOCC_MODE = 0 THEN
+
+                    IF OCC_MODE = 1 THEN
+
+                        IF HEAT_MODE = 1 THEN
+
+                            IF EDH_AVAILABLE = 1 THEN
+                                EDH_PID_OUT = PIDControl(0, SPACE_TEMP, SPACE_TEMP_SP_ACTIVE, EDH_PID_I_TERM, EDH_PID_P, EDH_PID_I, EDH_PID_D, EDH_PID_OLD_ERR)
+                                EDH_ACTIVE_CMD = EDH_PID_OUT
+                                EDH_MODE_CODE = 1
+                            ENDIF
+
+                            IF EDH_AVAILABLE = 0 THEN
+                                EDH_ACTIVE_CMD = EDH_OFF_POS
+                                EDH_MODE_CODE = 6
+                            ENDIF
+
+                        ENDIF
+
+                        IF HEAT_MODE = 0 THEN
+                            EDH_ACTIVE_CMD = EDH_OFF_POS
+                            EDH_MODE_CODE = 2
+                        ENDIF
+
+                    ENDIF
+
+                ENDIF
+
+            ENDIF
+
+        ENDIF
+
+    ENDIF
+
+ENDIF
+
+'==============================================================================
+' ACTIVE CONTROL CLAMPS
+'==============================================================================
+
+IF EDH_MODE_CODE = 1 THEN
+
+    IF EDH_ACTIVE_CMD < EDH_MIN_POS THEN
+        EDH_ACTIVE_CMD = EDH_MIN_POS
+    ENDIF
+
+    IF EDH_ACTIVE_CMD > EDH_MAX_POS THEN
+        EDH_ACTIVE_CMD = EDH_MAX_POS
+    ENDIF
+
+ENDIF
+
+'==============================================================================
+' FINAL OUTPUT
+'==============================================================================
+
+EDH_REQUEST = EDH_ACTIVE_CMD

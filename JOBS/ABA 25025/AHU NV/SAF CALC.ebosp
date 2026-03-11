@@ -1,0 +1,208 @@
+'==============================================================================
+' HRC_AHU_B_NV_SAF_CONTROL
+'
+' PURPOSE:
+'   Start/stop the supply fan and modulate analog VFD speed to maintain the
+'   active supply fan flow DP setpoint.
+'
+' SEQUENCE:
+'   - In occupied operation, enable supply fan.
+'   - While proven on, PID fan speed to maintain SF_FLOW_DP_SP_ACTIVE.
+'   - Before proof, command SAF_SPEED_STARTUP.
+'   - In low temp / high temp safety, fan remains enabled and continues active
+'     DP control using the safety DP setpoint selected by setpoint manager.
+'   - In fire, shutdown, VFD fault, disabled, or unoccupied mode, fan is
+'     commanded off and speed goes to SAF_SPEED_OFF.
+'==============================================================================
+
+'-----------------------------
+' FUNCTIONS
+'-----------------------------
+FUNCTION PIDControl
+
+'-----------------------------
+' MODE INPUTS
+'-----------------------------
+NUMERIC INPUT UNIT_AVAILABLE
+NUMERIC INPUT OCC_MODE
+NUMERIC INPUT UNOCC_MODE
+NUMERIC INPUT FIRE_SHUTDOWN
+NUMERIC INPUT SAFETY_LOCKOUT
+NUMERIC INPUT LOW_TEMP_MODE
+NUMERIC INPUT HIGH_TEMP_MODE
+
+'-----------------------------
+' PROCESS INPUTS
+'-----------------------------
+NUMERIC INPUT SF_FLOW_DP
+NUMERIC INPUT SF_FLOW_DP_SP_ACTIVE
+
+'-----------------------------
+' HARDWARE INPUTS
+'-----------------------------
+NUMERIC INPUT VFD_FAULT
+NUMERIC INPUT SAF_STATUS
+
+'-----------------------------
+' ADJUSTABLE INPUTS
+'-----------------------------
+NUMERIC INPUT SAF_PID_P
+NUMERIC INPUT SAF_PID_I
+NUMERIC INPUT SAF_PID_D
+NUMERIC INPUT SAF_SPEED_MIN
+NUMERIC INPUT SAF_SPEED_MAX
+NUMERIC INPUT SAF_SPEED_STARTUP
+NUMERIC INPUT SAF_SPEED_OFF
+
+'-----------------------------
+' OUTPUTS
+'-----------------------------
+NUMERIC OUTPUT SAF_RUN_REQUEST
+NUMERIC OUTPUT SAF_SPEED_REQUEST
+NUMERIC OUTPUT SAF_SPEED_PID_OUT
+NUMERIC OUTPUT SAF_AVAILABLE
+NUMERIC OUTPUT SAF_MODE_CODE
+
+'-----------------------------
+' INTERNALS
+'-----------------------------
+NUMERIC SAF_PID_I_TERM
+NUMERIC SAF_PID_OLD_ERR
+NUMERIC SAF_ACTIVE_CMD
+
+'==============================================================================
+' DEFAULTS EACH PASS
+'==============================================================================
+
+SAF_RUN_REQUEST = 0
+SAF_SPEED_REQUEST = SAF_SPEED_OFF
+SAF_SPEED_PID_OUT = 0
+SAF_AVAILABLE = 0
+SAF_MODE_CODE = 0
+SAF_ACTIVE_CMD = SAF_SPEED_OFF
+
+IF VFD_FAULT = 0 THEN
+    SAF_AVAILABLE = 1
+ENDIF
+
+'==============================================================================
+' RUN PERMIT SELECTION
+'==============================================================================
+
+IF FIRE_SHUTDOWN = 1 THEN
+    SAF_RUN_REQUEST = 0
+    SAF_ACTIVE_CMD = SAF_SPEED_OFF
+    SAF_MODE_CODE = 7
+ENDIF
+
+IF FIRE_SHUTDOWN = 0 THEN
+
+    IF SAFETY_LOCKOUT = 1 THEN
+        SAF_RUN_REQUEST = 0
+        SAF_ACTIVE_CMD = SAF_SPEED_OFF
+        SAF_MODE_CODE = 8
+    ENDIF
+
+    IF SAFETY_LOCKOUT = 0 THEN
+
+        IF SAF_AVAILABLE = 0 THEN
+            SAF_RUN_REQUEST = 0
+            SAF_ACTIVE_CMD = SAF_SPEED_OFF
+            SAF_MODE_CODE = 6
+        ENDIF
+
+        IF SAF_AVAILABLE = 1 THEN
+
+            IF LOW_TEMP_MODE = 1 THEN
+                SAF_RUN_REQUEST = 1
+                SAF_MODE_CODE = 4
+            ENDIF
+
+            IF LOW_TEMP_MODE = 0 THEN
+
+                IF HIGH_TEMP_MODE = 1 THEN
+                    SAF_RUN_REQUEST = 1
+                    SAF_MODE_CODE = 5
+                ENDIF
+
+                IF HIGH_TEMP_MODE = 0 THEN
+
+                    IF UNIT_AVAILABLE = 0 THEN
+                        SAF_RUN_REQUEST = 0
+                        SAF_ACTIVE_CMD = SAF_SPEED_OFF
+                        SAF_MODE_CODE = 0
+                    ENDIF
+
+                    IF UNIT_AVAILABLE = 1 THEN
+
+                        IF UNOCC_MODE = 1 THEN
+                            SAF_RUN_REQUEST = 0
+                            SAF_ACTIVE_CMD = SAF_SPEED_OFF
+                            SAF_MODE_CODE = 0
+                        ENDIF
+
+                        IF UNOCC_MODE = 0 THEN
+                            IF OCC_MODE = 1 THEN
+                                SAF_RUN_REQUEST = 1
+                                SAF_MODE_CODE = 1
+                            ENDIF
+                        ENDIF
+
+                    ENDIF
+
+                ENDIF
+
+            ENDIF
+
+        ENDIF
+
+    ENDIF
+
+ENDIF
+
+'==============================================================================
+' ACTIVE SPEED CONTROL
+'==============================================================================
+
+IF SAF_RUN_REQUEST = 1 THEN
+
+    IF SAF_STATUS = 0 THEN
+        SAF_ACTIVE_CMD = SAF_SPEED_STARTUP
+    ENDIF
+
+    IF SAF_STATUS = 1 THEN
+        SAF_SPEED_PID_OUT = PIDControl(1, SF_FLOW_DP, SF_FLOW_DP_SP_ACTIVE, SAF_PID_I_TERM, SAF_PID_P, SAF_PID_I, SAF_PID_D, SAF_PID_OLD_ERR)
+        SAF_ACTIVE_CMD = SAF_SPEED_PID_OUT
+    ENDIF
+
+ENDIF
+
+IF SAF_RUN_REQUEST = 0 THEN
+    SAF_ACTIVE_CMD = SAF_SPEED_OFF
+ENDIF
+
+'==============================================================================
+' ACTIVE CONTROL CLAMPS
+'==============================================================================
+
+IF SAF_RUN_REQUEST = 1 THEN
+
+    IF SAF_ACTIVE_CMD < SAF_SPEED_MIN THEN
+        SAF_ACTIVE_CMD = SAF_SPEED_MIN
+    ENDIF
+
+    IF SAF_ACTIVE_CMD > SAF_SPEED_MAX THEN
+        SAF_ACTIVE_CMD = SAF_SPEED_MAX
+    ENDIF
+
+ENDIF
+
+IF SAF_RUN_REQUEST = 0 THEN
+    SAF_ACTIVE_CMD = SAF_SPEED_OFF
+ENDIF
+
+'==============================================================================
+' FINAL OUTPUT
+'==============================================================================
+
+SAF_SPEED_REQUEST = SAF_ACTIVE_CMD

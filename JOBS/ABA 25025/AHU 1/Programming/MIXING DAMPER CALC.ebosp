@@ -3,20 +3,20 @@
 '
 ' PURPOSE:
 '   Command the mixing / outside air damper based on system mode and minimum
-'   ventilation requirements.
+'   outside air requirements.
 '
 ' SEQUENCE:
-'   - In occupied operation, final damper command is the greater of:
-'       1. VENTILATION_CTRL_OUT
-'       2. ACTIVE_MIN_OA_TARGET
-'   - ACTIVE_MIN_OA_TARGET is the higher of MIN_OA_POS_BASE and
+'   - In occupied operation, damper opens to the active minimum OA target.
+'   - Active minimum OA target is the higher of MIN_OA_POS_BASE and
 '     MIN_OA_POS_RESET.
 '   - In smoke override, damper opens to SMOKE_DAMPER_POS.
 '   - In MAT low protection, damper closes.
 '   - In safety shutdown, system disabled, or unoccupied mode, damper closes.
 '
 ' NOTES:
-'   - This matches the Siemens pattern more closely than minimum-only logic.
+'   - This script assumes one physical damper command that controls the mixed
+'     air / outdoor air damper arrangement.
+'   - There is no separate ventilation control output path in this version.
 '==============================================================================
 
 '-----------------------------
@@ -34,7 +34,6 @@ NUMERIC INPUT MAT_LOW
 '-----------------------------
 NUMERIC INPUT MIN_OA_POS_BASE
 NUMERIC INPUT MIN_OA_POS_RESET
-NUMERIC INPUT VENTILATION_CTRL_OUT
 NUMERIC INPUT SMOKE_DAMPER_POS
 
 '-----------------------------
@@ -48,24 +47,28 @@ NUMERIC INPUT DAMPER_MAX_POS
 '-----------------------------
 NUMERIC OUTPUT MIXING_DAMPER_CMD
 NUMERIC OUTPUT ACTIVE_MIN_OA_TARGET
-NUMERIC OUTPUT ACTIVE_VENT_TARGET
 NUMERIC OUTPUT DAMPER_MODE_CODE
 
 GOTO INI
-'==============================================================================
-' DEFAULTS EACH PASS
-'==============================================================================
+
+'-----------------------------
+' INITIALIZATION
+'-----------------------------
 INI:
-ACTIVE_MIN_OA_TARGET = MIN_OA_POS_BASE
-ACTIVE_VENT_TARGET = 0
 MIXING_DAMPER_CMD = 0
+ACTIVE_MIN_OA_TARGET = 0
 DAMPER_MODE_CODE = 0
 
-GOTO MAIN 
+GOTO MAIN
+
 '==============================================================================
-' DETERMINE ACTIVE MINIMUM OA TARGET
+' MAIN
 '==============================================================================
 MAIN:
+
+'-----------------------------
+' DETERMINE ACTIVE MINIMUM OA TARGET
+'-----------------------------
 IF MIN_OA_POS_RESET >= MIN_OA_POS_BASE THEN
   ACTIVE_MIN_OA_TARGET = MIN_OA_POS_RESET
 ENDIF
@@ -74,99 +77,54 @@ IF MIN_OA_POS_RESET < MIN_OA_POS_BASE THEN
   ACTIVE_MIN_OA_TARGET = MIN_OA_POS_BASE
 ENDIF
 
-'==============================================================================
-' DETERMINE ACTIVE VENTILATION TARGET
-'==============================================================================
-
-ACTIVE_VENT_TARGET = VENTILATION_CTRL_OUT
-
-IF ACTIVE_VENT_TARGET < 0 THEN
-  ACTIVE_VENT_TARGET = 0
-ENDIF
-
-IF ACTIVE_VENT_TARGET > 100 THEN
-  ACTIVE_VENT_TARGET = 100
-ENDIF
-
-'==============================================================================
+'-----------------------------
 ' MODE-BASED COMMAND
-'==============================================================================
-
+'-----------------------------
 IF SAFETY_LOCKOUT = 1 THEN
   MIXING_DAMPER_CMD = 0
   DAMPER_MODE_CODE = 5
+  GOTO DAMPER_DONE
 ENDIF
 
-IF SAFETY_LOCKOUT = 0 THEN
-
-  IF SMOKE_OVERRIDE = 1 THEN
-    MIXING_DAMPER_CMD = SMOKE_DAMPER_POS
-    DAMPER_MODE_CODE = 3
-  ENDIF
-
-  IF SMOKE_OVERRIDE = 0 THEN
-
-    IF MAT_LOW = 1 THEN
-      MIXING_DAMPER_CMD = 0
-      DAMPER_MODE_CODE = 4
-    ENDIF
-
-    IF MAT_LOW = 0 THEN
-
-      IF UNIT_AVAILABLE = 0 THEN
-        MIXING_DAMPER_CMD = 0
-        DAMPER_MODE_CODE = 0
-      ENDIF
-
-      IF UNIT_AVAILABLE = 1 THEN
-
-        IF UNOCC_MODE = 1 THEN
-          MIXING_DAMPER_CMD = 0
-          DAMPER_MODE_CODE = 0
-        ENDIF
-
-        IF UNOCC_MODE = 0 THEN
-
-          IF OCC_MODE = 1 THEN
-
-            IF ACTIVE_VENT_TARGET >= ACTIVE_MIN_OA_TARGET THEN
-              MIXING_DAMPER_CMD = ACTIVE_VENT_TARGET
-              DAMPER_MODE_CODE = 2
-            ENDIF
-
-            IF ACTIVE_VENT_TARGET < ACTIVE_MIN_OA_TARGET THEN
-              MIXING_DAMPER_CMD = ACTIVE_MIN_OA_TARGET
-              DAMPER_MODE_CODE = 1
-            ENDIF
-
-          ENDIF
-
-          IF OCC_MODE = 0 THEN
-            MIXING_DAMPER_CMD = 0
-            DAMPER_MODE_CODE = 0
-          ENDIF
-
-        ENDIF
-
-      ENDIF
-
-    ENDIF
-
-  ENDIF
-
+IF SMOKE_OVERRIDE = 1 THEN
+  MIXING_DAMPER_CMD = SMOKE_DAMPER_POS
+  DAMPER_MODE_CODE = 3
+  GOTO DAMPER_DONE
 ENDIF
 
-'==============================================================================
-' COMMAND LIMITS
-'==============================================================================
+IF MAT_LOW = 1 THEN
+  MIXING_DAMPER_CMD = 0
+  DAMPER_MODE_CODE = 4
+  GOTO DAMPER_DONE
+ENDIF
+
+IF UNIT_AVAILABLE = 0 THEN
+  MIXING_DAMPER_CMD = 0
+  DAMPER_MODE_CODE = 0
+  GOTO DAMPER_DONE
+ENDIF
+
+IF UNOCC_MODE = 1 THEN
+  MIXING_DAMPER_CMD = 0
+  DAMPER_MODE_CODE = 0
+  GOTO DAMPER_DONE
+ENDIF
+
+IF OCC_MODE = 1 THEN
+  MIXING_DAMPER_CMD = ACTIVE_MIN_OA_TARGET
+  DAMPER_MODE_CODE = 1
+  GOTO DAMPER_DONE
+ENDIF
+
+MIXING_DAMPER_CMD = 0
+DAMPER_MODE_CODE = 0
+
+'-----------------------------
+' FINAL COMMAND LIMITS
+'-----------------------------
+DAMPER_DONE:
 
 IF DAMPER_MODE_CODE = 1 THEN
-  IF MIXING_DAMPER_CMD < DAMPER_MIN_POS THEN
-    MIXING_DAMPER_CMD = DAMPER_MIN_POS
-  ENDIF
-ENDIF
-
-IF DAMPER_MODE_CODE = 2 THEN
   IF MIXING_DAMPER_CMD < DAMPER_MIN_POS THEN
     MIXING_DAMPER_CMD = DAMPER_MIN_POS
   ENDIF
@@ -176,7 +134,7 @@ IF MIXING_DAMPER_CMD > DAMPER_MAX_POS THEN
   MIXING_DAMPER_CMD = DAMPER_MAX_POS
 ENDIF
 
-' shutdown / freeze / safety remain allowed to force true zero
+' Allow true zero during shutdown / freeze / safety
 IF DAMPER_MODE_CODE = 0 THEN
   MIXING_DAMPER_CMD = 0
 ENDIF
@@ -190,3 +148,4 @@ IF DAMPER_MODE_CODE = 5 THEN
 ENDIF
 
 WAIT 1
+GOTO MAIN

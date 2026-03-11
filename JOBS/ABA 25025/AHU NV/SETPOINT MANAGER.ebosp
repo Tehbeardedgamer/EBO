@@ -1,0 +1,153 @@
+'==============================================================================
+' HRC_AHU_B_NV_SETPOINT_MANAGER
+'
+' PURPOSE:
+'   Generate active control setpoints for the vault AHU.
+'
+' OUTPUT SETPOINTS:
+'   - Active space temperature setpoint
+'   - Active space humidity setpoint
+'   - Active supply fan flow DP setpoint
+'==============================================================================
+
+'-----------------------------
+' INPUTS
+'-----------------------------
+NUMERIC INPUT OCC_MODE
+NUMERIC INPUT UNOCC_MODE
+NUMERIC INPUT COOL_MODE
+NUMERIC INPUT HEAT_MODE
+NUMERIC INPUT DEHUM_ENABLE
+NUMERIC INPUT LOW_TEMP_MODE
+NUMERIC INPUT HIGH_TEMP_MODE
+NUMERIC INPUT FIRE_SHUTDOWN
+NUMERIC INPUT SAFETY_LOCKOUT
+
+NUMERIC INPUT SPACE_TEMP_SP_OCC
+NUMERIC INPUT SPACE_TEMP_SP_UNOCC
+NUMERIC INPUT SPACE_HUM_SP_OCC
+NUMERIC INPUT SPACE_HUM_SP_UNOCC
+
+NUMERIC INPUT SF_FLOW_DP_SP_OCC
+NUMERIC INPUT SF_FLOW_DP_SP_COOL
+NUMERIC INPUT SF_FLOW_DP_SP_HEAT
+NUMERIC INPUT SF_FLOW_DP_SP_DEHUM
+NUMERIC INPUT SF_FLOW_DP_SP_SAFETY
+
+'-----------------------------
+' OUTPUTS
+'-----------------------------
+NUMERIC OUTPUT SPACE_TEMP_SP_ACTIVE
+NUMERIC OUTPUT SPACE_HUM_SP_ACTIVE
+NUMERIC OUTPUT SF_FLOW_DP_SP_ACTIVE
+NUMERIC OUTPUT SETPOINT_MODE_CODE
+
+'==============================================================================
+' DEFAULTS EACH PASS
+'==============================================================================
+
+SPACE_TEMP_SP_ACTIVE = SPACE_TEMP_SP_UNOCC
+SPACE_HUM_SP_ACTIVE = SPACE_HUM_SP_UNOCC
+SF_FLOW_DP_SP_ACTIVE = 0
+SETPOINT_MODE_CODE = 0
+
+'==============================================================================
+' ACTIVE SPACE SETPOINTS
+'==============================================================================
+
+IF OCC_MODE = 1 THEN
+    SPACE_TEMP_SP_ACTIVE = SPACE_TEMP_SP_OCC
+    SPACE_HUM_SP_ACTIVE = SPACE_HUM_SP_OCC
+    SETPOINT_MODE_CODE = 1
+ENDIF
+
+IF UNOCC_MODE = 1 THEN
+    SPACE_TEMP_SP_ACTIVE = SPACE_TEMP_SP_UNOCC
+    SPACE_HUM_SP_ACTIVE = SPACE_HUM_SP_UNOCC
+    SETPOINT_MODE_CODE = 0
+ENDIF
+
+'==============================================================================
+' ACTIVE FAN FLOW DP SETPOINT
+' PRIORITY:
+'   1. FIRE / SHUTDOWN
+'   2. LOW / HIGH TEMP SAFETY
+'   3. COOLING
+'   4. HEATING
+'   5. DEHUM
+'   6. OCCUPIED BASE
+'   7. UNOCCUPIED OFF
+'==============================================================================
+
+IF FIRE_SHUTDOWN = 1 THEN
+    SF_FLOW_DP_SP_ACTIVE = 0
+    SETPOINT_MODE_CODE = 7
+ENDIF
+
+IF FIRE_SHUTDOWN = 0 THEN
+
+    IF SAFETY_LOCKOUT = 1 THEN
+        SF_FLOW_DP_SP_ACTIVE = 0
+        SETPOINT_MODE_CODE = 8
+    ENDIF
+
+    IF SAFETY_LOCKOUT = 0 THEN
+
+        IF LOW_TEMP_MODE = 1 THEN
+            SF_FLOW_DP_SP_ACTIVE = SF_FLOW_DP_SP_SAFETY
+            SETPOINT_MODE_CODE = 4
+        ENDIF
+
+        IF LOW_TEMP_MODE = 0 THEN
+
+            IF HIGH_TEMP_MODE = 1 THEN
+                SF_FLOW_DP_SP_ACTIVE = SF_FLOW_DP_SP_SAFETY
+                SETPOINT_MODE_CODE = 5
+            ENDIF
+
+            IF HIGH_TEMP_MODE = 0 THEN
+
+                IF COOL_MODE = 1 THEN
+                    SF_FLOW_DP_SP_ACTIVE = SF_FLOW_DP_SP_COOL
+                    SETPOINT_MODE_CODE = 2
+                ENDIF
+
+                IF COOL_MODE = 0 THEN
+
+                    IF HEAT_MODE = 1 THEN
+                        SF_FLOW_DP_SP_ACTIVE = SF_FLOW_DP_SP_HEAT
+                        SETPOINT_MODE_CODE = 3
+                    ENDIF
+
+                    IF HEAT_MODE = 0 THEN
+
+                        IF DEHUM_ENABLE = 1 THEN
+                            SF_FLOW_DP_SP_ACTIVE = SF_FLOW_DP_SP_DEHUM
+                            SETPOINT_MODE_CODE = 6
+                        ENDIF
+
+                        IF DEHUM_ENABLE = 0 THEN
+
+                            IF OCC_MODE = 1 THEN
+                                SF_FLOW_DP_SP_ACTIVE = SF_FLOW_DP_SP_OCC
+                                SETPOINT_MODE_CODE = 1
+                            ENDIF
+
+                            IF OCC_MODE = 0 THEN
+                                SF_FLOW_DP_SP_ACTIVE = 0
+                                SETPOINT_MODE_CODE = 0
+                            ENDIF
+
+                        ENDIF
+
+                    ENDIF
+
+                ENDIF
+
+            ENDIF
+
+        ENDIF
+
+    ENDIF
+
+ENDIF

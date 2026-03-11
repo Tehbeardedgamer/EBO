@@ -1,0 +1,279 @@
+'==============================================================================
+' HRC_AHU_B_NV_MODE_DETERMINATION
+'
+' PURPOSE:
+'   Determine active operating modes and publish clean flags for all downstream
+'   scripts.
+'
+' MODES HANDLED:
+'   - Fire Shutdown
+'   - Safety Shutdown
+'   - System Disabled
+'   - Unoccupied
+'   - Low Temp Safety
+'   - High Temp Safety
+'   - Occupied Cooling
+'   - Occupied Heating
+'   - Occupied Dehumidification
+'
+' NOTES:
+'   - Space temperature is the primary temperature control variable.
+'   - Space humidity is the primary humidity control variable.
+'   - Heating and cooling are mutually exclusive.
+'   - Dehumidification may overlap occupied neutral or cooling operation.
+'==============================================================================
+
+'-----------------------------
+' FUNCTIONS
+'-----------------------------
+FUNCTION SecTimer
+
+'-----------------------------
+' INPUTS
+'-----------------------------
+NUMERIC INPUT UNIT_ENABLE
+NUMERIC INPUT OCC_CMD
+NUMERIC INPUT FIRE_ALARM
+NUMERIC INPUT VAULT_H20_DETECT
+NUMERIC INPUT LOW_TEMP_SAFETY
+NUMERIC INPUT HIGH_TEMP_SAFETY
+NUMERIC INPUT SPACE_TEMP
+NUMERIC INPUT SPACE_HUMIDITY
+
+NUMERIC INPUT SPACE_TEMP_SP_OCC
+NUMERIC INPUT SPACE_TEMP_SP_UNOCC
+NUMERIC INPUT SPACE_HUM_SP_OCC
+NUMERIC INPUT SPACE_HUM_SP_UNOCC
+NUMERIC INPUT TEMP_CLG_DB
+NUMERIC INPUT TEMP_HTG_DB
+NUMERIC INPUT HUM_ENABLE_DB
+NUMERIC INPUT HUM_DISABLE_DB
+NUMERIC INPUT DEHUM_ENABLE_DELAY_SEC
+
+'-----------------------------
+' OUTPUTS
+'-----------------------------
+NUMERIC OUTPUT UNIT_AVAILABLE
+NUMERIC OUTPUT OCC_MODE
+NUMERIC OUTPUT UNOCC_MODE
+NUMERIC OUTPUT COOL_MODE
+NUMERIC OUTPUT HEAT_MODE
+NUMERIC OUTPUT DEHUM_ENABLE
+NUMERIC OUTPUT FIRE_SHUTDOWN
+NUMERIC OUTPUT SAFETY_LOCKOUT
+NUMERIC OUTPUT LOW_TEMP_MODE
+NUMERIC OUTPUT HIGH_TEMP_MODE
+NUMERIC OUTPUT ACTIVE_TEMP_SP
+NUMERIC OUTPUT ACTIVE_HUM_SP
+NUMERIC OUTPUT COOL_ENABLE_SP
+NUMERIC OUTPUT HEAT_ENABLE_SP
+NUMERIC OUTPUT HUM_ENABLE_SP
+NUMERIC OUTPUT HUM_DISABLE_SP
+NUMERIC OUTPUT MODE_CODE
+
+'-----------------------------
+' INTERNALS
+'-----------------------------
+NUMERIC DEHUM_ENABLE_TIMER
+NUMERIC DEHUM_ENABLE_TIMER_EN
+NUMERIC DEHUM_ENABLE_TIMER_DONE
+
+'==============================================================================
+' DEFAULTS EACH PASS
+'==============================================================================
+
+UNIT_AVAILABLE = 0
+OCC_MODE = 0
+UNOCC_MODE = 1
+COOL_MODE = 0
+HEAT_MODE = 0
+FIRE_SHUTDOWN = 0
+SAFETY_LOCKOUT = 0
+LOW_TEMP_MODE = 0
+HIGH_TEMP_MODE = 0
+ACTIVE_TEMP_SP = SPACE_TEMP_SP_UNOCC
+ACTIVE_HUM_SP = SPACE_HUM_SP_UNOCC
+COOL_ENABLE_SP = 0
+HEAT_ENABLE_SP = 0
+HUM_ENABLE_SP = 0
+HUM_DISABLE_SP = 0
+MODE_CODE = 0
+DEHUM_ENABLE_TIMER_EN = 0
+DEHUM_ENABLE_TIMER_DONE = 0
+
+'==============================================================================
+' ACTIVE SETPOINT SELECTION
+'==============================================================================
+
+IF OCC_CMD = 1 THEN
+    OCC_MODE = 1
+    UNOCC_MODE = 0
+    ACTIVE_TEMP_SP = SPACE_TEMP_SP_OCC
+    ACTIVE_HUM_SP = SPACE_HUM_SP_OCC
+ENDIF
+
+IF OCC_CMD = 0 THEN
+    OCC_MODE = 0
+    UNOCC_MODE = 1
+    ACTIVE_TEMP_SP = SPACE_TEMP_SP_UNOCC
+    ACTIVE_HUM_SP = SPACE_HUM_SP_UNOCC
+ENDIF
+
+COOL_ENABLE_SP = ACTIVE_TEMP_SP + TEMP_CLG_DB
+HEAT_ENABLE_SP = ACTIVE_TEMP_SP - TEMP_HTG_DB
+HUM_ENABLE_SP = ACTIVE_HUM_SP + HUM_ENABLE_DB
+HUM_DISABLE_SP = ACTIVE_HUM_SP - HUM_DISABLE_DB
+
+'==============================================================================
+' SHUTDOWN / SAFETY FLAGS
+'==============================================================================
+
+IF FIRE_ALARM = 1 THEN
+    FIRE_SHUTDOWN = 1
+ENDIF
+
+IF LOW_TEMP_SAFETY = 1 THEN
+    LOW_TEMP_MODE = 1
+ENDIF
+
+IF HIGH_TEMP_SAFETY = 1 THEN
+    HIGH_TEMP_MODE = 1
+ENDIF
+
+IF VAULT_H20_DETECT = 1 THEN
+    SAFETY_LOCKOUT = 1
+ENDIF
+
+IF FIRE_SHUTDOWN = 1 THEN
+    SAFETY_LOCKOUT = 1
+ENDIF
+
+'==============================================================================
+' UNIT AVAILABLE
+'==============================================================================
+
+IF UNIT_ENABLE = 1 THEN
+    IF FIRE_SHUTDOWN = 0 THEN
+        IF SAFETY_LOCKOUT = 0 THEN
+            UNIT_AVAILABLE = 1
+        ENDIF
+    ENDIF
+ENDIF
+
+'==============================================================================
+' TEMPERATURE MODE DETERMINATION
+'==============================================================================
+
+IF UNIT_AVAILABLE = 1 THEN
+    IF OCC_MODE = 1 THEN
+
+        IF SPACE_TEMP > COOL_ENABLE_SP THEN
+            COOL_MODE = 1
+        ENDIF
+
+        IF SPACE_TEMP < HEAT_ENABLE_SP THEN
+            HEAT_MODE = 1
+        ENDIF
+
+    ENDIF
+ENDIF
+
+IF COOL_MODE = 1 THEN
+    HEAT_MODE = 0
+ENDIF
+
+IF HEAT_MODE = 1 THEN
+    COOL_MODE = 0
+ENDIF
+
+'==============================================================================
+' DEHUM ENABLE WITH DELAY / HYSTERESIS
+'==============================================================================
+
+IF UNIT_AVAILABLE = 1 THEN
+    IF OCC_MODE = 1 THEN
+        IF SPACE_HUMIDITY > HUM_ENABLE_SP THEN
+            DEHUM_ENABLE_TIMER_EN = 1
+        ENDIF
+    ENDIF
+ENDIF
+
+IF SPACE_HUMIDITY <= HUM_ENABLE_SP THEN
+    DEHUM_ENABLE_TIMER_EN = 0
+ENDIF
+
+DEHUM_ENABLE_TIMER_DONE = SecTimer(DEHUM_ENABLE_TIMER_EN, DEHUM_ENABLE_DELAY_SEC, DEHUM_ENABLE_TIMER)
+
+IF UNIT_AVAILABLE = 1 THEN
+    IF OCC_MODE = 1 THEN
+        IF DEHUM_ENABLE_TIMER_DONE = 1 THEN
+            DEHUM_ENABLE = 1
+        ENDIF
+    ENDIF
+ENDIF
+
+IF SPACE_HUMIDITY < HUM_DISABLE_SP THEN
+    DEHUM_ENABLE = 0
+ENDIF
+
+IF UNIT_AVAILABLE = 0 THEN
+    DEHUM_ENABLE = 0
+ENDIF
+
+IF OCC_MODE = 0 THEN
+    DEHUM_ENABLE = 0
+ENDIF
+
+IF FIRE_SHUTDOWN = 1 THEN
+    DEHUM_ENABLE = 0
+ENDIF
+
+IF SAFETY_LOCKOUT = 1 THEN
+    DEHUM_ENABLE = 0
+ENDIF
+
+'==============================================================================
+' MODE CODE
+'==============================================================================
+
+IF UNOCC_MODE = 1 THEN
+    MODE_CODE = 0
+ENDIF
+
+IF OCC_MODE = 1 THEN
+    MODE_CODE = 1
+ENDIF
+
+IF COOL_MODE = 1 THEN
+    MODE_CODE = 2
+ENDIF
+
+IF HEAT_MODE = 1 THEN
+    MODE_CODE = 3
+ENDIF
+
+IF LOW_TEMP_MODE = 1 THEN
+    MODE_CODE = 4
+ENDIF
+
+IF HIGH_TEMP_MODE = 1 THEN
+    MODE_CODE = 5
+ENDIF
+
+IF DEHUM_ENABLE = 1 THEN
+    IF COOL_MODE = 0 THEN
+        IF HEAT_MODE = 0 THEN
+            MODE_CODE = 6
+        ENDIF
+    ENDIF
+ENDIF
+
+IF FIRE_SHUTDOWN = 1 THEN
+    MODE_CODE = 7
+ENDIF
+
+IF SAFETY_LOCKOUT = 1 THEN
+    IF FIRE_SHUTDOWN = 0 THEN
+        MODE_CODE = 8
+    ENDIF
+ENDIF

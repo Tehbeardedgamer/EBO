@@ -1,0 +1,129 @@
+'==============================================================================
+' HRC_AHU_B_NV_DHU_CONTROL
+'
+' PURPOSE:
+'   Enable the dehumidifier when dehumidification mode is active and the unit is
+'   otherwise permitted to run.
+'
+' SEQUENCE:
+'   - In occupied dehumidification mode, enable DHU.
+'   - Lock DHU out on fire, shutdown, unoccupied, low temp safety, high temp
+'     safety, or DHU alarm.
+'==============================================================================
+
+'-----------------------------
+' MODE INPUTS
+'-----------------------------
+NUMERIC INPUT UNIT_AVAILABLE
+NUMERIC INPUT OCC_MODE
+NUMERIC INPUT UNOCC_MODE
+NUMERIC INPUT DEHUM_ENABLE
+NUMERIC INPUT FIRE_SHUTDOWN
+NUMERIC INPUT SAFETY_LOCKOUT
+NUMERIC INPUT LOW_TEMP_MODE
+NUMERIC INPUT HIGH_TEMP_MODE
+
+'-----------------------------
+' HARDWARE INPUTS
+'-----------------------------
+NUMERIC INPUT DHU_ALARM
+
+'-----------------------------
+' OUTPUTS
+'-----------------------------
+NUMERIC OUTPUT DHU_REQUEST
+NUMERIC OUTPUT DHU_AVAILABLE
+NUMERIC OUTPUT DHU_MODE_CODE
+
+'==============================================================================
+' DEFAULTS EACH PASS
+'==============================================================================
+
+DHU_REQUEST = 0
+DHU_AVAILABLE = 0
+DHU_MODE_CODE = 0
+
+IF DHU_ALARM = 0 THEN
+    DHU_AVAILABLE = 1
+ENDIF
+
+'==============================================================================
+' PRIORITY SELECTION
+'==============================================================================
+
+IF FIRE_SHUTDOWN = 1 THEN
+    DHU_REQUEST = 0
+    DHU_MODE_CODE = 7
+ENDIF
+
+IF FIRE_SHUTDOWN = 0 THEN
+
+    IF SAFETY_LOCKOUT = 1 THEN
+        DHU_REQUEST = 0
+        DHU_MODE_CODE = 8
+    ENDIF
+
+    IF SAFETY_LOCKOUT = 0 THEN
+
+        IF LOW_TEMP_MODE = 1 THEN
+            DHU_REQUEST = 0
+            DHU_MODE_CODE = 4
+        ENDIF
+
+        IF LOW_TEMP_MODE = 0 THEN
+
+            IF HIGH_TEMP_MODE = 1 THEN
+                DHU_REQUEST = 0
+                DHU_MODE_CODE = 5
+            ENDIF
+
+            IF HIGH_TEMP_MODE = 0 THEN
+
+                IF UNIT_AVAILABLE = 0 THEN
+                    DHU_REQUEST = 0
+                    DHU_MODE_CODE = 0
+                ENDIF
+
+                IF UNIT_AVAILABLE = 1 THEN
+
+                    IF UNOCC_MODE = 1 THEN
+                        DHU_REQUEST = 0
+                        DHU_MODE_CODE = 0
+                    ENDIF
+
+                    IF UNOCC_MODE = 0 THEN
+
+                        IF OCC_MODE = 1 THEN
+
+                            IF DEHUM_ENABLE = 1 THEN
+
+                                IF DHU_AVAILABLE = 1 THEN
+                                    DHU_REQUEST = 1
+                                    DHU_MODE_CODE = 1
+                                ENDIF
+
+                                IF DHU_AVAILABLE = 0 THEN
+                                    DHU_REQUEST = 0
+                                    DHU_MODE_CODE = 6
+                                ENDIF
+
+                            ENDIF
+
+                            IF DEHUM_ENABLE = 0 THEN
+                                DHU_REQUEST = 0
+                                DHU_MODE_CODE = 2
+                            ENDIF
+
+                        ENDIF
+
+                    ENDIF
+
+                ENDIF
+
+            ENDIF
+
+        ENDIF
+
+    ENDIF
+
+ENDIF

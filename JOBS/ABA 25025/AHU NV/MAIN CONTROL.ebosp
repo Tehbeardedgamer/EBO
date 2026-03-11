@@ -1,0 +1,179 @@
+'==============================================================================
+' HRC_AHU_B_NV_MAIN_CONTROL
+'
+' PURPOSE:
+'   Final authority script for vault AHU outputs and startup sequencing.
+'
+' FUNCTION:
+'   - Receives requested commands from equipment scripts
+'   - Applies final unit-level shutdown logic
+'   - Commands fan first
+'   - Waits for fan proof
+'   - Releases CHW, EDH, and DHU only after fan proof
+'
+' NOTES:
+'   - Fixed safe/off values are intentionally applied here.
+'   - Individual equipment scripts remain responsible for local clamps and local
+'     control behavior.
+'==============================================================================
+
+'-----------------------------
+' FUNCTIONS
+'-----------------------------
+FUNCTION SecTimer
+
+'-----------------------------
+' MODE INPUTS
+'-----------------------------
+NUMERIC INPUT FIRE_SHUTDOWN
+NUMERIC INPUT SAFETY_LOCKOUT
+
+'-----------------------------
+' HARDWARE INPUTS
+'-----------------------------
+NUMERIC INPUT SAF_STATUS
+
+'-----------------------------
+' REQUEST INPUTS
+'-----------------------------
+NUMERIC INPUT CHW_VALVE_REQUEST
+NUMERIC INPUT EDH_REQUEST
+NUMERIC INPUT DHU_REQUEST
+NUMERIC INPUT SAF_RUN_REQUEST
+NUMERIC INPUT SAF_SPEED_REQUEST
+
+'-----------------------------
+' ADJUSTABLE INPUTS
+'-----------------------------
+NUMERIC INPUT CHW_OFF_POS
+NUMERIC INPUT EDH_OFF_POS
+NUMERIC INPUT SAF_SPEED_OFF
+NUMERIC INPUT SAF_PROOF_DELAY_SEC
+
+'-----------------------------
+' OUTPUTS
+'-----------------------------
+NUMERIC OUTPUT CHW_VALVE_CMD
+NUMERIC OUTPUT EDH_CMD
+NUMERIC OUTPUT DHU_SS
+NUMERIC OUTPUT SAF_SS
+NUMERIC OUTPUT SAF_SPEED_CMD
+NUMERIC OUTPUT FAN_PROVEN
+NUMERIC OUTPUT FAN_PROOF_FAILED
+NUMERIC OUTPUT MAIN_MODE_CODE
+
+'-----------------------------
+' INTERNALS
+'-----------------------------
+NUMERIC SAF_PROOF_TMR
+NUMERIC SAF_PROOF_ENABLE
+NUMERIC SAF_PROOF_DONE
+NUMERIC OUTPUT_RELEASE
+
+'==============================================================================
+' DEFAULTS EACH PASS
+'==============================================================================
+
+CHW_VALVE_CMD = CHW_OFF_POS
+EDH_CMD = EDH_OFF_POS
+DHU_SS = 0
+SAF_SS = 0
+SAF_SPEED_CMD = SAF_SPEED_OFF
+FAN_PROVEN = 0
+FAN_PROOF_FAILED = 0
+MAIN_MODE_CODE = 0
+SAF_PROOF_ENABLE = 0
+SAF_PROOF_DONE = 0
+OUTPUT_RELEASE = 0
+
+'==============================================================================
+' PRIORITY 1 - FIRE / SHUTDOWN
+'==============================================================================
+
+IF FIRE_SHUTDOWN = 1 THEN
+    CHW_VALVE_CMD = CHW_OFF_POS
+    EDH_CMD = EDH_OFF_POS
+    DHU_SS = 0
+    SAF_SS = 0
+    SAF_SPEED_CMD = SAF_SPEED_OFF
+    MAIN_MODE_CODE = 7
+ENDIF
+
+IF FIRE_SHUTDOWN = 0 THEN
+
+    IF SAFETY_LOCKOUT = 1 THEN
+        CHW_VALVE_CMD = CHW_OFF_POS
+        EDH_CMD = EDH_OFF_POS
+        DHU_SS = 0
+        SAF_SS = 0
+        SAF_SPEED_CMD = SAF_SPEED_OFF
+        MAIN_MODE_CODE = 8
+    ENDIF
+
+    IF SAFETY_LOCKOUT = 0 THEN
+
+        '==========================================================================
+        ' APPLY FAN REQUEST FIRST
+        '==========================================================================
+        SAF_SS = SAF_RUN_REQUEST
+        SAF_SPEED_CMD = SAF_SPEED_REQUEST
+        MAIN_MODE_CODE = 1
+
+        '==========================================================================
+        ' FAN PROOF TIMER
+        '==========================================================================
+        IF SAF_RUN_REQUEST = 1 THEN
+            SAF_PROOF_ENABLE = 1
+        ENDIF
+
+        IF SAF_RUN_REQUEST = 0 THEN
+            SAF_PROOF_ENABLE = 0
+        ENDIF
+
+        SAF_PROOF_DONE = SecTimer(SAF_PROOF_ENABLE, SAF_PROOF_DELAY_SEC, SAF_PROOF_TMR)
+
+        IF SAF_STATUS = 1 THEN
+            FAN_PROVEN = 1
+        ENDIF
+
+        IF SAF_STATUS = 0 THEN
+            FAN_PROVEN = 0
+        ENDIF
+
+        IF SAF_PROOF_DONE = 1 THEN
+            IF FAN_PROVEN = 0 THEN
+                FAN_PROOF_FAILED = 1
+            ENDIF
+        ENDIF
+
+        '==========================================================================
+        ' OUTPUT RELEASE
+        '==========================================================================
+        IF FAN_PROVEN = 1 THEN
+            OUTPUT_RELEASE = 1
+        ENDIF
+
+        IF FAN_PROVEN = 0 THEN
+            OUTPUT_RELEASE = 0
+        ENDIF
+
+        '==========================================================================
+        ' RELEASE DOWNSTREAM OUTPUTS ONLY WITH FAN PROOF
+        '==========================================================================
+        IF OUTPUT_RELEASE = 1 THEN
+            CHW_VALVE_CMD = CHW_VALVE_REQUEST
+            EDH_CMD = EDH_REQUEST
+            DHU_SS = DHU_REQUEST
+            MAIN_MODE_CODE = 2
+        ENDIF
+
+        IF OUTPUT_RELEASE = 0 THEN
+            CHW_VALVE_CMD = CHW_OFF_POS
+            EDH_CMD = EDH_OFF_POS
+            DHU_SS = 0
+            MAIN_MODE_CODE = 3
+        ENDIF
+
+    ENDIF
+
+ENDIF

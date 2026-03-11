@@ -1,0 +1,154 @@
+'==============================================================================
+' HRC_AHU_B_NV_CHW_VALVE_CONTROL
+'
+' PURPOSE:
+'   Modulate the chilled water valve to maintain vault space temperature.
+'
+' SEQUENCE:
+'   - In occupied cooling, valve modulates to maintain SPACE_TEMP_SP_ACTIVE.
+'   - In low temp safety, valve is forced to CHW_FREEZE_POS.
+'   - In fire, shutdown, disabled, unoccupied, or no cooling demand, valve
+'     goes to CHW_OFF_POS.
+'==============================================================================
+
+'-----------------------------
+' FUNCTIONS
+'-----------------------------
+FUNCTION PIDControl
+
+'-----------------------------
+' MODE INPUTS
+'-----------------------------
+NUMERIC INPUT UNIT_AVAILABLE
+NUMERIC INPUT OCC_MODE
+NUMERIC INPUT UNOCC_MODE
+NUMERIC INPUT COOL_MODE
+NUMERIC INPUT FIRE_SHUTDOWN
+NUMERIC INPUT SAFETY_LOCKOUT
+NUMERIC INPUT LOW_TEMP_MODE
+
+'-----------------------------
+' PROCESS INPUTS
+'-----------------------------
+NUMERIC INPUT SPACE_TEMP
+NUMERIC INPUT SPACE_TEMP_SP_ACTIVE
+
+'-----------------------------
+' ADJUSTABLE INPUTS
+'-----------------------------
+NUMERIC INPUT CHW_PID_P
+NUMERIC INPUT CHW_PID_I
+NUMERIC INPUT CHW_PID_D
+NUMERIC INPUT CHW_MIN_POS
+NUMERIC INPUT CHW_MAX_POS
+NUMERIC INPUT CHW_OFF_POS
+NUMERIC INPUT CHW_FREEZE_POS
+
+'-----------------------------
+' OUTPUTS
+'-----------------------------
+NUMERIC OUTPUT CHW_VALVE_REQUEST
+NUMERIC OUTPUT CHW_VALVE_PID_OUT
+NUMERIC OUTPUT CHW_VALVE_MODE_CODE
+
+'-----------------------------
+' INTERNALS
+'-----------------------------
+NUMERIC CHW_PID_I_TERM
+NUMERIC CHW_PID_OLD_ERR
+NUMERIC CHW_ACTIVE_CMD
+
+'==============================================================================
+' DEFAULTS EACH PASS
+'==============================================================================
+
+CHW_VALVE_REQUEST = CHW_OFF_POS
+CHW_VALVE_PID_OUT = 0
+CHW_VALVE_MODE_CODE = 0
+CHW_ACTIVE_CMD = CHW_OFF_POS
+
+'==============================================================================
+' PRIORITY SELECTION
+'==============================================================================
+
+IF FIRE_SHUTDOWN = 1 THEN
+    CHW_ACTIVE_CMD = CHW_OFF_POS
+    CHW_VALVE_MODE_CODE = 7
+ENDIF
+
+IF FIRE_SHUTDOWN = 0 THEN
+
+    IF SAFETY_LOCKOUT = 1 THEN
+        CHW_ACTIVE_CMD = CHW_OFF_POS
+        CHW_VALVE_MODE_CODE = 8
+    ENDIF
+
+    IF SAFETY_LOCKOUT = 0 THEN
+
+        IF LOW_TEMP_MODE = 1 THEN
+            CHW_ACTIVE_CMD = CHW_FREEZE_POS
+            CHW_VALVE_MODE_CODE = 4
+        ENDIF
+
+        IF LOW_TEMP_MODE = 0 THEN
+
+            IF UNIT_AVAILABLE = 0 THEN
+                CHW_ACTIVE_CMD = CHW_OFF_POS
+                CHW_VALVE_MODE_CODE = 0
+            ENDIF
+
+            IF UNIT_AVAILABLE = 1 THEN
+
+                IF UNOCC_MODE = 1 THEN
+                    CHW_ACTIVE_CMD = CHW_OFF_POS
+                    CHW_VALVE_MODE_CODE = 0
+                ENDIF
+
+                IF UNOCC_MODE = 0 THEN
+
+                    IF OCC_MODE = 1 THEN
+
+                        IF COOL_MODE = 1 THEN
+                            CHW_VALVE_PID_OUT = PIDControl(1, SPACE_TEMP, SPACE_TEMP_SP_ACTIVE, CHW_PID_I_TERM, CHW_PID_P, CHW_PID_I, CHW_PID_D, CHW_PID_OLD_ERR)
+                            CHW_ACTIVE_CMD = CHW_VALVE_PID_OUT
+                            CHW_VALVE_MODE_CODE = 1
+                        ENDIF
+
+                        IF COOL_MODE = 0 THEN
+                            CHW_ACTIVE_CMD = CHW_OFF_POS
+                            CHW_VALVE_MODE_CODE = 2
+                        ENDIF
+
+                    ENDIF
+
+                ENDIF
+
+            ENDIF
+
+        ENDIF
+
+    ENDIF
+
+ENDIF
+
+'==============================================================================
+' ACTIVE CONTROL CLAMPS
+'==============================================================================
+
+IF CHW_VALVE_MODE_CODE = 1 THEN
+
+    IF CHW_ACTIVE_CMD < CHW_MIN_POS THEN
+        CHW_ACTIVE_CMD = CHW_MIN_POS
+    ENDIF
+
+    IF CHW_ACTIVE_CMD > CHW_MAX_POS THEN
+        CHW_ACTIVE_CMD = CHW_MAX_POS
+    ENDIF
+
+ENDIF
+
+'==============================================================================
+' FINAL OUTPUT
+'==============================================================================
+
+CHW_VALVE_REQUEST = CHW_ACTIVE_CMD
