@@ -1,0 +1,126 @@
+'==============================================================================
+' AHU_SAFETY_MANAGER
+'
+' PURPOSE:
+'   Central abnormal-state watcher for AHU package, modeled after the Siemens
+'   source intent.
+'
+' FUNCTION:
+'   - Evaluates maintenance mode as hard lockout
+'   - Evaluates fire / smoke as smoke override condition
+'   - Evaluates hard safety shutdown as hard lockout
+'   - Evaluates MAT low protection latch with hysteresis
+'   - Publishes abnormal-state flags for downstream scripts
+'
+' NOTES:
+'   - MAT low is intentionally NOT treated as a hard lockout.
+'   - Smoke is intentionally NOT treated as a hard lockout.
+'   - This script does not determine occupancy or normal control mode.
+'==============================================================================
+
+'-----------------------------
+' INPUTS
+'-----------------------------
+NUMERIC INPUT MAINT_MODE
+NUMERIC INPUT FIRE_ALARM
+NUMERIC INPUT SAFETY_SHUTDOWN
+NUMERIC INPUT MA_TEMP
+
+'-----------------------------
+' ADJUSTABLE INPUTS
+'-----------------------------
+NUMERIC INPUT MAT_LOW_ON_SP
+NUMERIC INPUT MAT_LOW_OFF_SP
+
+'-----------------------------
+' OUTPUTS
+'-----------------------------
+NUMERIC OUTPUT SAFETY_OKAY
+NUMERIC OUTPUT UNIT_LOCKED_OUT
+NUMERIC OUTPUT SMOKE_ACTIVE
+NUMERIC OUTPUT MAT_LOW_ACTIVE
+NUMERIC OUTPUT SAFETY_MODE_CODE
+STRING OUTPUT SAFETY_TEXT
+
+GOTO INI
+
+INI:
+SAFETY_OKAY = 1
+UNIT_LOCKED_OUT = 0
+SMOKE_ACTIVE = 0
+MAT_LOW_ACTIVE = 0
+SAFETY_MODE_CODE = 0
+SAFETY_TEXT = "NORMAL"
+GOTO MAIN
+
+MAIN:
+
+'-----------------------------
+' DERIVED STATES
+'-----------------------------
+IF FIRE_ALARM <> 0 THEN
+  SMOKE_ACTIVE = 1
+ENDIF
+
+IF FIRE_ALARM = 0 THEN
+  SMOKE_ACTIVE = 0
+ENDIF
+
+IF MA_TEMP <= MAT_LOW_ON_SP THEN
+  MAT_LOW_ACTIVE = 1
+ENDIF
+
+IF MA_TEMP >= MAT_LOW_OFF_SP THEN
+  MAT_LOW_ACTIVE = 0
+ENDIF
+
+'-----------------------------
+' DEFAULTS
+'-----------------------------
+SAFETY_OKAY = 1
+UNIT_LOCKED_OUT = 0
+SAFETY_MODE_CODE = 0
+SAFETY_TEXT = "NORMAL"
+
+'-----------------------------
+' PRIORITY
+'   1. Maintenance lockout
+'   2. Hard safety shutdown
+'   3. Smoke override
+'   4. MAT low active
+'-----------------------------
+IF MAINT_MODE <> 0 THEN
+  SAFETY_OKAY = 0
+  UNIT_LOCKED_OUT = 1
+  SAFETY_MODE_CODE = 1
+  SAFETY_TEXT = "MAINTENANCE"
+  GOTO DONE
+ENDIF
+
+IF SAFETY_SHUTDOWN <> 0 THEN
+  SAFETY_OKAY = 0
+  UNIT_LOCKED_OUT = 1
+  SAFETY_MODE_CODE = 2
+  SAFETY_TEXT = "SAFETY SHUTDOWN"
+  GOTO DONE
+ENDIF
+
+IF SMOKE_ACTIVE = 1 THEN
+  SAFETY_OKAY = 0
+  UNIT_LOCKED_OUT = 0
+  SAFETY_MODE_CODE = 3
+  SAFETY_TEXT = "SMOKE OVERRIDE"
+  GOTO DONE
+ENDIF
+
+IF MAT_LOW_ACTIVE = 1 THEN
+  SAFETY_OKAY = 1
+  UNIT_LOCKED_OUT = 0
+  SAFETY_MODE_CODE = 4
+  SAFETY_TEXT = "MAT LOW ACTIVE"
+  GOTO DONE
+ENDIF
+
+DONE:
+WAIT 1
+GOTO MAIN

@@ -1,0 +1,144 @@
+'==============================================================================
+' AHU_SAFETY_MANAGER
+'
+' PURPOSE:
+'   Central raw safety / abnormal-state watcher for AHU package.
+'
+' FUNCTION:
+'   - Evaluates master enable
+'   - Evaluates maintenance mode
+'   - Evaluates fire / smoke override condition
+'   - Evaluates hard safety shutdown
+'   - Evaluates MAT low protection latch with hysteresis
+'   - Publishes clean abnormal-state flags for downstream scripts
+'
+' NOTES:
+'   - This script does not determine occupied / unoccupied.
+'   - This script does not determine dehumidification or humidification mode.
+'   - MAT low is intentionally NOT treated as a hard lockout.
+'==============================================================================
+
+'-----------------------------
+' INPUTS
+'-----------------------------
+NUMERIC INPUT SYSTEM_ENABLE
+NUMERIC INPUT MAINT_MODE
+NUMERIC INPUT FIRE_ALARM
+NUMERIC INPUT SAFETY_SHUTDOWN
+NUMERIC INPUT MA_TEMP
+
+'-----------------------------
+' ADJUSTABLE INPUTS
+'-----------------------------
+NUMERIC INPUT MAT_LOW_ON_SP
+NUMERIC INPUT MAT_LOW_OFF_SP
+
+'-----------------------------
+' OUTPUTS
+'-----------------------------
+NUMERIC OUTPUT SAFETY_OKAY
+NUMERIC OUTPUT UNIT_LOCKED_OUT
+NUMERIC OUTPUT SMOKE_ACTIVE
+NUMERIC OUTPUT MAT_LOW_ACTIVE
+NUMERIC OUTPUT SAFETY_MODE_CODE
+STRING OUTPUT SAFETY_TEXT
+
+NUMERIC SAFETY_ARRAY[5],i
+GOTO INI
+
+'-----------------------------
+' INITIALIZATION
+'-----------------------------
+INI:
+SAFETY_OKAY = 0
+UNIT_LOCKED_OUT = 0
+SMOKE_ACTIVE = 0
+MAT_LOW_ACTIVE = 0
+SAFETY_MODE_CODE = 0
+SAFETY_TEXT = "INIT"
+
+GOTO MAIN
+
+'==============================================================================
+' MAIN
+'==============================================================================
+MAIN:
+
+'-----------------------------
+' DEFAULT NORMAL ASSUMPTIONS
+'-----------------------------
+SAFETY_OKAY = 1
+UNIT_LOCKED_OUT = 0
+SAFETY_MODE_CODE = 0
+SAFETY_TEXT = "NORMAL"
+
+
+IF MA_TEMP <= MAT_LOW_ON_SP THEN MAT_LOW_ACTIVE = 1 ELSE IF MA_TEMP >= MAT_LOW_OFF_SP THEN MAT_LOW_ACTIVE = 0
+
+SAFETY_ARRAY[1] = MAINT_MODE
+SAFETY_ARRAY[2] = FIRE_ALARM
+SAFETY_ARRAY[3] = SAFETY_SHUTDOWN
+SAFETY_ARRAY[4] = MAT_LOW_ACTIVE
+
+FOR i = 1 TO 4
+  IF SAFETY_ARRAY[i] = 1 THEN
+    UNIT_LOCKED_OUT = 1
+    SAFETY_TEXT = SAFETY_TEXT + SAFETY_ARRAY[1]
+  ENDIF
+
+'-----------------------------
+' DEFAULT NORMAL ASSUMPTIONS
+'-----------------------------
+SAFETY_OKAY = 1
+UNIT_LOCKED_OUT = 0
+SAFETY_MODE_CODE = 0
+SAFETY_TEXT = "NORMAL"
+
+'-----------------------------
+' PRIORITY EVALUATION
+'-----------------------------
+
+IF SYSTEM_ENABLE = 0 or MAINT_MODE <> 0 or SMOKE_ACTIVE = 1 or SAFETY_SHUTDOWN <> 0 THEN SAFETY_OKAY = 0
+IF SYSTEM_ENABLE = 0 THEN
+  SAFETY_OKAY = 0
+  UNIT_LOCKED_OUT = 1
+  SAFETY_MODE_CODE = 1
+  SAFETY_TEXT = "SYSTEM DISABLED"
+  GOTO DONE
+ENDIF
+
+IF MAINT_MODE <> 0 THEN
+  SAFETY_OKAY = 0
+  UNIT_LOCKED_OUT = 1
+  SAFETY_MODE_CODE = 2
+  SAFETY_TEXT = "MAINTENANCE"
+  GOTO DONE
+ENDIF
+
+IF SMOKE_ACTIVE = 1 THEN
+  SAFETY_OKAY = 0
+  UNIT_LOCKED_OUT = 1
+  SAFETY_MODE_CODE = 3
+  SAFETY_TEXT = "SMOKE OVERRIDE"
+  GOTO DONE
+ENDIF
+
+IF SAFETY_SHUTDOWN <> 0 THEN
+  SAFETY_OKAY = 0
+  UNIT_LOCKED_OUT = 1
+  SAFETY_MODE_CODE = 4
+  SAFETY_TEXT = "SAFETY SHUTDOWN"
+  GOTO DONE
+ENDIF
+
+IF MAT_LOW_ACTIVE = 1 THEN
+  SAFETY_OKAY = 1
+  UNIT_LOCKED_OUT = 0
+  SAFETY_MODE_CODE = 5
+  SAFETY_TEXT = "MAT LOW ACTIVE"
+  GOTO DONE
+ENDIF
+
+DONE:
+WAIT 1
+GOTO MAIN

@@ -1,0 +1,155 @@
+'==============================================================================
+' AHU_MODE_DETERMINATION
+'
+' PURPOSE:
+'   Determine normal AHU operating intent using the Siemens file as the control
+'   reference.
+'
+' FUNCTION:
+'   - Uses OCC_CMD directly for occupancy state
+'   - Determines dehumidification enable using RA humidity and SecTimer
+'   - Publishes NORMAL_ENABLE for downstream request scripts
+'   - Publishes HUM_ENABLE_PERMIT
+'   - Publishes MODE_CODE for setpoint manager / diagnostics
+'
+' MODE_CODE:
+'   0 = OFF / UNAVAILABLE
+'   1 = UNOCCUPIED
+'   2 = OCCUPIED NORMAL
+'   3 = DEHUMIDIFICATION
+'   4 = FREEZE PROTECTION ACTIVE
+'   5 = SMOKE OVERRIDE
+'   6 = SAFETY / LOCKOUT
+'==============================================================================
+
+'-----------------------------
+' FUNCTIONS
+'-----------------------------
+FUNCTION SecTimer
+
+'-----------------------------
+' INPUTS
+'-----------------------------
+NUMERIC INPUT OCC_CMD
+NUMERIC INPUT SAFETY_OKAY
+NUMERIC INPUT UNIT_LOCKED_OUT
+NUMERIC INPUT SMOKE_ACTIVE
+NUMERIC INPUT MAT_LOW_ACTIVE
+NUMERIC INPUT RA_HUMIDITY
+
+'-----------------------------
+' ADJUSTABLE INPUTS
+'-----------------------------
+NUMERIC INPUT DEHUM_HIGH_LIMIT
+NUMERIC INPUT DEHUM_LOW_LIMIT
+NUMERIC INPUT DEHUM_ENABLE_DELAY
+
+'-----------------------------
+' OUTPUTS
+'-----------------------------
+NUMERIC OUTPUT NORMAL_ENABLE
+NUMERIC OUTPUT DEHUM_ENABLE
+NUMERIC OUTPUT HUM_ENABLE_PERMIT
+NUMERIC OUTPUT MODE_CODE
+STRING OUTPUT CURRENT_MODE_TEXT
+
+'-----------------------------
+' INTERNALS
+'-----------------------------
+NUMERIC DEHUM_CONDITION
+NUMERIC DEHUM_TIMER
+NUMERIC DEHUM_TIMER_DONE
+
+GOTO INI
+
+INI:
+NORMAL_ENABLE = 0
+DEHUM_ENABLE = 0
+HUM_ENABLE_PERMIT = 0
+MODE_CODE = 0
+CURRENT_MODE_TEXT = "INIT"
+GOTO MAIN
+
+MAIN:
+
+'-----------------------------
+' DEHUM LATCH
+'-----------------------------
+DEHUM_CONDITION = 0
+
+IF RA_HUMIDITY > DEHUM_HIGH_LIMIT THEN
+  DEHUM_CONDITION = 1
+ENDIF
+
+DEHUM_TIMER_DONE = SecTimer(DEHUM_CONDITION, DEHUM_ENABLE_DELAY, DEHUM_TIMER)
+
+IF DEHUM_TIMER_DONE = 1 THEN
+  DEHUM_ENABLE = 1
+ENDIF
+
+IF RA_HUMIDITY < DEHUM_LOW_LIMIT THEN
+  DEHUM_ENABLE = 0
+ENDIF
+
+'-----------------------------
+' DEFAULTS
+'-----------------------------
+NORMAL_ENABLE = 0
+HUM_ENABLE_PERMIT = 0
+MODE_CODE = 0
+CURRENT_MODE_TEXT = "OFF"
+
+'-----------------------------
+' PRIORITY
+'-----------------------------
+IF UNIT_LOCKED_OUT = 1 THEN
+  MODE_CODE = 6
+  CURRENT_MODE_TEXT = "LOCKOUT"
+  GOTO MODE_DONE
+ENDIF
+
+IF SMOKE_ACTIVE = 1 THEN
+  MODE_CODE = 5
+  CURRENT_MODE_TEXT = "SMOKE OVERRIDE"
+  GOTO MODE_DONE
+ENDIF
+
+IF MAT_LOW_ACTIVE = 1 THEN
+  MODE_CODE = 4
+  CURRENT_MODE_TEXT = "FREEZE PROTECTION"
+  GOTO MODE_DONE
+ENDIF
+
+IF OCC_CMD = 0 THEN
+  MODE_CODE = 1
+  CURRENT_MODE_TEXT = "UNOCCUPIED"
+  GOTO MODE_DONE
+ENDIF
+
+NORMAL_ENABLE = 1
+
+IF DEHUM_ENABLE = 1 THEN
+  MODE_CODE = 3
+  CURRENT_MODE_TEXT = "DEHUMIDIFICATION"
+  GOTO MODE_DONE
+ENDIF
+
+MODE_CODE = 2
+CURRENT_MODE_TEXT = "OCCUPIED NORMAL"
+
+MODE_DONE:
+
+'-----------------------------
+' HUMIDIFICATION PERMIT
+'   Humidity is only allowed in occupied normal operation.
+'-----------------------------
+IF MODE_CODE = 2 THEN
+  HUM_ENABLE_PERMIT = 1
+ENDIF
+
+IF MODE_CODE <> 2 THEN
+  HUM_ENABLE_PERMIT = 0
+ENDIF
+
+WAIT 1
+GOTO MAIN
