@@ -1,0 +1,134 @@
+'==============================================================================
+' AHU_HUMIDITY_REQUEST
+'
+' PURPOSE:
+'   Generate requested humidity valve command and humidifier enable request for
+'   normal AHU operation.
+'
+' FUNCTION:
+'   - In occupied normal mode only, humidity valve modulates to maintain RH_SP.
+'   - Humidifier enable request is allowed only when:
+'       * HUM_ENABLE_PERMIT = 1
+'       * OA temperature is below humidification lockout
+'       * humidifier LP safety is normal
+'       * external humidifier enable command is on
+'   - In all other modes, requested outputs are off and PID is reset.
+'
+' NOTES:
+'   - Arbiter owns smoke / freeze / startup / final override behavior.
+'==============================================================================
+
+FUNCTION PIDControl
+
+'-----------------------------
+' MODE INPUTS
+'-----------------------------
+NUMERIC INPUT MODE_CODE
+NUMERIC INPUT HUM_ENABLE_PERMIT
+
+'-----------------------------
+' PROCESS INPUTS
+'-----------------------------
+NUMERIC INPUT RA_HUMIDITY
+NUMERIC INPUT RH_SP
+NUMERIC INPUT OA_TEMP
+
+'-----------------------------
+' HARDWARE INPUTS
+'-----------------------------
+NUMERIC INPUT HUMDIFIER_LP_SAFETY
+NUMERIC INPUT HUMIDIFIER_ENABLE_CMD
+
+'-----------------------------
+' ADJUSTABLE INPUTS
+'-----------------------------
+NUMERIC INPUT HUM_PID_P
+NUMERIC INPUT HUM_PID_I
+NUMERIC INPUT HUM_PID_D
+NUMERIC INPUT HUM_VALVE_OFF_POS
+NUMERIC INPUT HUM_ENABLE_ON_POS
+NUMERIC INPUT HUM_OAT_LOCKOUT_SP
+
+'-----------------------------
+' OUTPUTS
+'-----------------------------
+NUMERIC OUTPUT HUMIDITY_VALVE_REQ
+NUMERIC OUTPUT HUMIDIFIER_ENABLE_REQ
+NUMERIC OUTPUT HUM_VALVE_PID_OUT
+
+'-----------------------------
+' INTERNALS
+'-----------------------------
+NUMERIC HUM_PID_I_TERM
+NUMERIC HUM_PID_OLD_ERR
+NUMERIC HUM_ACTIVE_CMD
+NUMERIC HUM_LOOP_PERMITTED
+
+'==============================================================================
+' DEFAULTS
+'==============================================================================
+HUM_ACTIVE_CMD = HUM_VALVE_OFF_POS
+HUMIDIFIER_ENABLE_REQ = 0
+HUM_VALVE_PID_OUT = 0
+HUM_LOOP_PERMITTED = 0
+
+'==============================================================================
+' LOOP PERMIT
+'   MODE_CODE 2 = OCCUPIED NORMAL
+'==============================================================================
+IF MODE_CODE = 2 THEN
+  IF HUM_ENABLE_PERMIT = 1 THEN
+    IF OA_TEMP <= HUM_OAT_LOCKOUT_SP THEN
+      IF HUMDIFIER_LP_SAFETY = 0 THEN
+        IF HUMIDIFIER_ENABLE_CMD = 1 THEN
+          HUM_LOOP_PERMITTED = 1
+        ENDIF
+      ENDIF
+    ENDIF
+  ENDIF
+ENDIF
+
+'==============================================================================
+' PID CONTROL
+'==============================================================================
+IF HUM_LOOP_PERMITTED = 1 THEN
+  HUM_VALVE_PID_OUT = PIDControl(1, RA_HUMIDITY, RH_SP, HUM_PID_I_TERM, HUM_PID_P, HUM_PID_I, HUM_PID_D, HUM_PID_OLD_ERR)
+  HUM_ACTIVE_CMD = HUM_VALVE_PID_OUT
+ENDIF
+
+'==============================================================================
+' PID RESET WHEN NOT PERMITTED
+'==============================================================================
+IF HUM_LOOP_PERMITTED = 0 THEN
+  HUM_PID_I_TERM = 0
+  HUM_PID_OLD_ERR = 0
+  HUM_ACTIVE_CMD = HUM_VALVE_OFF_POS
+  HUM_VALVE_PID_OUT = 0
+ENDIF
+
+'==============================================================================
+' FINAL HARD CLAMPS
+'==============================================================================
+IF HUM_ACTIVE_CMD < 0 THEN
+  HUM_ACTIVE_CMD = 0
+ENDIF
+
+IF HUM_ACTIVE_CMD > 100 THEN
+  HUM_ACTIVE_CMD = 100
+ENDIF
+
+'==============================================================================
+' HUMIDIFIER ENABLE REQUEST
+'==============================================================================
+IF HUM_LOOP_PERMITTED = 1 THEN
+  IF HUM_ACTIVE_CMD >= HUM_ENABLE_ON_POS THEN
+    HUMIDIFIER_ENABLE_REQ = 1
+  ENDIF
+ENDIF
+
+'==============================================================================
+' FINAL OUTPUTS
+'==============================================================================
+HUMIDITY_VALVE_REQ = HUM_ACTIVE_CMD
+
+WAIT 10

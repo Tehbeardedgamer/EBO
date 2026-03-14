@@ -1,0 +1,115 @@
+'==============================================================================
+' AHU_HOT_DECK_FAN_REQUEST
+'
+' PURPOSE:
+'   Generate requested hot deck fan enable and speed for normal AHU operation.
+'
+' FUNCTION:
+'   - In occupied normal mode, fan modulates to maintain HD_STATIC_SP.
+'   - If VFD is faulted, request is forced off.
+'   - In all other modes, request is off and PID is reset.
+'
+' NOTES:
+'   - Arbiter owns smoke / freeze / startup / final override behavior.
+'==============================================================================
+
+FUNCTION PIDControl
+
+'-----------------------------
+' MODE INPUTS
+'-----------------------------
+NUMERIC INPUT NORMAL_ENABLE
+NUMERIC INPUT MODE_CODE
+
+'-----------------------------
+' PROCESS INPUTS
+'-----------------------------
+NUMERIC INPUT HD_DUCT_STATIC
+NUMERIC INPUT HD_STATIC_SP
+
+'-----------------------------
+' HARDWARE INPUTS
+'-----------------------------
+NUMERIC INPUT HD_VFD_FAULT
+
+'-----------------------------
+' ADJUSTABLE INPUTS
+'-----------------------------
+NUMERIC INPUT HD_FAN_PID_P
+NUMERIC INPUT HD_FAN_PID_I
+NUMERIC INPUT HD_FAN_PID_D
+NUMERIC INPUT HD_FAN_OFF_SPEED
+
+'-----------------------------
+' OUTPUTS
+'-----------------------------
+NUMERIC OUTPUT HD_FAN_SS_REQ
+NUMERIC OUTPUT HD_FAN_SPEED_REQ
+NUMERIC OUTPUT HD_FAN_PID_OUT
+
+'-----------------------------
+' INTERNALS
+'-----------------------------
+NUMERIC HD_FAN_PID_I_TERM
+NUMERIC HD_FAN_PID_OLD_ERR
+NUMERIC HD_FAN_ACTIVE_SPEED
+NUMERIC HD_FAN_ENABLE
+NUMERIC HD_FAN_LOOP_PERMITTED
+
+'==============================================================================
+' DEFAULTS
+'==============================================================================
+HD_FAN_ENABLE = 0
+HD_FAN_ACTIVE_SPEED = HD_FAN_OFF_SPEED
+HD_FAN_PID_OUT = 0
+HD_FAN_LOOP_PERMITTED = 0
+
+'==============================================================================
+' LOOP PERMIT
+'   MODE_CODE 2 = OCCUPIED NORMAL
+'==============================================================================
+IF HD_VFD_FAULT = 0 THEN
+  IF NORMAL_ENABLE = 1 THEN
+    IF MODE_CODE = 2 THEN
+      HD_FAN_LOOP_PERMITTED = 1
+      HD_FAN_ENABLE = 1
+    ENDIF
+  ENDIF
+ENDIF
+
+'==============================================================================
+' PID CONTROL
+'==============================================================================
+IF HD_FAN_LOOP_PERMITTED = 1 THEN
+  HD_FAN_PID_OUT = PIDControl(0, HD_DUCT_STATIC, HD_STATIC_SP, HD_FAN_PID_I_TERM, HD_FAN_PID_P, HD_FAN_PID_I, HD_FAN_PID_D, HD_FAN_PID_OLD_ERR)
+  HD_FAN_ACTIVE_SPEED = HD_FAN_PID_OUT
+ENDIF
+
+'==============================================================================
+' PID RESET WHEN NOT PERMITTED
+'==============================================================================
+IF HD_FAN_LOOP_PERMITTED = 0 THEN
+  HD_FAN_PID_I_TERM = 0
+  HD_FAN_PID_OLD_ERR = 0
+  HD_FAN_ACTIVE_SPEED = HD_FAN_OFF_SPEED
+  HD_FAN_PID_OUT = 0
+ENDIF
+
+'==============================================================================
+' FINAL HARD CLAMPS
+'==============================================================================
+IF HD_FAN_ACTIVE_SPEED < 0 THEN
+  HD_FAN_ACTIVE_SPEED = 0
+ENDIF
+
+IF HD_FAN_ACTIVE_SPEED > 100 THEN
+  HD_FAN_ACTIVE_SPEED = 100
+ENDIF
+
+'==============================================================================
+' FINAL OUTPUTS
+'==============================================================================
+HD_FAN_SS_REQ = HD_FAN_ENABLE
+HD_FAN_SPEED_REQ = HD_FAN_ACTIVE_SPEED
+
+WAIT 1

@@ -1,0 +1,88 @@
+'==============================================================================
+' AHU_MIXING_DAMPER_REQUEST
+'
+' PURPOSE:
+'   Generate requested mixed-air damper command for normal AHU operation.
+'
+' FUNCTION:
+'   - In occupied normal and dehumidification operation, damper requests the
+'     active minimum OA target.
+'   - Active minimum OA target is the higher of MIN_OA_POS_BASE and
+'     MIN_OA_POS_RESET.
+'   - In all other modes, request goes to 0%.
+'
+' NOTES:
+'   - This script owns only the normal requested mixed-air position.
+'   - Arbiter owns smoke / freeze / shutdown final behavior.
+'   - For this unit:
+'       0%   = full return air
+'       100% = full outside air / full relief
+'==============================================================================
+
+'-----------------------------
+' MODE INPUTS
+'-----------------------------
+NUMERIC INPUT NORMAL_ENABLE
+NUMERIC INPUT MODE_CODE
+
+'-----------------------------
+' SETPOINT INPUTS
+'-----------------------------
+NUMERIC INPUT MIN_OA_POS_BASE
+NUMERIC INPUT MIN_OA_POS_RESET
+
+'-----------------------------
+' OUTPUTS
+'-----------------------------
+NUMERIC OUTPUT MIXING_DAMPER_REQ
+NUMERIC OUTPUT ACTIVE_MIN_OA_TARGET
+
+GOTO INI
+
+INI:
+MIXING_DAMPER_REQ = 0
+ACTIVE_MIN_OA_TARGET = 0
+GOTO MAIN
+
+MAIN:
+
+'-----------------------------
+' ACTIVE MINIMUM OA TARGET
+'-----------------------------
+IF MIN_OA_POS_RESET >= MIN_OA_POS_BASE THEN
+  ACTIVE_MIN_OA_TARGET = MIN_OA_POS_RESET
+ENDIF
+
+IF MIN_OA_POS_RESET < MIN_OA_POS_BASE THEN
+  ACTIVE_MIN_OA_TARGET = MIN_OA_POS_BASE
+ENDIF
+
+'-----------------------------
+' DEFAULT
+'-----------------------------
+MIXING_DAMPER_REQ = 0
+
+'-----------------------------
+' NORMAL REQUEST
+'   MODE_CODE 2 = OCCUPIED NORMAL
+'   MODE_CODE 3 = DEHUMIDIFICATION
+'-----------------------------
+IF NORMAL_ENABLE = 1 THEN
+  IF MODE_CODE = 2 OR MODE_CODE = 3 THEN
+    MIXING_DAMPER_REQ = ACTIVE_MIN_OA_TARGET
+  ENDIF
+ENDIF
+
+'-----------------------------
+' FINAL HARD CLAMPS
+'-----------------------------
+IF MIXING_DAMPER_REQ < 0 THEN
+  MIXING_DAMPER_REQ = 0
+ENDIF
+
+IF MIXING_DAMPER_REQ > 100 THEN
+  MIXING_DAMPER_REQ = 100
+ENDIF
+
+WAIT 10
+GOTO MAIN

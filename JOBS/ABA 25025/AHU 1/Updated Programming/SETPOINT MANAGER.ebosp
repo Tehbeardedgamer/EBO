@@ -1,0 +1,196 @@
+'==============================================================================
+' AHU_SETPOINT_MANAGER
+'
+' PURPOSE:
+'   Generate active AHU setpoints for discharge air, static pressure,
+'   building pressure, humidity, and minimum OA base position.
+'
+' FUNCTION:
+'   - Cold deck DAT setpoint:
+'       * dehumidification mode -> fixed dehum setpoint
+'       * otherwise OA reset
+'   - Hot deck DAT setpoint:
+'       * OA reset
+'   - Static / building pressure:
+'       * occupied -> occupied values
+'       * unoccupied -> unoccupied values
+'   - RH setpoint:
+'       * occupied normal -> occupied RH setpoint
+'       * otherwise unoccupied RH setpoint
+'       * MAT low forces RH setpoint to 0
+'   - Minimum OA base:
+'       * normal default minimum OA position
+'==============================================================================
+
+'-----------------------------
+' MODE INPUTS
+'-----------------------------
+NUMERIC INPUT OCC_CMD
+NUMERIC INPUT MODE_CODE
+NUMERIC INPUT DEHUM_ENABLE
+NUMERIC INPUT MAT_LOW_ACTIVE
+
+'-----------------------------
+' PROCESS INPUTS
+'-----------------------------
+NUMERIC INPUT OA_TEMP
+
+'-----------------------------
+' COLD DECK DAT RESET INPUTS
+'-----------------------------
+NUMERIC INPUT CD_DAT_SP_DEHUM
+NUMERIC INPUT CD_DAT_SP_WARM_OA
+NUMERIC INPUT CD_DAT_SP_COLD_OA
+NUMERIC INPUT CD_MAX_OA
+NUMERIC INPUT CD_MIN_OA
+
+'-----------------------------
+' HOT DECK DAT RESET INPUTS
+'-----------------------------
+NUMERIC INPUT HD_DAT_SP_WARM_OA
+NUMERIC INPUT HD_DAT_SP_COLD_OA
+NUMERIC INPUT HD_MAX_OA
+NUMERIC INPUT HD_MIN_OA
+
+'-----------------------------
+' STATIC / PRESSURE INPUTS
+'-----------------------------
+NUMERIC INPUT CD_STATIC_SP_OCC
+NUMERIC INPUT CD_STATIC_SP_UNOCC
+NUMERIC INPUT HD_STATIC_SP_OCC
+NUMERIC INPUT HD_STATIC_SP_UNOCC
+NUMERIC INPUT BLDG_PRESSURE_SP_OCC
+NUMERIC INPUT BLDG_PRESSURE_SP_UNOCC
+
+'-----------------------------
+' RH SETPOINT INPUTS
+'-----------------------------
+NUMERIC INPUT RH_SP_OCC
+NUMERIC INPUT RH_SP_UNOCC
+
+'-----------------------------
+' MINIMUM OA INPUTS
+'-----------------------------
+NUMERIC INPUT MIN_OA_POS_DEFAULT
+
+'-----------------------------
+' OUTPUTS
+'-----------------------------
+NUMERIC OUTPUT CD_DAT_SP
+NUMERIC OUTPUT HD_DAT_SP
+NUMERIC OUTPUT CD_STATIC_SP
+NUMERIC OUTPUT HD_STATIC_SP
+NUMERIC OUTPUT BLDG_PRESSURE_SP
+NUMERIC OUTPUT RH_SP
+NUMERIC OUTPUT MIN_OA_POS_BASE
+
+'-----------------------------
+' INTERNALS
+'-----------------------------
+NUMERIC HD_RESET_SLOPE
+NUMERIC CD_RESET_SLOPE
+
+GOTO INI
+
+INI:
+CD_DAT_SP = CD_DAT_SP_WARM_OA
+HD_DAT_SP = HD_DAT_SP_WARM_OA
+
+CD_STATIC_SP = CD_STATIC_SP_UNOCC
+HD_STATIC_SP = HD_STATIC_SP_UNOCC
+BLDG_PRESSURE_SP = BLDG_PRESSURE_SP_UNOCC
+
+RH_SP = RH_SP_UNOCC
+MIN_OA_POS_BASE = MIN_OA_POS_DEFAULT
+
+GOTO MAIN
+
+MAIN:
+
+'==============================================================================
+' COLD DECK DISCHARGE SETPOINT
+'==============================================================================
+IF DEHUM_ENABLE = 1 THEN
+  CD_DAT_SP = CD_DAT_SP_DEHUM
+ENDIF
+
+IF DEHUM_ENABLE = 0 THEN
+
+  IF CD_MAX_OA <> CD_MIN_OA THEN
+    CD_RESET_SLOPE = (CD_DAT_SP_COLD_OA - CD_DAT_SP_WARM_OA) / (CD_MIN_OA - CD_MAX_OA)
+  ENDIF
+
+  IF OA_TEMP >= CD_MAX_OA THEN
+    CD_DAT_SP = CD_DAT_SP_WARM_OA
+  ENDIF
+
+  IF OA_TEMP <= CD_MIN_OA THEN
+    CD_DAT_SP = CD_DAT_SP_COLD_OA
+  ENDIF
+
+  IF OA_TEMP < CD_MAX_OA THEN
+    IF OA_TEMP > CD_MIN_OA THEN
+      CD_DAT_SP = CD_DAT_SP_WARM_OA + ((OA_TEMP - CD_MAX_OA) * CD_RESET_SLOPE)
+    ENDIF
+  ENDIF
+
+ENDIF
+
+'==============================================================================
+' HOT DECK DISCHARGE SETPOINT
+'==============================================================================
+IF HD_MAX_OA <> HD_MIN_OA THEN
+  HD_RESET_SLOPE = (HD_DAT_SP_COLD_OA - HD_DAT_SP_WARM_OA) / (HD_MIN_OA - HD_MAX_OA)
+ENDIF
+
+IF OA_TEMP >= HD_MAX_OA THEN
+  HD_DAT_SP = HD_DAT_SP_WARM_OA
+ENDIF
+
+IF OA_TEMP <= HD_MIN_OA THEN
+  HD_DAT_SP = HD_DAT_SP_COLD_OA
+ENDIF
+
+IF OA_TEMP < HD_MAX_OA THEN
+  IF OA_TEMP > HD_MIN_OA THEN
+    HD_DAT_SP = HD_DAT_SP_WARM_OA + ((OA_TEMP - HD_MAX_OA) * HD_RESET_SLOPE)
+  ENDIF
+ENDIF
+
+'==============================================================================
+' STATIC / BUILDING PRESSURE SETPOINT SELECTION
+'==============================================================================
+IF OCC_CMD <> 0 THEN
+  CD_STATIC_SP = CD_STATIC_SP_OCC
+  HD_STATIC_SP = HD_STATIC_SP_OCC
+  BLDG_PRESSURE_SP = BLDG_PRESSURE_SP_OCC
+ENDIF
+
+IF OCC_CMD = 0 THEN
+  CD_STATIC_SP = CD_STATIC_SP_UNOCC
+  HD_STATIC_SP = HD_STATIC_SP_UNOCC
+  BLDG_PRESSURE_SP = BLDG_PRESSURE_SP_UNOCC
+ENDIF
+
+'==============================================================================
+' RH SETPOINT SELECTION
+'==============================================================================
+IF MODE_CODE = 2 THEN
+  RH_SP = RH_SP_OCC
+ENDIF
+
+IF MODE_CODE <> 2 THEN
+  RH_SP = RH_SP_UNOCC
+ENDIF
+
+IF MAT_LOW_ACTIVE = 1 THEN
+  RH_SP = 0
+ENDIF
+
+'==============================================================================
+' MINIMUM OA POSITION BASE
+'==============================================================================
+MIN_OA_POS_BASE = MIN_OA_POS_DEFAULT
+
+WAIT 1
+GOTO MAIN

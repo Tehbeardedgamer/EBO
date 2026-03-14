@@ -2,8 +2,7 @@
 ' AHU_SAFETY_MANAGER
 '
 ' PURPOSE:
-'   Central abnormal-state watcher for AHU package, modeled after the Siemens
-'   source intent.
+'   Central abnormal-state watcher for AHU package.
 '
 ' FUNCTION:
 '   - Evaluates maintenance mode as hard lockout
@@ -18,23 +17,14 @@
 '   - This script does not determine occupancy or normal control mode.
 '==============================================================================
 
-'-----------------------------
-' INPUTS
-'-----------------------------
 NUMERIC INPUT MAINT_MODE
 NUMERIC INPUT FIRE_ALARM
 NUMERIC INPUT SAFETY_SHUTDOWN
 NUMERIC INPUT MA_TEMP
 
-'-----------------------------
-' ADJUSTABLE INPUTS
-'-----------------------------
 NUMERIC INPUT MAT_LOW_ON_SP
 NUMERIC INPUT MAT_LOW_OFF_SP
 
-'-----------------------------
-' OUTPUTS
-'-----------------------------
 NUMERIC OUTPUT SAFETY_OKAY
 NUMERIC OUTPUT UNIT_LOCKED_OUT
 NUMERIC OUTPUT SMOKE_ACTIVE
@@ -55,9 +45,6 @@ GOTO MAIN
 
 MAIN:
 
-'-----------------------------
-' DERIVED STATES
-'-----------------------------
 IF FIRE_ALARM <> 0 THEN
   SMOKE_ACTIVE = 1
 ENDIF
@@ -74,21 +61,11 @@ IF MA_TEMP >= MAT_LOW_OFF_SP THEN
   MAT_LOW_ACTIVE = 0
 ENDIF
 
-'-----------------------------
-' DEFAULTS
-'-----------------------------
 SAFETY_OKAY = 1
 UNIT_LOCKED_OUT = 0
 SAFETY_MODE_CODE = 0
 SAFETY_TEXT = "NORMAL"
 
-'-----------------------------
-' PRIORITY
-'   1. Maintenance lockout
-'   2. Hard safety shutdown
-'   3. Smoke override
-'   4. MAT low active
-'-----------------------------
 IF MAINT_MODE <> 0 THEN
   SAFETY_OKAY = 0
   UNIT_LOCKED_OUT = 1

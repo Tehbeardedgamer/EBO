@@ -2,8 +2,7 @@
 ' AHU_MODE_DETERMINATION
 '
 ' PURPOSE:
-'   Determine normal AHU operating intent using the Siemens file as the control
-'   reference.
+'   Determine normal AHU operating intent.
 '
 ' FUNCTION:
 '   - Uses OCC_CMD directly for occupancy state
@@ -22,40 +21,24 @@
 '   6 = SAFETY / LOCKOUT
 '==============================================================================
 
-'-----------------------------
-' FUNCTIONS
-'-----------------------------
 FUNCTION SecTimer
 
-'-----------------------------
-' INPUTS
-'-----------------------------
 NUMERIC INPUT OCC_CMD
-NUMERIC INPUT SAFETY_OKAY
 NUMERIC INPUT UNIT_LOCKED_OUT
 NUMERIC INPUT SMOKE_ACTIVE
 NUMERIC INPUT MAT_LOW_ACTIVE
 NUMERIC INPUT RA_HUMIDITY
 
-'-----------------------------
-' ADJUSTABLE INPUTS
-'-----------------------------
 NUMERIC INPUT DEHUM_HIGH_LIMIT
 NUMERIC INPUT DEHUM_LOW_LIMIT
 NUMERIC INPUT DEHUM_ENABLE_DELAY
 
-'-----------------------------
-' OUTPUTS
-'-----------------------------
 NUMERIC OUTPUT NORMAL_ENABLE
 NUMERIC OUTPUT DEHUM_ENABLE
 NUMERIC OUTPUT HUM_ENABLE_PERMIT
 NUMERIC OUTPUT MODE_CODE
 STRING OUTPUT CURRENT_MODE_TEXT
 
-'-----------------------------
-' INTERNALS
-'-----------------------------
 NUMERIC DEHUM_CONDITION
 NUMERIC DEHUM_TIMER
 NUMERIC DEHUM_TIMER_DONE
@@ -72,9 +55,6 @@ GOTO MAIN
 
 MAIN:
 
-'-----------------------------
-' DEHUM LATCH
-'-----------------------------
 DEHUM_CONDITION = 0
 
 IF RA_HUMIDITY > DEHUM_HIGH_LIMIT THEN
@@ -91,17 +71,11 @@ IF RA_HUMIDITY < DEHUM_LOW_LIMIT THEN
   DEHUM_ENABLE = 0
 ENDIF
 
-'-----------------------------
-' DEFAULTS
-'-----------------------------
 NORMAL_ENABLE = 0
 HUM_ENABLE_PERMIT = 0
 MODE_CODE = 0
 CURRENT_MODE_TEXT = "OFF"
 
-'-----------------------------
-' PRIORITY
-'-----------------------------
 IF UNIT_LOCKED_OUT = 1 THEN
   MODE_CODE = 6
   CURRENT_MODE_TEXT = "LOCKOUT"
@@ -139,10 +113,6 @@ CURRENT_MODE_TEXT = "OCCUPIED NORMAL"
 
 MODE_DONE:
 
-'-----------------------------
-' HUMIDIFICATION PERMIT
-'   Humidity is only allowed in occupied normal operation.
-'-----------------------------
 IF MODE_CODE = 2 THEN
   HUM_ENABLE_PERMIT = 1
 ENDIF

@@ -1,0 +1,149 @@
+'==============================================================================
+' AHU_RETURN_AIR_FAN_REQUEST
+'
+' PURPOSE:
+'   Generate requested return air fan enable and speed for normal AHU operation.
+'
+' FUNCTION:
+'   - In occupied normal and dehumidification mode, available RA fans are
+'     enabled and speed modulates to maintain BLDG_PRESSURE_SP.
+'   - If one VFD is faulted, the remaining healthy fan continues to run.
+'   - If both VFDs are faulted, both fans are requested off.
+'   - In all other modes, request is off and PID is reset.
+'
+' NOTES:
+'   - Arbiter owns smoke / freeze / startup / final override behavior.
+'==============================================================================
+
+FUNCTION PIDControl
+
+'-----------------------------
+' MODE INPUTS
+'-----------------------------
+NUMERIC INPUT NORMAL_ENABLE
+NUMERIC INPUT MODE_CODE
+
+'-----------------------------
+' PROCESS INPUTS
+'-----------------------------
+NUMERIC INPUT BUILDING_PRESSURE
+NUMERIC INPUT BLDG_PRESSURE_SP
+
+'-----------------------------
+' HARDWARE INPUTS
+'-----------------------------
+NUMERIC INPUT RA_VFD_FAULT_1
+NUMERIC INPUT RA_VFD_FAULT_2
+
+'-----------------------------
+' ADJUSTABLE INPUTS
+'-----------------------------
+NUMERIC INPUT RA_FAN_PID_P
+NUMERIC INPUT RA_FAN_PID_I
+NUMERIC INPUT RA_FAN_PID_D
+NUMERIC INPUT RA_FAN_OFF_SPEED
+
+'-----------------------------
+' OUTPUTS
+'-----------------------------
+NUMERIC OUTPUT RA_FAN_SS_REQ_1
+NUMERIC OUTPUT RA_FAN_SS_REQ_2
+NUMERIC OUTPUT RA_FAN_SPEED_REQ_1
+NUMERIC OUTPUT RA_FAN_SPEED_REQ_2
+NUMERIC OUTPUT RA_FAN_PID_OUT
+
+'-----------------------------
+' INTERNALS
+'-----------------------------
+NUMERIC RA_FAN_PID_I_TERM
+NUMERIC RA_FAN_PID_OLD_ERR
+NUMERIC RA_FAN_ACTIVE_SPEED
+NUMERIC RA_FAN_ENABLE_1
+NUMERIC RA_FAN_ENABLE_2
+NUMERIC RA_FAN_AVAIL_1
+NUMERIC RA_FAN_AVAIL_2
+NUMERIC RA_FAN_LOOP_PERMITTED
+
+'==============================================================================
+' DEFAULTS
+'==============================================================================
+RA_FAN_ENABLE_1 = 0
+RA_FAN_ENABLE_2 = 0
+RA_FAN_AVAIL_1 = 0
+RA_FAN_AVAIL_2 = 0
+RA_FAN_ACTIVE_SPEED = RA_FAN_OFF_SPEED
+RA_FAN_PID_OUT = 0
+RA_FAN_LOOP_PERMITTED = 0
+
+'==============================================================================
+' AVAILABILITY
+'==============================================================================
+IF RA_VFD_FAULT_1 = 0 THEN
+  RA_FAN_AVAIL_1 = 1
+ENDIF
+
+IF RA_VFD_FAULT_2 = 0 THEN
+  RA_FAN_AVAIL_2 = 1
+ENDIF
+
+'==============================================================================
+' LOOP PERMIT
+'   MODE_CODE 2 = OCCUPIED NORMAL
+'   MODE_CODE 3 = DEHUMIDIFICATION
+'==============================================================================
+IF NORMAL_ENABLE = 1 THEN
+  IF MODE_CODE = 2 OR MODE_CODE = 3 THEN
+
+    IF RA_FAN_AVAIL_1 = 1 THEN
+      RA_FAN_ENABLE_1 = 1
+    ENDIF
+
+    IF RA_FAN_AVAIL_2 = 1 THEN
+      RA_FAN_ENABLE_2 = 1
+    ENDIF
+
+    IF RA_FAN_AVAIL_1 = 1 OR RA_FAN_AVAIL_2 = 1 THEN
+      RA_FAN_LOOP_PERMITTED = 1
+    ENDIF
+
+  ENDIF
+ENDIF
+
+'==============================================================================
+' PID CONTROL
+'==============================================================================
+IF RA_FAN_LOOP_PERMITTED = 1 THEN
+  RA_FAN_PID_OUT = PIDControl(1, BUILDING_PRESSURE, BLDG_PRESSURE_SP, RA_FAN_PID_I_TERM, RA_FAN_PID_P, RA_FAN_PID_I, RA_FAN_PID_D, RA_FAN_PID_OLD_ERR)
+  RA_FAN_ACTIVE_SPEED = RA_FAN_PID_OUT
+ENDIF
+
+'==============================================================================
+' PID RESET WHEN NOT PERMITTED
+'==============================================================================
+IF RA_FAN_LOOP_PERMITTED = 0 THEN
+  RA_FAN_PID_I_TERM = 0
+  RA_FAN_PID_OLD_ERR = 0
+  RA_FAN_ACTIVE_SPEED = RA_FAN_OFF_SPEED
+  RA_FAN_PID_OUT = 0
+ENDIF
+
+'==============================================================================
+' FINAL HARD CLAMPS
+'==============================================================================
+IF RA_FAN_ACTIVE_SPEED < 0 THEN
+  RA_FAN_ACTIVE_SPEED = 0
+ENDIF
+
+IF RA_FAN_ACTIVE_SPEED > 100 THEN
+  RA_FAN_ACTIVE_SPEED = 100
+ENDIF
+
+'==============================================================================
+' FINAL OUTPUTS
+'==============================================================================
+RA_FAN_SS_REQ_1 = RA_FAN_ENABLE_1
+RA_FAN_SS_REQ_2 = RA_FAN_ENABLE_2
+RA_FAN_SPEED_REQ_1 = RA_FAN_ACTIVE_SPEED
+RA_FAN_SPEED_REQ_2 = RA_FAN_ACTIVE_SPEED
+
+WAIT 1

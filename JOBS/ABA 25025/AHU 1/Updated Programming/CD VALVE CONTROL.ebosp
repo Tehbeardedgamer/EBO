@@ -1,0 +1,104 @@
+'==============================================================================
+' AHU_COOLING_VALVE_REQUEST
+'
+' PURPOSE:
+'   Generate requested chilled water valve position for normal AHU operation.
+'
+' FUNCTION:
+'   - In occupied normal and dehumidification mode, valve modulates to maintain
+'     CD_DAT_SP.
+'   - In all other modes, request goes to off position and PID is reset.
+'
+' NOTES:
+'   - Arbiter owns smoke / freeze / startup / final override behavior.
+'==============================================================================
+
+FUNCTION PIDControl
+
+'-----------------------------
+' MODE INPUTS
+'-----------------------------
+NUMERIC INPUT NORMAL_ENABLE
+NUMERIC INPUT MODE_CODE
+
+'-----------------------------
+' PROCESS INPUTS
+'-----------------------------
+NUMERIC INPUT CD_DAT
+NUMERIC INPUT CD_DAT_SP
+
+'-----------------------------
+' ADJUSTABLE INPUTS
+'-----------------------------
+NUMERIC INPUT CD_PID_P
+NUMERIC INPUT CD_PID_I
+NUMERIC INPUT CD_PID_D
+NUMERIC INPUT CD_VALVE_OFF_POS
+
+'-----------------------------
+' OUTPUTS
+'-----------------------------
+NUMERIC OUTPUT CD_VALVE_REQ
+NUMERIC OUTPUT CD_VALVE_PID_OUT
+
+'-----------------------------
+' INTERNALS
+'-----------------------------
+NUMERIC CD_PID_I_TERM
+NUMERIC CD_PID_OLD_ERR
+NUMERIC CD_ACTIVE_CMD
+NUMERIC CD_LOOP_PERMITTED
+
+'==============================================================================
+' DEFAULTS
+'==============================================================================
+CD_ACTIVE_CMD = CD_VALVE_OFF_POS
+CD_VALVE_PID_OUT = 0
+CD_LOOP_PERMITTED = 0
+
+'==============================================================================
+' LOOP PERMIT
+'   MODE_CODE 2 = OCCUPIED NORMAL
+'   MODE_CODE 3 = DEHUMIDIFICATION
+'==============================================================================
+IF NORMAL_ENABLE = 1 THEN
+  IF MODE_CODE = 2 OR MODE_CODE = 3 THEN
+    CD_LOOP_PERMITTED = 1
+  ENDIF
+ENDIF
+
+'==============================================================================
+' PID CONTROL
+'==============================================================================
+IF CD_LOOP_PERMITTED = 1 THEN
+  CD_VALVE_PID_OUT = PIDControl(1, CD_DAT, CD_DAT_SP, CD_PID_I_TERM, CD_PID_P, CD_PID_I, CD_PID_D, CD_PID_OLD_ERR)
+  CD_ACTIVE_CMD = CD_VALVE_PID_OUT
+ENDIF
+
+'==============================================================================
+' PID RESET WHEN NOT PERMITTED
+'==============================================================================
+IF CD_LOOP_PERMITTED = 0 THEN
+  CD_PID_I_TERM = 0
+  CD_PID_OLD_ERR = 0
+  CD_ACTIVE_CMD = CD_VALVE_OFF_POS
+  CD_VALVE_PID_OUT = 0
+ENDIF
+
+'==============================================================================
+' FINAL HARD CLAMPS
+'==============================================================================
+IF CD_ACTIVE_CMD < 0 THEN
+  CD_ACTIVE_CMD = 0
+ENDIF
+
+IF CD_ACTIVE_CMD > 100 THEN
+  CD_ACTIVE_CMD = 100
+ENDIF
+
+'==============================================================================
+' FINAL OUTPUT
+'==============================================================================
+CD_VALVE_REQ = CD_ACTIVE_CMD
+
+WAIT 10

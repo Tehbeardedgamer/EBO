@@ -1,0 +1,102 @@
+'==============================================================================
+' AHU_HEATING_VALVE_REQUEST
+'
+' PURPOSE:
+'   Generate requested heating valve position for normal AHU operation.
+'
+' FUNCTION:
+'   - In occupied normal mode, valve modulates to maintain HD_DAT_SP.
+'   - In all other modes, request goes to off position and PID is reset.
+'
+' NOTES:
+'   - Arbiter owns smoke / freeze / startup / final override behavior.
+'==============================================================================
+
+FUNCTION PIDControl
+
+'-----------------------------
+' MODE INPUTS
+'-----------------------------
+NUMERIC INPUT NORMAL_ENABLE
+NUMERIC INPUT MODE_CODE
+
+'-----------------------------
+' PROCESS INPUTS
+'-----------------------------
+NUMERIC INPUT HD_DAT
+NUMERIC INPUT HD_DAT_SP
+
+'-----------------------------
+' ADJUSTABLE INPUTS
+'-----------------------------
+NUMERIC INPUT HD_PID_P
+NUMERIC INPUT HD_PID_I
+NUMERIC INPUT HD_PID_D
+NUMERIC INPUT HD_VALVE_OFF_POS
+
+'-----------------------------
+' OUTPUTS
+'-----------------------------
+NUMERIC OUTPUT HD_VALVE_REQ
+NUMERIC OUTPUT HD_VALVE_PID_OUT
+
+'-----------------------------
+' INTERNALS
+'-----------------------------
+NUMERIC HD_PID_I_TERM
+NUMERIC HD_PID_OLD_ERR
+NUMERIC HD_ACTIVE_CMD
+NUMERIC HD_LOOP_PERMITTED
+
+'==============================================================================
+' DEFAULTS
+'==============================================================================
+HD_ACTIVE_CMD = HD_VALVE_OFF_POS
+HD_VALVE_PID_OUT = 0
+HD_LOOP_PERMITTED = 0
+
+'==============================================================================
+' LOOP PERMIT
+'   MODE_CODE 2 = OCCUPIED NORMAL
+'==============================================================================
+IF NORMAL_ENABLE = 1 THEN
+  IF MODE_CODE = 2 THEN
+    HD_LOOP_PERMITTED = 1
+  ENDIF
+ENDIF
+
+'==============================================================================
+' PID CONTROL
+'==============================================================================
+IF HD_LOOP_PERMITTED = 1 THEN
+  HD_VALVE_PID_OUT = PIDControl(0, HD_DAT, HD_DAT_SP, HD_PID_I_TERM, HD_PID_P, HD_PID_I, HD_PID_D, HD_PID_OLD_ERR)
+  HD_ACTIVE_CMD = HD_VALVE_PID_OUT
+ENDIF
+
+'==============================================================================
+' PID RESET WHEN NOT PERMITTED
+'==============================================================================
+IF HD_LOOP_PERMITTED = 0 THEN
+  HD_PID_I_TERM = 0
+  HD_PID_OLD_ERR = 0
+  HD_ACTIVE_CMD = HD_VALVE_OFF_POS
+  HD_VALVE_PID_OUT = 0
+ENDIF
+
+'==============================================================================
+' FINAL HARD CLAMPS
+'==============================================================================
+IF HD_ACTIVE_CMD < 0 THEN
+  HD_ACTIVE_CMD = 0
+ENDIF
+
+IF HD_ACTIVE_CMD > 100 THEN
+  HD_ACTIVE_CMD = 100
+ENDIF
+
+'==============================================================================
+' FINAL OUTPUT
+'==============================================================================
+HD_VALVE_REQ = HD_ACTIVE_CMD
+
+WAIT 10
