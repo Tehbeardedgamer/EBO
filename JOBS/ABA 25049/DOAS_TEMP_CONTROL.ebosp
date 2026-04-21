@@ -1,0 +1,190 @@
+'==============================================================================
+' DOAS_TEMP_CONTROL
+'
+' PURPOSE
+'   Generate temperature-related requests for:
+'     - ERW enable
+'     - OA bypass damper D-4
+'     - EA bypass damper D-5
+'     - CHW valve CV-1
+'     - HW valve HV-1
+'
+' ACTIVE_MODE
+'   1 = HEATING
+'   2 = COOLING
+'   3 = ECONOMIZER COOLING
+'   4 = ECONOMIZER
+'
+' MODE RESPONSES
+'   1 HEATING:
+'       ERW on, bypass dampers closed, HW valve modulates to maintain T-3
+'   2 COOLING:
+'       ERW on, bypass dampers closed, CHW valve modulates to maintain T-3
+'   3 ECONOMIZER COOLING:
+'       ERW off, bypass dampers open, CHW valve modulates to maintain T-3
+'   4 ECONOMIZER:
+'       ERW on, D-4 closed, D-5 open/close around T-3,
+'       CHW assists only when additional cooling is required
+'
+' ADDITIONAL SEQUENCE ITEMS
+'   - If EA temperature drops below HRLL_SP, D-5 opens to bypass the wheel
+'   - When occupied and in cooling-family modes, CV-1 publishes a pre-open request
+'     so the master can open CV-1 to 100% before starting the supply fan
+'   - When unoccupied / off, HV-1 modulates to maintain cabinet temperature at T-3
+'
+' NOTES
+'   - Per your direction, D-5 "modulate" is treated as open / closed.
+'==============================================================================
+
+NUMERIC INPUT UNIT_ENABLE
+NUMERIC INPUT OCCUPIED_REQ
+NUMERIC INPUT ACTIVE_MODE
+
+NUMERIC INPUT SA_TEMP
+NUMERIC INPUT SA_TEMP_SP
+NUMERIC INPUT EA_TEMP
+
+NUMERIC INPUT HRLL_SP
+NUMERIC INPUT ECON_BYPASS_DB
+NUMERIC INPUT CHW_ASSIST_DB
+NUMERIC INPUT CABINET_TEMP_SP
+
+NUMERIC INPUT CHW_KP
+NUMERIC INPUT CHW_KI
+NUMERIC INPUT CHW_KD
+NUMERIC INPUT HW_KP
+NUMERIC INPUT HW_KI
+NUMERIC INPUT HW_KD
+
+NUMERIC OUTPUT ERW_ENABLE_REQ
+NUMERIC OUTPUT OA_BYPASS_REQ
+NUMERIC OUTPUT EA_BYPASS_REQ
+NUMERIC OUTPUT CHW_VALVE_REQ
+NUMERIC OUTPUT HW_VALVE_REQ
+NUMERIC OUTPUT COOL_PREOPEN_REQ
+
+NUMERIC CHW_INT
+NUMERIC CHW_OLDERR
+NUMERIC CHW_OUT
+
+NUMERIC HW_INT
+NUMERIC HW_OLDERR
+NUMERIC HW_OUT
+
+FUNCTION PIDControl
+
+INIT:
+ERW_ENABLE_REQ = 0
+OA_BYPASS_REQ = 0
+EA_BYPASS_REQ = 0
+CHW_VALVE_REQ = 0
+HW_VALVE_REQ = 0
+COOL_PREOPEN_REQ = 0
+
+CHW_INT = 0
+CHW_OLDERR = 0
+HW_INT = 0
+HW_OLDERR = 0
+
+GOTO MAIN
+
+MAIN:
+ERW_ENABLE_REQ = 0
+OA_BYPASS_REQ = 0
+EA_BYPASS_REQ = 0
+CHW_VALVE_REQ = 0
+HW_VALVE_REQ = 0
+COOL_PREOPEN_REQ = 0
+
+IF UNIT_ENABLE = 0 THEN
+  WAIT 1
+  GOTO MAIN
+ENDIF
+
+IF OCCUPIED_REQ = 0 THEN
+  HW_OUT = PIDControl(0, SA_TEMP, CABINET_TEMP_SP, HW_INT, HW_KP, HW_KI, HW_KD, HW_OLDERR)
+
+  IF HW_OUT < 0 THEN HW_OUT = 0
+  IF HW_OUT > 100 THEN HW_OUT = 100
+
+  HW_VALVE_REQ = HW_OUT
+
+  WAIT 1
+  GOTO MAIN
+ENDIF
+
+IF ACTIVE_MODE = 1 THEN
+  ERW_ENABLE_REQ = 1
+  OA_BYPASS_REQ = 0
+  EA_BYPASS_REQ = 0
+
+  HW_OUT = PIDControl(0, SA_TEMP, SA_TEMP_SP, HW_INT, HW_KP, HW_KI, HW_KD, HW_OLDERR)
+
+  IF HW_OUT < 0 THEN HW_OUT = 0
+  IF HW_OUT > 100 THEN HW_OUT = 100
+
+  HW_VALVE_REQ = HW_OUT
+
+  WAIT 1
+  GOTO MAIN
+ENDIF
+
+IF ACTIVE_MODE = 2 THEN
+  ERW_ENABLE_REQ = 1
+  OA_BYPASS_REQ = 0
+  EA_BYPASS_REQ = 0
+  COOL_PREOPEN_REQ = 1
+
+  CHW_OUT = PIDControl(1, SA_TEMP, SA_TEMP_SP, CHW_INT, CHW_KP, CHW_KI, CHW_KD, CHW_OLDERR)
+
+  IF CHW_OUT < 0 THEN CHW_OUT = 0
+  IF CHW_OUT > 100 THEN CHW_OUT = 100
+
+  CHW_VALVE_REQ = CHW_OUT
+
+  WAIT 1
+  GOTO MAIN
+ENDIF
+
+IF ACTIVE_MODE = 3 THEN
+  ERW_ENABLE_REQ = 0
+  OA_BYPASS_REQ = 1
+  EA_BYPASS_REQ = 1
+  COOL_PREOPEN_REQ = 1
+
+  CHW_OUT = PIDControl(1, SA_TEMP, SA_TEMP_SP, CHW_INT, CHW_KP, CHW_KI, CHW_KD, CHW_OLDERR)
+
+  IF CHW_OUT < 0 THEN CHW_OUT = 0
+  IF CHW_OUT > 100 THEN CHW_OUT = 100
+
+  CHW_VALVE_REQ = CHW_OUT
+
+  WAIT 1
+  GOTO MAIN
+ENDIF
+
+IF ACTIVE_MODE = 4 THEN
+  ERW_ENABLE_REQ = 1
+  OA_BYPASS_REQ = 0
+  COOL_PREOPEN_REQ = 1
+
+  IF SA_TEMP < SA_TEMP_SP - ECON_BYPASS_DB THEN EA_BYPASS_REQ = 1
+  IF SA_TEMP > SA_TEMP_SP + ECON_BYPASS_DB THEN EA_BYPASS_REQ = 0
+
+  IF EA_TEMP < HRLL_SP THEN EA_BYPASS_REQ = 1
+
+  IF SA_TEMP > SA_TEMP_SP + CHW_ASSIST_DB THEN
+    CHW_OUT = PIDControl(1, SA_TEMP, SA_TEMP_SP, CHW_INT, CHW_KP, CHW_KI, CHW_KD, CHW_OLDERR)
+
+    IF CHW_OUT < 0 THEN CHW_OUT = 0
+    IF CHW_OUT > 100 THEN CHW_OUT = 100
+
+    CHW_VALVE_REQ = CHW_OUT
+  ENDIF
+
+  WAIT 1
+  GOTO MAIN
+ENDIF
+
+WAIT 1
+GOTO MAIN

@@ -21,21 +21,21 @@
 ' INPUTS (Bindings)
 '-----------------------------
 NUMERIC INPUT UNIT_ENABLE
-NUMERIC INPUT UNIT_MAINT_MODE
+NUMERIC INPUT UNIT_MAINT
 
 NUMERIC INPUT SAFETY_OK
 NUMERIC INPUT E_POWER
 
-NUMERIC INPUT OA_DAMPER_PROOF
-NUMERIC INPUT SA_DAMPER_PROOF
+NUMERIC INPUT OA_DAMPER_STATUS
+NUMERIC INPUT SA_DAMPER_STATUS
 
-NUMERIC INPUT DUCT_STATIC
+NUMERIC INPUT SA_DUCT_STATIC
 NUMERIC INPUT DUCT_STATIC_SP
 
 NUMERIC INPUT SAF_STATUS_A
 NUMERIC INPUT SAF_STATUS_B
-NUMERIC INPUT SAF_STATUS_C          ' optional extra fan status
-NUMERIC INPUT SAF_STATUS_D          ' optional extra fan status
+'NUMERIC INPUT SAF_STATUS_C          ' optional extra fan status
+'NUMERIC INPUT SAF_STATUS_D          ' optional extra fan status
 NUMERIC INPUT FAN_STATUS_ANY_FAIL   ' optional pre-aggregated fail input
 
 ' PID tuning (Bindings / Adjustable)
@@ -105,7 +105,7 @@ MAIN:
 '-----------------------------
 UnitPermit = 0
 If UNIT_ENABLE is ON then
-    If UNIT_MAINT_MODE is OFF then
+    If UNIT_MAINT is OFF then
         If SAFETY_OK is ON then
             If E_POWER is OFF then
                 UnitPermit = 1
@@ -115,8 +115,8 @@ If UNIT_ENABLE is ON then
 EndIf
 
 DampersProven = 0
-If OA_DAMPER_PROOF is ON then
-    If SA_DAMPER_PROOF is ON then
+If OA_DAMPER_STATUS is ON then
+    If SA_DAMPER_STATUS is ON then
         DampersProven = 1
     EndIf
 EndIf
@@ -136,7 +136,7 @@ FAN_SPEED_REQ = 0
 
 If FanPermit is ON then
     ' ReverseActing = 0 (Direct acting): DP low -> increase output
-    DP_Out = PIDControl(0, DUCT_STATIC, DUCT_STATIC_SP, DP_PID_Int, DP_KP, DP_KI, DP_KD, DP_PID_OldErr)
+    DP_Out = PIDControl(0, SA_DUCT_STATIC, DUCT_STATIC_SP, DP_PID_Int, DP_KP, DP_KI, DP_KD, DP_PID_OldErr)
 
     ' Clamp to 0..100 (do not invent min speed unless you provide limits)
     If DP_Out < 0 then DP_Out = 0
@@ -154,8 +154,8 @@ AnyStatusFail = 0
 If FAN_STATUS_ANY_FAIL is ON then AnyStatusFail = 1
 If SAF_STATUS_A is OFF then AnyStatusFail = 1
 If SAF_STATUS_B is OFF then AnyStatusFail = 1
-If SAF_STATUS_C is OFF then AnyStatusFail = 1
-If SAF_STATUS_D is OFF then AnyStatusFail = 1
+'If SAF_STATUS_C is OFF then AnyStatusFail = 1
+'If SAF_STATUS_D is OFF then AnyStatusFail = 1
 
 FailCond = 0
 If FanPermit is ON then
@@ -172,7 +172,7 @@ If Done_FanFail is ON then
 EndIf
 
 ' Maintenance Mode requirement: no alarms while in maintenance
-If UNIT_MAINT_MODE is ON then
+If UNIT_MAINT is ON then
     FAN_FAIL_ALM = 0
 EndIf
 

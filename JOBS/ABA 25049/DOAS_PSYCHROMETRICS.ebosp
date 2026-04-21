@@ -1,0 +1,75 @@
+'==============================================================================
+' DOAS_PSYCHROMETRICS
+'
+' PURPOSE
+'   Calculate OA and EA enthalpy from dry bulb temperature (°F) and RH (%).
+'
+' OUTPUTS
+'   OA_ENTHALPY, EA_ENTHALPY  -> BTU/LB DRY AIR
+'   OA_HUM_RATIO, EA_HUM_RATIO
+'
+' NOTES
+'   - Standard barometric pressure is assumed.
+'   - This script only publishes psychrometric values for other DOAS scripts.
+'==============================================================================
+
+NUMERIC INPUT OA_TEMP
+NUMERIC INPUT OA_HUMIDITY
+NUMERIC INPUT EA_TEMP
+NUMERIC INPUT EA_HUMIDITY
+
+NUMERIC OUTPUT OA_ENTHALPY
+NUMERIC OUTPUT EA_ENTHALPY
+NUMERIC OUTPUT OA_HUM_RATIO
+NUMERIC OUTPUT EA_HUM_RATIO
+
+NUMERIC OA_TC
+NUMERIC EA_TC
+NUMERIC OA_RH
+NUMERIC EA_RH
+NUMERIC OA_PWS
+NUMERIC EA_PWS
+NUMERIC OA_PV
+NUMERIC EA_PV
+NUMERIC OA_W
+NUMERIC EA_W
+
+INIT:
+OA_ENTHALPY = 0
+EA_ENTHALPY = 0
+OA_HUM_RATIO = 0
+EA_HUM_RATIO = 0
+GOTO MAIN
+
+MAIN:
+OA_RH = OA_HUMIDITY
+EA_RH = EA_HUMIDITY
+
+IF OA_RH < 0 THEN OA_RH = 0
+IF OA_RH > 100 THEN OA_RH = 100
+IF EA_RH < 0 THEN EA_RH = 0
+IF EA_RH > 100 THEN EA_RH = 100
+
+OA_TC = (OA_TEMP - 32) / 1.8
+EA_TC = (EA_TEMP - 32) / 1.8
+
+OA_PWS = 0.61094 * EXP((17.625 * OA_TC) / (OA_TC + 243.04))
+EA_PWS = 0.61094 * EXP((17.625 * EA_TC) / (EA_TC + 243.04))
+
+OA_PV = OA_PWS * (OA_RH / 100)
+EA_PV = EA_PWS * (EA_RH / 100)
+
+OA_W = 0.62198 * OA_PV / (101.325 - OA_PV)
+EA_W = 0.62198 * EA_PV / (101.325 - EA_PV)
+
+IF OA_W < 0 THEN OA_W = 0
+IF EA_W < 0 THEN EA_W = 0
+
+OA_HUM_RATIO = OA_W
+EA_HUM_RATIO = EA_W
+
+OA_ENTHALPY = (0.24 * OA_TEMP) + OA_W * (1061 + 0.444 * OA_TEMP)
+EA_ENTHALPY = (0.24 * EA_TEMP) + EA_W * (1061 + 0.444 * EA_TEMP)
+
+WAIT 1
+GOTO MAIN

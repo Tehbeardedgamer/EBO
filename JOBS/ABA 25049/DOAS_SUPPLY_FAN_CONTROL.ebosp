@@ -1,0 +1,78 @@
+'==============================================================================
+' DOAS_SUPPLY_FAN_CONTROL
+'
+' PURPOSE
+'   Generate the supply fan array speed request to maintain OA duct static.
+'
+' SOO REQUIREMENTS COVERED
+'   - Supply fan array maintains OA duct static pressure setpoint
+'   - Array proof requires both current/status points
+'   - Hi-limit release request is published when a commanded fan does not prove
+'
+' NOTES
+'   - Final authority remains in DOAS_MASTER_CONTROL.
+'   - This script only publishes requests and proof / hi-limit status.
+'==============================================================================
+
+NUMERIC INPUT SA_RUN_ENABLE
+NUMERIC INPUT OA_DUCT_STATIC
+NUMERIC INPUT OA_DUCT_STATIC_SP
+
+NUMERIC INPUT SA_FAN_STATUS_A
+NUMERIC INPUT SA_FAN_STATUS_B
+
+NUMERIC INPUT DP_KP
+NUMERIC INPUT DP_KI
+NUMERIC INPUT DP_KD
+
+NUMERIC INPUT FAN_MIN_SPEED
+NUMERIC INPUT FAN_MAX_SPEED
+
+NUMERIC OUTPUT SA_FAN_SPEED_REQ
+NUMERIC OUTPUT SA_ARRAY_PROOF
+NUMERIC OUTPUT SA_HI_LIMIT_RELEASE
+
+NUMERIC DP_INT
+NUMERIC DP_OLDERR
+NUMERIC DP_OUT
+
+FUNCTION PIDControl
+
+INIT:
+SA_FAN_SPEED_REQ = 0
+SA_ARRAY_PROOF = 0
+SA_HI_LIMIT_RELEASE = 0
+DP_INT = 0
+DP_OLDERR = 0
+DP_OUT = 0
+GOTO MAIN
+
+MAIN:
+SA_FAN_SPEED_REQ = 0
+SA_ARRAY_PROOF = 0
+SA_HI_LIMIT_RELEASE = 0
+
+IF SA_RUN_ENABLE = 0 THEN
+  WAIT 1
+  GOTO MAIN
+ENDIF
+
+DP_OUT = PIDControl(0, OA_DUCT_STATIC, OA_DUCT_STATIC_SP, DP_INT, DP_KP, DP_KI, DP_KD, DP_OLDERR)
+
+IF DP_OUT < FAN_MIN_SPEED THEN DP_OUT = FAN_MIN_SPEED
+IF DP_OUT > FAN_MAX_SPEED THEN DP_OUT = FAN_MAX_SPEED
+
+SA_FAN_SPEED_REQ = DP_OUT
+
+IF SA_FAN_STATUS_A = 1 THEN
+  IF SA_FAN_STATUS_B = 1 THEN
+    SA_ARRAY_PROOF = 1
+  ENDIF
+ENDIF
+
+IF SA_FAN_STATUS_A = 0 OR SA_FAN_STATUS_B = 0 THEN
+  SA_HI_LIMIT_RELEASE = 1
+ENDIF
+
+WAIT 1
+GOTO MAIN

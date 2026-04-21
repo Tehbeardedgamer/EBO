@@ -1,0 +1,117 @@
+'==============================================================================
+' DOAS_MODE_MANAGER
+'
+' PURPOSE
+'   Determine DOAS occupied request and active operating mode from the written SOO.
+'
+' ACTIVE_MODE
+'   0 = OFF / UNOCCUPIED
+'   1 = HEATING
+'   2 = COOLING
+'   3 = ECONOMIZER COOLING
+'   4 = ECONOMIZER
+'
+' OCCUPIED REQUEST
+'   - Occupied schedule
+'   - OVAV call during unoccupied period
+'   - Forced occupied on network communication loss
+'
+' MODE LOGIC
+'   Uses the operating table:
+'   - Cooling when EA is colder than OA, or OA enthalpy is above limit
+'   - Economizer cooling when OA is cooler than EA, but still warmer than T-3 SP,
+'     and OA enthalpy is below limit
+'   - Economizer when OA is colder than T-3 SP by deadband
+'   - Heating otherwise
+'
+' NOTES
+'   - MODE_DB_F is the adjustable 2°F transition deadband from the sequence table.
+'   - Building pressure setpoint is published by season:
+'       cooling-family modes -> BLDG_PRS_SP_COOL
+'       heating mode         -> BLDG_PRS_SP_HEAT
+'==============================================================================
+
+NUMERIC INPUT OCC_SCHEDULE
+NUMERIC INPUT OVAV_CALL
+NUMERIC INPUT NETWORK_COMM_OK
+
+NUMERIC INPUT OA_TEMP
+NUMERIC INPUT EA_TEMP
+NUMERIC INPUT OA_ENTHALPY
+NUMERIC INPUT SA_TEMP_SP
+
+NUMERIC INPUT MODE_DB_F
+NUMERIC INPUT ECON_ENTHALPY_LIMIT
+
+NUMERIC INPUT BLDG_PRS_SP_COOL
+NUMERIC INPUT BLDG_PRS_SP_HEAT
+
+NUMERIC OUTPUT OCCUPIED_REQ
+NUMERIC OUTPUT ACTIVE_MODE
+NUMERIC OUTPUT BLDG_PRS_SP
+
+INIT:
+OCCUPIED_REQ = 0
+ACTIVE_MODE = 0
+BLDG_PRS_SP = BLDG_PRS_SP_COOL
+GOTO MAIN
+
+MAIN:
+OCCUPIED_REQ = 0
+
+IF NETWORK_COMM_OK = 0 THEN OCCUPIED_REQ = 1
+IF OCC_SCHEDULE = 1 THEN OCCUPIED_REQ = 1
+IF OVAV_CALL = 1 THEN OCCUPIED_REQ = 1
+
+IF OCCUPIED_REQ = 0 THEN
+  ACTIVE_MODE = 0
+  BLDG_PRS_SP = BLDG_PRS_SP_COOL
+  WAIT 1
+  GOTO MAIN
+ENDIF
+
+' Cooling mode
+IF EA_TEMP < OA_TEMP - MODE_DB_F THEN
+  ACTIVE_MODE = 2
+  BLDG_PRS_SP = BLDG_PRS_SP_COOL
+  IF OA_ENTHALPY > ECON_ENTHALPY_LIMIT THEN
+    ACTIVE_MODE = 2
+    BLDG_PRS_SP = BLDG_PRS_SP_COOL
+  ENDIF
+  WAIT 1
+  GOTO MAIN
+ENDIF
+
+IF OA_ENTHALPY > ECON_ENTHALPY_LIMIT THEN
+  ACTIVE_MODE = 2
+  BLDG_PRS_SP = BLDG_PRS_SP_COOL
+  WAIT 1
+  GOTO MAIN
+ENDIF
+
+' Economizer cooling mode
+IF OA_TEMP > SA_TEMP_SP + MODE_DB_F THEN
+  IF OA_TEMP < EA_TEMP - MODE_DB_F THEN
+    IF OA_ENTHALPY <= ECON_ENTHALPY_LIMIT THEN
+      ACTIVE_MODE = 3
+      BLDG_PRS_SP = BLDG_PRS_SP_COOL
+      WAIT 1
+      GOTO MAIN
+    ENDIF
+  ENDIF
+ENDIF
+
+' Economizer mode
+IF OA_TEMP < SA_TEMP_SP - MODE_DB_F THEN
+  ACTIVE_MODE = 4
+  BLDG_PRS_SP = BLDG_PRS_SP_COOL
+  WAIT 1
+  GOTO MAIN
+ENDIF
+
+' Heating mode
+ACTIVE_MODE = 1
+BLDG_PRS_SP = BLDG_PRS_SP_HEAT
+
+WAIT 1
+GOTO MAIN

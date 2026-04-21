@@ -1,0 +1,88 @@
+'==============================================================================
+' DOAS_EXHAUST_FAN_CONTROL
+'
+' PURPOSE
+'   Generate the exhaust fan array speed request to maintain EA duct static.
+'
+' SOO REQUIREMENTS COVERED
+'   - Exhaust fan array maintains EA duct static pressure setpoint
+'   - Array proof requires both current/status points
+'   - Hi-limit release request is published when a commanded fan does not prove
+'
+' NOTES
+'   - The exhaust setpoint is negative, so this script controls pressure magnitude.
+'   - Final authority remains in DOAS_MASTER_CONTROL.
+'==============================================================================
+
+NUMERIC INPUT EA_RUN_ENABLE
+NUMERIC INPUT EA_DUCT_STATIC
+NUMERIC INPUT EA_DUCT_STATIC_SP
+
+NUMERIC INPUT EA_FAN_STATUS_A
+NUMERIC INPUT EA_FAN_STATUS_B
+
+NUMERIC INPUT DP_KP
+NUMERIC INPUT DP_KI
+NUMERIC INPUT DP_KD
+
+NUMERIC INPUT FAN_MIN_SPEED
+NUMERIC INPUT FAN_MAX_SPEED
+
+NUMERIC OUTPUT EA_FAN_SPEED_REQ
+NUMERIC OUTPUT EA_ARRAY_PROOF
+NUMERIC OUTPUT EA_HI_LIMIT_RELEASE
+NUMERIC OUTPUT EA_FAN_AT_MIN
+
+NUMERIC EA_STATIC_MAG
+NUMERIC EA_SP_MAG
+NUMERIC DP_INT
+NUMERIC DP_OLDERR
+NUMERIC DP_OUT
+
+FUNCTION PIDControl
+
+INIT:
+EA_FAN_SPEED_REQ = 0
+EA_ARRAY_PROOF = 0
+EA_HI_LIMIT_RELEASE = 0
+EA_FAN_AT_MIN = 0
+DP_INT = 0
+DP_OLDERR = 0
+DP_OUT = 0
+GOTO MAIN
+
+MAIN:
+EA_FAN_SPEED_REQ = 0
+EA_ARRAY_PROOF = 0
+EA_HI_LIMIT_RELEASE = 0
+EA_FAN_AT_MIN = 0
+
+IF EA_RUN_ENABLE = 0 THEN
+  WAIT 1
+  GOTO MAIN
+ENDIF
+
+EA_STATIC_MAG = 0 - EA_DUCT_STATIC
+EA_SP_MAG = 0 - EA_DUCT_STATIC_SP
+
+DP_OUT = PIDControl(0, EA_STATIC_MAG, EA_SP_MAG, DP_INT, DP_KP, DP_KI, DP_KD, DP_OLDERR)
+
+IF DP_OUT < FAN_MIN_SPEED THEN DP_OUT = FAN_MIN_SPEED
+IF DP_OUT > FAN_MAX_SPEED THEN DP_OUT = FAN_MAX_SPEED
+
+EA_FAN_SPEED_REQ = DP_OUT
+
+IF EA_FAN_STATUS_A = 1 THEN
+  IF EA_FAN_STATUS_B = 1 THEN
+    EA_ARRAY_PROOF = 1
+  ENDIF
+ENDIF
+
+IF EA_FAN_STATUS_A = 0 OR EA_FAN_STATUS_B = 0 THEN
+  EA_HI_LIMIT_RELEASE = 1
+ENDIF
+
+IF DP_OUT <= FAN_MIN_SPEED + 0.5 THEN EA_FAN_AT_MIN = 1
+
+WAIT 1
+GOTO MAIN

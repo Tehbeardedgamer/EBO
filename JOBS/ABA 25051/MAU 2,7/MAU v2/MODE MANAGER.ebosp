@@ -2,7 +2,7 @@
 ' MAU_MODE_MANAGER  (Sectimer direct-assignment, no SAT reset math)
 '
 ' Mode priority (highest to lowest):
-'   1) Safety shutdowns (handled upstream via UNIT_Enable / IO&Safeties)
+'   1) Safety shutdowns (handled upstream via UNIT_ENABLE / IO&Safeties)
 '   2) Maintenance Mode (per-unit; handled in MAU_LEAD_STANDBY + IO)
 '   3) Dehumidification
 '   4) Humidification
@@ -43,12 +43,12 @@
 '-----------------------------
 ' INPUTS (Bindings)
 '-----------------------------
-NUMERIC INPUT UNIT_Enable
+NUMERIC INPUT UNIT_ENABLE
 NUMERIC INPUT OA_TEMP
 NUMERIC INPUT OA_DEWPOINT
 NUMERIC INPUT SPACE_RH
 NUMERIC INPUT SPACE_RH_SP
-
+NUMERIC INPUT MAINTENANCE
 ' External SAT reset result (from separate SAT reset script)
 NUMERIC INPUT SAT_RESET_SP
 ' Humidification enable
@@ -82,10 +82,10 @@ NUMERIC OUTPUT HeatingActive
 NUMERIC OUTPUT CoolingActive
 NUMERIC OUTPUT HumidActive
 NUMERIC OUTPUT DehumActive
-NUMERIC OUTPUT SAT_SP
-NUMERIC OUTPUT DEHUMID_SAT_SP
+NUMERIC OUTPUT SA_TEMP_SP
+NUMERIC OUTPUT DEHUMID_SA_TEMP_SP
 NUMERIC OUTPUT HumStandbyActive
-
+NUMERIC OUTPUT UNIT_MAINT
 '-----------------------------
 ' INTERNAL VARIABLES
 '-----------------------------
@@ -133,15 +133,15 @@ INIT:
 
     CoolingLatched = 0
     HumStandbyLatch = 0
-
+		UNIT_MAINT = 0
     ActiveMode = 0
     HeatingActive = 0
     CoolingActive = 0
     HumidActive = 0
     DehumActive = 0
 
-    SAT_SP = SAT_RESET_SP
-    DEHUMID_SAT_SP = 0
+    SA_TEMP_SP = SAT_RESET_SP
+    DEHUMID_SA_TEMP_SP = 0
     HumStandbyActive = 0
 
     Goto MAIN
@@ -218,19 +218,21 @@ MAIN:
     '-----------------------------
     ' Force OFF when disabled (after timers so lockouts/latches can still evolve)
     '-----------------------------
-    If UNIT_Enable is OFF then
+IF MAINTENANCE = TRUE THEN UNIT_MAINT = TRUE ELSE UNIT_MAINT = FALSE
+    If UNIT_ENABLE is OFF then
         ActiveMode = 0
         HeatingActive = 0
         CoolingActive = 0
         HumidActive = 0
         DehumActive = 0
 
-        SAT_SP = SAT_RESET_SP
-        DEHUMID_SAT_SP = 0
+        SA_TEMP_SP = SAT_RESET_SP
+        DEHUMID_SA_TEMP_SP = 0
 
         Wait 1
         Goto MAIN
     EndIf
+
 
 
     '-----------------------------
@@ -277,27 +279,27 @@ MAIN:
     HumidActive = 0
     DehumActive = 0
 
-    DEHUMID_SAT_SP = 0
+    DEHUMID_SA_TEMP_SP = 0
 
     If ActiveMode EQUALS 1 then
         HeatingActive = 1
-        SAT_SP = SAT_RESET_SP
+        SA_TEMP_SP = SAT_RESET_SP
     EndIf
 
     If ActiveMode EQUALS 2 then
         CoolingActive = 1
-        SAT_SP = SAT_COOL_SETPOINT
+        SA_TEMP_SP = SAT_COOL_SETPOINT
     EndIf
 
     If ActiveMode EQUALS 3 then
         HumidActive = 1
-        SAT_SP = SAT_HUMIDIFY_SETPOINT
+        SA_TEMP_SP = SAT_HUMIDIFY_SETPOINT
     EndIf
 
     If ActiveMode EQUALS 4 then
         DehumActive = 1
-        DEHUMID_SAT_SP = SAT_DEHUMIDIFY_SETPOINT
-        SAT_SP = SAT_RESET_SP
+        DEHUMID_SA_TEMP_SP = SAT_DEHUMIDIFY_SETPOINT
+        SA_TEMP_SP = SAT_RESET_SP
     EndIf
 
     Wait 1
