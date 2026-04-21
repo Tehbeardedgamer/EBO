@@ -1,0 +1,120 @@
+'==============================================================================
+' MAU_RH_VALVE_CONTROL
+'
+' PURPOSE
+' Generate HW_REHEAT_REQ only.
+'
+' FUNCTIONAL INTENT RETAINED FROM ORIGINAL TEMP COIL CONTROL
+' - If unit is not permitted, output = 0
+' - In DEHUM mode, reheat controls SA_TEMP to SA_TEMP_SP
+' - In HEAT or HUM mode, reheat assists only when:
+'     HW_PREHEAT_REQ >= PREHEAT_SAT_ENABLE_PCT
+'     AND SA_TEMP < (SA_TEMP_SP - REHEAT_ENABLE_DB_F)
+' - Otherwise reheat = 0
+'
+' NOTES
+' - This script depends on HW_PREHEAT_REQ being written by the PH valve script.
+'==============================================================================
+
+NUMERIC INPUT UNIT_ENABLE
+NUMERIC INPUT UNIT_MAINT
+NUMERIC INPUT SAFETY_OK
+NUMERIC INPUT E_POWER
+NUMERIC INPUT ActiveMode          ' 0=OFF, 1=HEAT, 2=COOL, 3=HUM, 4=DEHUM
+NUMERIC INPUT SA_TEMP_SP
+NUMERIC INPUT SA_TEMP
+NUMERIC INPUT HW_PREHEAT_REQ
+NUMERIC INPUT PREHEAT_SAT_ENABLE_PCT
+NUMERIC INPUT REHEAT_ENABLE_DB_F
+
+NUMERIC INPUT RH_KP
+NUMERIC INPUT RH_KI
+NUMERIC INPUT RH_KD
+
+NUMERIC OUTPUT HW_REHEAT_REQ      ' 0..100
+
+NUMERIC UnitPermit
+NUMERIC HeatMode
+NUMERIC HumMode
+NUMERIC DehumMode
+NUMERIC RH_Out
+NUMERIC RH_Int
+NUMERIC RH_OldErr
+NUMERIC ReheatAssistEnable
+
+FUNCTION PIDControl
+
+INIT:
+HW_REHEAT_REQ = 0
+
+UnitPermit = 0
+HeatMode = 0
+HumMode = 0
+DehumMode = 0
+
+RH_Out = 0
+RH_Int = 0
+RH_OldErr = 0
+ReheatAssistEnable = 0
+
+Goto MAIN
+
+MAIN:
+UnitPermit = 0
+If UNIT_ENABLE is ON then
+    If UNIT_MAINT is OFF then
+        If SAFETY_OK is ON then
+            If E_POWER is OFF then
+                UnitPermit = 1
+            EndIf
+        EndIf
+    EndIf
+EndIf
+
+HeatMode = 0
+HumMode = 0
+DehumMode = 0
+If ActiveMode EQUALS 1 then HeatMode = 1
+If ActiveMode EQUALS 3 then HumMode = 1
+If ActiveMode EQUALS 4 then DehumMode = 1
+
+HW_REHEAT_REQ = 0
+RH_Out = 0
+ReheatAssistEnable = 0
+
+If UnitPermit is OFF then
+    Wait 10
+    Goto MAIN
+EndIf
+
+If DehumMode is ON then
+    RH_Out = PIDControl(0, SA_TEMP, SA_TEMP_SP, RH_Int, RH_KP, RH_KI, RH_KD, RH_OldErr)
+Else
+    If HeatMode is ON then
+        If HW_PREHEAT_REQ >= PREHEAT_SAT_ENABLE_PCT then
+            If SA_TEMP < (SA_TEMP_SP - REHEAT_ENABLE_DB_F) then
+                ReheatAssistEnable = 1
+            EndIf
+        EndIf
+    Else
+        If HumMode is ON then
+            If HW_PREHEAT_REQ >= PREHEAT_SAT_ENABLE_PCT then
+                If SA_TEMP < (SA_TEMP_SP - REHEAT_ENABLE_DB_F) then
+                    ReheatAssistEnable = 1
+                EndIf
+            EndIf
+        EndIf
+    EndIf
+
+    If ReheatAssistEnable is ON then
+        RH_Out = PIDControl(0, SA_TEMP, SA_TEMP_SP, RH_Int, RH_KP, RH_KI, RH_KD, RH_OldErr)
+    EndIf
+EndIf
+
+If RH_Out < 0 then RH_Out = 0
+If RH_Out > 100 then RH_Out = 100
+
+HW_REHEAT_REQ = RH_Out
+
+Wait 10
+Goto MAIN
