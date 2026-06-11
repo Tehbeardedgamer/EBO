@@ -1,0 +1,1404 @@
+'==============================================================================
+' MAU_SYS_LEAD_STANDBY - BUMPLESS SCHEDULED TRANSFER VERSION
+'
+' Responsibilities:
+' - Weekly lead/lag rotation using controlled make-before-break transfer
+' - Fault / safety changeover using fast failover without intentional overlap
+' - Maintenance mode lead/lag rotation
+' - Hardwired side safety trip lead/lag changeover
+' - Side failure lead/lag changeover
+' - Target-side start proof timeout and local start-fail removal
+' - Prime command drops out after purge / transfer window is complete
+' - Maintenance >24h alarms
+'
+' Side Mapping:
+' - Side A = MAU1
+' - Side B = MAU2
+'
+' Scheduled Rotation Philosophy:
+' - Old lead remains running.
+' - New lead is enabled and proves dampers open for 10 seconds.
+' - New lead fan starts at minimum transfer speed and proves airflow.
+' - Fan speed is transferred from old side to new side over TRANSFER_RAMP_SEC.
+' - LeadUnitNumber is changed only after transfer completes.
+'
+' Fault / Safety Philosophy:
+' - A safety trip, freeze trip, fan failure, or unavailable side is removed
+'   immediately.  No intentional overlap is attempted with a faulted side.
+'
+' Required Side-Script Bindings:
+' - MAU1_TRANSFER_ACTIVE       -> Side A MASTER / FAN / MODE / SA RESET transfer input
+' - MAU2_TRANSFER_ACTIVE       -> Side B MASTER / FAN / MODE / SA RESET transfer input
+' - MAU1_TRANSFER_SPEED_CMD    -> Side A MASTER / FAN transfer speed input
+' - MAU2_TRANSFER_SPEED_CMD    -> Side B MASTER / FAN transfer speed input
+'==============================================================================
+
+
+'-----------------------------
+' PUBLIC INPUTS
+'-----------------------------
+NUMERIC INPUT Sys_Enable
+
+NUMERIC INPUT MAU1_Failure
+NUMERIC INPUT MAU2_Failure
+
+NUMERIC INPUT MAU1_RunningProof
+NUMERIC INPUT MAU2_RunningProof
+
+NUMERIC INPUT MAU1_DampersProven10Sec
+NUMERIC INPUT MAU2_DampersProven10Sec
+
+NUMERIC INPUT MAU1_FanSpeedReq
+NUMERIC INPUT MAU2_FanSpeedReq
+
+NUMERIC INPUT MAU1_MaintMode
+NUMERIC INPUT MAU2_MaintMode
+
+NUMERIC INPUT SAFETY_OKAY_A
+NUMERIC INPUT SAFETY_OKAY_B
+NUMERIC INPUT FREEZE_A
+NUMERIC INPUT FREEZE_B
+
+NUMERIC INPUT EXT_COMMS_OK
+
+NUMERIC INPUT AutoRotateEnable
+NUMERIC INPUT PurgeTimer        ' seconds, normal value = 120
+NUMERIC INPUT MAU_START_FAIL_RESET
+NUMERIC INPUT MAU_TRANSFER_RESET
+
+
+'-----------------------------
+' PUBLIC OUTPUTS
+'-----------------------------
+NUMERIC OUTPUT MAU1_EnableCmd
+NUMERIC OUTPUT MAU2_EnableCmd
+
+NUMERIC OUTPUT MAU1_PrimeCmd
+NUMERIC OUTPUT MAU2_PrimeCmd
+
+NUMERIC OUTPUT MAU1_Lead
+NUMERIC OUTPUT MAU2_Lead
+NUMERIC OUTPUT MAU1_Lag
+NUMERIC OUTPUT MAU2_Lag
+
+NUMERIC OUTPUT LeadUnitNumber       ' 1 or 2
+NUMERIC OUTPUT LagUnitNumber        ' 1 or 2
+NUMERIC OUTPUT ActiveUnitNumber     ' 0, 1, or 2
+
+NUMERIC OUTPUT LeadFailAlarm
+NUMERIC OUTPUT MAU1_StartFail
+NUMERIC OUTPUT MAU2_StartFail
+NUMERIC OUTPUT MAU1_MaintOver24h_Alm
+NUMERIC OUTPUT MAU2_MaintOver24h_Alm
+
+NUMERIC OUTPUT TransferActive
+NUMERIC OUTPUT TransferState
+NUMERIC OUTPUT TransferFromUnit
+NUMERIC OUTPUT TransferToUnit
+NUMERIC OUTPUT TransferRatioPct
+NUMERIC OUTPUT TransferTotalSpeed
+NUMERIC OUTPUT TransferFailed
+NUMERIC OUTPUT TransferFailUnit
+NUMERIC OUTPUT RotationBlocked
+NUMERIC OUTPUT RotationBlockReason
+
+NUMERIC OUTPUT MAU1_TRANSFER_ACTIVE
+NUMERIC OUTPUT MAU2_TRANSFER_ACTIVE
+NUMERIC OUTPUT MAU1_TRANSFER_SPEED_CMD
+NUMERIC OUTPUT MAU2_TRANSFER_SPEED_CMD
+
+
+'-----------------------------
+' INTERNAL / PUBLIC VARIABLES
+'-----------------------------
+NUMERIC PUBLIC InitDone
+
+NUMERIC PUBLIC DesiredActive
+NUMERIC PUBLIC StandbyUnit
+
+NUMERIC PUBLIC SwState
+NUMERIC PUBLIC FromUnit
+NUMERIC PUBLIC ToUnit
+
+NUMERIC PUBLIC MAU1_Available
+NUMERIC PUBLIC MAU2_Available
+NUMERIC PUBLIC MAU1_SafetyTrip
+NUMERIC PUBLIC MAU2_SafetyTrip
+NUMERIC PUBLIC MAU1_Unavailable
+NUMERIC PUBLIC MAU2_Unavailable
+NUMERIC PUBLIC LeadChangeoverActive
+NUMERIC PUBLIC LeadChangeoverFrom
+NUMERIC PUBLIC LeadChangeoverTo
+
+NUMERIC PUBLIC EffectivePurgeTimer
+NUMERIC PUBLIC StartProofTimeoutSec
+NUMERIC PUBLIC TransferRampSec
+NUMERIC PUBLIC TransferMinSpeed
+NUMERIC PUBLIC TransferFailTimeoutSec
+NUMERIC PUBLIC TransferStepPct
+
+NUMERIC PUBLIC T_StartProof
+NUMERIC PUBLIC Done_StartProof
+NUMERIC PUBLIC T_TransferFail
+NUMERIC PUBLIC Done_TransferFail
+
+DATETIME PUBLIC LastRotateDT
+
+NUMERIC PUBLIC T_Maint1
+NUMERIC PUBLIC T_Maint2
+NUMERIC PUBLIC Done_Maint1
+NUMERIC PUBLIC Done_Maint2
+
+NUMERIC PUBLIC T_Purge
+NUMERIC PUBLIC Done_Purge
+
+
+'-----------------------------
+' FUNCTIONS USED
+'-----------------------------
+FUNCTION Sectimer
+
+
+'==============================================================================
+INIT:
+'==============================================================================
+
+    If InitDone EQUALS 0 then
+
+        LeadUnitNumber = 1
+        LagUnitNumber = 2
+        LastRotateDT = Date
+
+        SwState = 0
+        FromUnit = 0
+        ToUnit = 0
+        DesiredActive = 0
+        StandbyUnit = 2
+
+        MAU1_EnableCmd = 0
+        MAU2_EnableCmd = 0
+
+        MAU1_PrimeCmd = 0
+        MAU2_PrimeCmd = 0
+
+        MAU1_Lead = 1
+        MAU2_Lead = 0
+        MAU1_Lag = 0
+        MAU2_Lag = 1
+
+        ActiveUnitNumber = 0
+
+        If MAU1_RunningProof is ON then
+            If MAU2_RunningProof is OFF then
+                ActiveUnitNumber = 1
+            EndIf
+        EndIf
+
+        If MAU2_RunningProof is ON then
+            If MAU1_RunningProof is OFF then
+                ActiveUnitNumber = 2
+            EndIf
+        EndIf
+
+        LeadFailAlarm = 0
+        MAU1_StartFail = 0
+        MAU2_StartFail = 0
+
+        MAU1_MaintOver24h_Alm = 0
+        MAU2_MaintOver24h_Alm = 0
+
+        TransferActive = 0
+        TransferState = 0
+        TransferFromUnit = 0
+        TransferToUnit = 0
+        TransferRatioPct = 0
+        TransferTotalSpeed = 0
+        TransferFailed = 0
+        TransferFailUnit = 0
+        RotationBlocked = 0
+        RotationBlockReason = 0
+
+        MAU1_TRANSFER_ACTIVE = 0
+        MAU2_TRANSFER_ACTIVE = 0
+        MAU1_TRANSFER_SPEED_CMD = 0
+        MAU2_TRANSFER_SPEED_CMD = 0
+
+        MAU1_Available = 0
+        MAU2_Available = 0
+        MAU1_SafetyTrip = 0
+        MAU2_SafetyTrip = 0
+        MAU1_Unavailable = 0
+        MAU2_Unavailable = 0
+        LeadChangeoverActive = 0
+        LeadChangeoverFrom = 0
+        LeadChangeoverTo = 0
+
+        T_Maint1 = 0
+        T_Maint2 = 0
+        Done_Maint1 = 0
+        Done_Maint2 = 0
+
+        T_Purge = 0
+        Done_Purge = 0
+        T_StartProof = 0
+        Done_StartProof = 0
+        T_TransferFail = 0
+        Done_TransferFail = 0
+
+        InitDone = 1
+
+    EndIf
+
+    Goto MAIN
+
+
+'==============================================================================
+MAIN:
+'==============================================================================
+
+    '-----------------------------
+    ' Validate tuning values
+    '-----------------------------
+    EffectivePurgeTimer = PurgeTimer
+
+    If EffectivePurgeTimer <= 0 then
+        EffectivePurgeTimer = 120
+    EndIf
+
+    If StartProofTimeoutSec <= 0 then
+        StartProofTimeoutSec = 180
+    EndIf
+
+    If TransferRampSec <= 0 then
+        TransferRampSec = 120
+    EndIf
+
+    If TransferMinSpeed <= 0 then
+        TransferMinSpeed = 20
+    EndIf
+
+    If TransferFailTimeoutSec <= 0 then
+        TransferFailTimeoutSec = 300
+    EndIf
+
+    TransferStepPct = 100 / TransferRampSec
+
+
+    '-----------------------------
+    ' Manual resets
+    '-----------------------------
+    If MAU_START_FAIL_RESET is ON then
+        MAU1_StartFail = 0
+        MAU2_StartFail = 0
+        T_StartProof = 0
+        Done_StartProof = 0
+    EndIf
+
+    If MAU_TRANSFER_RESET is ON then
+        TransferFailed = 0
+        TransferFailUnit = 0
+        T_TransferFail = 0
+        Done_TransferFail = 0
+    EndIf
+
+
+    '-----------------------------
+    ' Default transfer outputs each scan
+    '-----------------------------
+    TransferActive = 0
+    TransferState = SwState
+    TransferFromUnit = FromUnit
+    TransferToUnit = ToUnit
+
+    MAU1_TRANSFER_ACTIVE = 0
+    MAU2_TRANSFER_ACTIVE = 0
+    MAU1_TRANSFER_SPEED_CMD = 0
+    MAU2_TRANSFER_SPEED_CMD = 0
+
+    RotationBlocked = 0
+    RotationBlockReason = 0
+
+
+    '-----------------------------
+    ' Calculate side safety trip status
+    '-----------------------------
+    MAU1_SafetyTrip = 0
+    MAU2_SafetyTrip = 0
+
+    If SAFETY_OKAY_A is OFF then
+        MAU1_SafetyTrip = 1
+    EndIf
+
+    If FREEZE_A is ON then
+        MAU1_SafetyTrip = 1
+    EndIf
+
+    If SAFETY_OKAY_B is OFF then
+        MAU2_SafetyTrip = 1
+    EndIf
+
+    If FREEZE_B is ON then
+        MAU2_SafetyTrip = 1
+    EndIf
+
+
+    '-----------------------------
+    ' Calculate availability
+    '-----------------------------
+    MAU1_Available = 0
+    MAU2_Available = 0
+    MAU1_Unavailable = 0
+    MAU2_Unavailable = 0
+
+    If MAU1_Failure is ON then
+        MAU1_Unavailable = 1
+    EndIf
+
+    If MAU1_StartFail is ON then
+        MAU1_Unavailable = 1
+    EndIf
+
+    If MAU1_MaintMode is ON then
+        MAU1_Unavailable = 1
+    EndIf
+
+    If MAU1_SafetyTrip is ON then
+        MAU1_Unavailable = 1
+    EndIf
+
+    If MAU2_Failure is ON then
+        MAU2_Unavailable = 1
+    EndIf
+
+    If MAU2_StartFail is ON then
+        MAU2_Unavailable = 1
+    EndIf
+
+    If MAU2_MaintMode is ON then
+        MAU2_Unavailable = 1
+    EndIf
+
+    If MAU2_SafetyTrip is ON then
+        MAU2_Unavailable = 1
+    EndIf
+
+    If MAU1_Unavailable is OFF then
+        MAU1_Available = 1
+    EndIf
+
+    If MAU2_Unavailable is OFF then
+        MAU2_Available = 1
+    EndIf
+
+
+    '-----------------------------
+    ' Abort scheduled transfer if either side becomes unsafe or unavailable.
+    ' If the old side fails, make the new side the hard-failover target.
+    ' If the new side fails, abort and keep the old side if available.
+    '-----------------------------
+    If SwState >= 100 then
+
+        If FromUnit EQUALS 1 then
+            If MAU1_Available is OFF then
+                If ToUnit EQUALS 2 then
+                    If MAU2_Available is ON then
+                        LeadUnitNumber = 2
+                        ActiveUnitNumber = 0
+                        SwState = 0
+                        T_Purge = 0
+                        T_StartProof = 0
+                        T_TransferFail = 0
+                        Goto MAIN_AFTER_ROTATION_CHECKS
+                    EndIf
+                EndIf
+            EndIf
+        EndIf
+
+        If FromUnit EQUALS 2 then
+            If MAU2_Available is OFF then
+                If ToUnit EQUALS 1 then
+                    If MAU1_Available is ON then
+                        LeadUnitNumber = 1
+                        ActiveUnitNumber = 0
+                        SwState = 0
+                        T_Purge = 0
+                        T_StartProof = 0
+                        T_TransferFail = 0
+                        Goto MAIN_AFTER_ROTATION_CHECKS
+                    EndIf
+                EndIf
+            EndIf
+        EndIf
+
+        If ToUnit EQUALS 1 then
+            If MAU1_Available is OFF then
+                TransferFailed = 1
+                TransferFailUnit = 1
+                ActiveUnitNumber = FromUnit
+                SwState = 0
+                ToUnit = 0
+                FromUnit = 0
+                T_Purge = 0
+                T_StartProof = 0
+                T_TransferFail = 0
+                Goto MAIN_AFTER_ROTATION_CHECKS
+            EndIf
+        EndIf
+
+        If ToUnit EQUALS 2 then
+            If MAU2_Available is OFF then
+                TransferFailed = 1
+                TransferFailUnit = 2
+                ActiveUnitNumber = FromUnit
+                SwState = 0
+                ToUnit = 0
+                FromUnit = 0
+                T_Purge = 0
+                T_StartProof = 0
+                T_TransferFail = 0
+                Goto MAIN_AFTER_ROTATION_CHECKS
+            EndIf
+        EndIf
+
+        If Sys_Enable is OFF then
+            SwState = 0
+            ActiveUnitNumber = 0
+            FromUnit = 0
+            ToUnit = 0
+            T_Purge = 0
+            T_StartProof = 0
+            T_TransferFail = 0
+            Goto MAIN_AFTER_ROTATION_CHECKS
+        EndIf
+
+        If EXT_COMMS_OK is OFF then
+            TransferFailed = 1
+            TransferFailUnit = ToUnit
+            ActiveUnitNumber = FromUnit
+            SwState = 0
+            ToUnit = 0
+            FromUnit = 0
+            T_Purge = 0
+            T_StartProof = 0
+            T_TransferFail = 0
+            Goto MAIN_AFTER_ROTATION_CHECKS
+        EndIf
+
+    EndIf
+
+
+MAIN_AFTER_ROTATION_CHECKS:
+
+
+    '-----------------------------
+    ' Forced lead changeover for unavailable lead.
+    ' This is fast failover.  No intentional overlap with a faulted side.
+    '-----------------------------
+    LeadChangeoverActive = 0
+    LeadChangeoverFrom = 0
+    LeadChangeoverTo = 0
+
+    If SwState < 100 then
+
+        If LeadUnitNumber EQUALS 1 then
+
+            If MAU1_Available is OFF then
+
+                If MAU2_Available is ON then
+                    LeadUnitNumber = 2
+                    LastRotateDT = Date
+                    LeadChangeoverActive = 1
+                    LeadChangeoverFrom = 1
+                    LeadChangeoverTo = 2
+                EndIf
+
+            EndIf
+
+        Else
+
+            If LeadUnitNumber EQUALS 2 then
+
+                If MAU2_Available is OFF then
+
+                    If MAU1_Available is ON then
+                        LeadUnitNumber = 1
+                        LastRotateDT = Date
+                        LeadChangeoverActive = 1
+                        LeadChangeoverFrom = 2
+                        LeadChangeoverTo = 1
+                    EndIf
+
+                EndIf
+
+            Else
+
+                LeadUnitNumber = 1
+                LastRotateDT = Date
+
+            EndIf
+
+        EndIf
+
+    EndIf
+
+
+    '-----------------------------
+    ' Compute lag / standby assignment from current lead assignment
+    '-----------------------------
+    If LeadUnitNumber EQUALS 1 then
+        StandbyUnit = 2
+        LagUnitNumber = 2
+    Else
+        StandbyUnit = 1
+        LagUnitNumber = 1
+    EndIf
+
+
+    '-----------------------------
+    ' Lead / lag assignment outputs
+    '-----------------------------
+    MAU1_Lead = 0
+    MAU2_Lead = 0
+    MAU1_Lag = 0
+    MAU2_Lag = 0
+
+    If LeadUnitNumber EQUALS 1 then
+        MAU1_Lead = 1
+        MAU2_Lag = 1
+    Else
+        MAU2_Lead = 1
+        MAU1_Lag = 1
+    EndIf
+
+
+    '-----------------------------
+    ' Lead fail / unavailable alarm
+    '-----------------------------
+    LeadFailAlarm = 0
+
+    If LeadUnitNumber EQUALS 1 then
+        If MAU1_Available is OFF then
+            LeadFailAlarm = 1
+        EndIf
+    Else
+        If MAU2_Available is OFF then
+            LeadFailAlarm = 1
+        EndIf
+    EndIf
+
+
+    '-----------------------------
+    ' Maintenance >24h alarms
+    ' 24 hours = 86400 seconds
+    '-----------------------------
+    If MAU1_MaintMode is OFF then
+        T_Maint1 = 0
+    EndIf
+
+    If MAU2_MaintMode is OFF then
+        T_Maint2 = 0
+    EndIf
+
+    Done_Maint1 = Sectimer(MAU1_MaintMode, 86400, T_Maint1, 0)
+    Done_Maint2 = Sectimer(MAU2_MaintMode, 86400, T_Maint2, 0)
+
+    MAU1_MaintOver24h_Alm = 0
+    MAU2_MaintOver24h_Alm = 0
+
+    If Done_Maint1 is ON then
+        MAU1_MaintOver24h_Alm = 1
+    EndIf
+
+    If Done_Maint2 is ON then
+        MAU2_MaintOver24h_Alm = 1
+    EndIf
+
+
+    '-----------------------------
+    ' Determine DesiredActive for normal / fast failover operation
+    '-----------------------------
+    DesiredActive = 0
+
+    If Sys_Enable is OFF then
+
+        DesiredActive = 0
+
+    Else
+
+        If LeadUnitNumber EQUALS 1 then
+
+            If MAU1_Available is ON then
+
+                DesiredActive = 1
+
+            Else
+
+                If MAU2_Available is ON then
+                    DesiredActive = 2
+                Else
+                    DesiredActive = 0
+                EndIf
+
+            EndIf
+
+        Else
+
+            If MAU2_Available is ON then
+
+                DesiredActive = 2
+
+            Else
+
+                If MAU1_Available is ON then
+                    DesiredActive = 1
+                Else
+                    DesiredActive = 0
+                EndIf
+
+            EndIf
+
+        EndIf
+
+    EndIf
+
+
+    '-----------------------------
+    ' Weekly scheduled transfer request.
+    ' The lead assignment is not changed here.  It changes only after the
+    ' scheduled transfer sequence completes.
+    '-----------------------------
+    If SwState EQUALS 0 then
+
+        If AutoRotateEnable is ON then
+
+            If Difftime(WKD, LastRotateDT, Date) >= 7 then
+
+                If Sys_Enable is OFF then
+                    RotationBlocked = 1
+                    RotationBlockReason = 1
+                EndIf
+
+                If EXT_COMMS_OK is OFF then
+                    RotationBlocked = 1
+                    RotationBlockReason = 2
+                EndIf
+
+                If MAU1_Available is OFF then
+                    RotationBlocked = 1
+                    RotationBlockReason = 3
+                EndIf
+
+                If MAU2_Available is OFF then
+                    RotationBlocked = 1
+                    RotationBlockReason = 3
+                EndIf
+
+                If ActiveUnitNumber EQUALS LeadUnitNumber then
+                    ' Assigned lead is the active side.
+                Else
+                    RotationBlocked = 1
+                    RotationBlockReason = 4
+                EndIf
+
+                If LeadUnitNumber EQUALS 1 then
+                    If MAU1_RunningProof is OFF then
+                        RotationBlocked = 1
+                        RotationBlockReason = 4
+                    EndIf
+                EndIf
+
+                If LeadUnitNumber EQUALS 2 then
+                    If MAU2_RunningProof is OFF then
+                        RotationBlocked = 1
+                        RotationBlockReason = 4
+                    EndIf
+                EndIf
+
+                If RotationBlocked is OFF then
+
+                    FromUnit = LeadUnitNumber
+                    ToUnit = StandbyUnit
+                    ActiveUnitNumber = FromUnit
+
+                    TransferRatioPct = 0
+                    TransferTotalSpeed = 0
+                    T_Purge = 0
+                    Done_Purge = 0
+                    T_StartProof = 0
+                    Done_StartProof = 0
+                    T_TransferFail = 0
+                    Done_TransferFail = 0
+
+                    SwState = 110
+                    Goto TRANSFER_PREPARE_TARGET
+
+                EndIf
+
+            EndIf
+
+        EndIf
+
+    EndIf
+
+
+    '-----------------------------
+    ' Continue scheduled transfer state machine
+    '-----------------------------
+    If SwState EQUALS 110 then
+        Goto TRANSFER_PREPARE_TARGET
+    EndIf
+
+    If SwState EQUALS 120 then
+        Goto TRANSFER_WAIT_NEW_FAN
+    EndIf
+
+    If SwState EQUALS 130 then
+        Goto TRANSFER_RAMP
+    EndIf
+
+
+    '-----------------------------
+    ' Normal / fast-failover state machine entry
+    '-----------------------------
+    If SwState EQUALS 0 then
+
+        If ActiveUnitNumber EQUALS DesiredActive then
+            Goto APPLY_OUTPUTS
+        EndIf
+
+        FromUnit = ActiveUnitNumber
+        ToUnit = DesiredActive
+
+        MAU1_EnableCmd = 0
+        MAU2_EnableCmd = 0
+        MAU1_PrimeCmd = 0
+        MAU2_PrimeCmd = 0
+
+        ActiveUnitNumber = 0
+
+        T_Purge = 0
+        Done_Purge = 0
+        T_StartProof = 0
+        Done_StartProof = 0
+
+        If ToUnit EQUALS 0 then
+            SwState = 0
+            Goto APPLY_OUTPUTS
+        EndIf
+
+        SwState = 10
+        Goto LEAD_WAIT
+
+    EndIf
+
+
+    '-----------------------------
+    ' Continue normal / fast-failover active state
+    '-----------------------------
+    If SwState EQUALS 10 then
+        Goto LEAD_WAIT
+    EndIf
+
+    If SwState EQUALS 20 then
+        Goto START_WAIT
+    EndIf
+
+    SwState = 0
+    Goto APPLY_OUTPUTS
+
+
+'==============================================================================
+LEAD_WAIT:
+'==============================================================================
+
+    If Sys_Enable is OFF then
+        SwState = 0
+        ToUnit = 0
+        FromUnit = 0
+        ActiveUnitNumber = 0
+        T_Purge = 0
+        Done_Purge = 0
+        MAU1_EnableCmd = 0
+        MAU2_EnableCmd = 0
+        MAU1_PrimeCmd = 0
+        MAU2_PrimeCmd = 0
+        Goto APPLY_OUTPUTS
+    EndIf
+
+    If DesiredActive EQUALS ToUnit then
+        ' Continue
+    Else
+        SwState = 0
+        ToUnit = 0
+        FromUnit = 0
+        ActiveUnitNumber = 0
+        T_Purge = 0
+        Done_Purge = 0
+        MAU1_EnableCmd = 0
+        MAU2_EnableCmd = 0
+        MAU1_PrimeCmd = 0
+        MAU2_PrimeCmd = 0
+        Goto APPLY_OUTPUTS
+    EndIf
+
+    If ToUnit EQUALS 1 then
+        If MAU1_Available is OFF then
+            SwState = 0
+            ToUnit = 0
+            FromUnit = 0
+            ActiveUnitNumber = 0
+            T_Purge = 0
+            Done_Purge = 0
+            MAU1_EnableCmd = 0
+            MAU2_EnableCmd = 0
+            MAU1_PrimeCmd = 0
+            MAU2_PrimeCmd = 0
+            Goto APPLY_OUTPUTS
+        EndIf
+    EndIf
+
+    If ToUnit EQUALS 2 then
+        If MAU2_Available is OFF then
+            SwState = 0
+            ToUnit = 0
+            FromUnit = 0
+            ActiveUnitNumber = 0
+            T_Purge = 0
+            Done_Purge = 0
+            MAU1_EnableCmd = 0
+            MAU2_EnableCmd = 0
+            MAU1_PrimeCmd = 0
+            MAU2_PrimeCmd = 0
+            Goto APPLY_OUTPUTS
+        EndIf
+    EndIf
+
+    MAU1_EnableCmd = 0
+    MAU2_EnableCmd = 0
+    MAU1_PrimeCmd = 0
+    MAU2_PrimeCmd = 0
+
+    If ToUnit EQUALS 1 then
+        MAU1_PrimeCmd = 1
+    EndIf
+
+    If ToUnit EQUALS 2 then
+        MAU2_PrimeCmd = 1
+    EndIf
+
+    Done_Purge = Sectimer(1, EffectivePurgeTimer, T_Purge, 0)
+
+    If Done_Purge is OFF then
+        Goto APPLY_OUTPUTS
+    EndIf
+
+    MAU1_PrimeCmd = 0
+    MAU2_PrimeCmd = 0
+    T_Purge = 0
+    Done_Purge = 0
+    T_StartProof = 0
+    Done_StartProof = 0
+
+    SwState = 20
+    Goto START_WAIT
+
+
+'==============================================================================
+START_WAIT:
+'==============================================================================
+
+    If Sys_Enable is OFF then
+        SwState = 0
+        ToUnit = 0
+        FromUnit = 0
+        ActiveUnitNumber = 0
+        T_Purge = 0
+        Done_Purge = 0
+        MAU1_EnableCmd = 0
+        MAU2_EnableCmd = 0
+        MAU1_PrimeCmd = 0
+        MAU2_PrimeCmd = 0
+        Goto APPLY_OUTPUTS
+    EndIf
+
+    If DesiredActive EQUALS ToUnit then
+        ' Continue
+    Else
+        SwState = 0
+        ToUnit = 0
+        FromUnit = 0
+        ActiveUnitNumber = 0
+        T_Purge = 0
+        Done_Purge = 0
+        MAU1_EnableCmd = 0
+        MAU2_EnableCmd = 0
+        MAU1_PrimeCmd = 0
+        MAU2_PrimeCmd = 0
+        Goto APPLY_OUTPUTS
+    EndIf
+
+    If ToUnit EQUALS 1 then
+        If MAU1_Available is OFF then
+            SwState = 0
+            ToUnit = 0
+            FromUnit = 0
+            ActiveUnitNumber = 0
+            T_Purge = 0
+            Done_Purge = 0
+            MAU1_EnableCmd = 0
+            MAU2_EnableCmd = 0
+            MAU1_PrimeCmd = 0
+            MAU2_PrimeCmd = 0
+            Goto APPLY_OUTPUTS
+        EndIf
+    EndIf
+
+    If ToUnit EQUALS 2 then
+        If MAU2_Available is OFF then
+            SwState = 0
+            ToUnit = 0
+            FromUnit = 0
+            ActiveUnitNumber = 0
+            T_Purge = 0
+            Done_Purge = 0
+            MAU1_EnableCmd = 0
+            MAU2_EnableCmd = 0
+            MAU1_PrimeCmd = 0
+            MAU2_PrimeCmd = 0
+            Goto APPLY_OUTPUTS
+        EndIf
+    EndIf
+
+    If ToUnit EQUALS 1 then
+        Done_StartProof = Sectimer((MAU1_RunningProof = 0), StartProofTimeoutSec, T_StartProof, 0)
+        If Done_StartProof is ON then
+            MAU1_StartFail = 1
+            SwState = 0
+            ToUnit = 0
+            FromUnit = 0
+            ActiveUnitNumber = 0
+            MAU1_EnableCmd = 0
+            MAU2_EnableCmd = 0
+            MAU1_PrimeCmd = 0
+            MAU2_PrimeCmd = 0
+            Goto APPLY_OUTPUTS
+        EndIf
+    EndIf
+
+    If ToUnit EQUALS 2 then
+        Done_StartProof = Sectimer((MAU2_RunningProof = 0), StartProofTimeoutSec, T_StartProof, 0)
+        If Done_StartProof is ON then
+            MAU2_StartFail = 1
+            SwState = 0
+            ToUnit = 0
+            FromUnit = 0
+            ActiveUnitNumber = 0
+            MAU1_EnableCmd = 0
+            MAU2_EnableCmd = 0
+            MAU1_PrimeCmd = 0
+            MAU2_PrimeCmd = 0
+            Goto APPLY_OUTPUTS
+        EndIf
+    EndIf
+
+    MAU1_EnableCmd = 0
+    MAU2_EnableCmd = 0
+    MAU1_PrimeCmd = 0
+    MAU2_PrimeCmd = 0
+
+    If ToUnit EQUALS 1 then
+        MAU1_EnableCmd = 1
+        If MAU1_RunningProof is ON then
+            ActiveUnitNumber = 1
+            SwState = 0
+            ToUnit = 0
+            FromUnit = 0
+            T_StartProof = 0
+            Done_StartProof = 0
+        EndIf
+    EndIf
+
+    If ToUnit EQUALS 2 then
+        MAU2_EnableCmd = 1
+        If MAU2_RunningProof is ON then
+            ActiveUnitNumber = 2
+            SwState = 0
+            ToUnit = 0
+            FromUnit = 0
+            T_StartProof = 0
+            Done_StartProof = 0
+        EndIf
+    EndIf
+
+    Goto APPLY_OUTPUTS
+
+
+'==============================================================================
+TRANSFER_PREPARE_TARGET:
+'==============================================================================
+
+    TransferActive = 1
+    TransferState = 110
+    TransferFromUnit = FromUnit
+    TransferToUnit = ToUnit
+
+    Done_TransferFail = Sectimer(1, TransferFailTimeoutSec, T_TransferFail, 0)
+    If Done_TransferFail is ON then
+        TransferFailed = 1
+        TransferFailUnit = ToUnit
+        SwState = 0
+        ActiveUnitNumber = FromUnit
+        ToUnit = 0
+        FromUnit = 0
+        T_TransferFail = 0
+        T_Purge = 0
+        Goto APPLY_OUTPUTS
+    EndIf
+
+    MAU1_EnableCmd = 0
+    MAU2_EnableCmd = 0
+    MAU1_PrimeCmd = 0
+    MAU2_PrimeCmd = 0
+
+    If FromUnit EQUALS 1 then
+        MAU1_EnableCmd = 1
+    EndIf
+
+    If FromUnit EQUALS 2 then
+        MAU2_EnableCmd = 1
+    EndIf
+
+    If ToUnit EQUALS 1 then
+        MAU1_EnableCmd = 1
+        MAU1_PrimeCmd = 1
+        MAU1_TRANSFER_ACTIVE = 1
+        MAU1_TRANSFER_SPEED_CMD = 0
+    EndIf
+
+    If ToUnit EQUALS 2 then
+        MAU2_EnableCmd = 1
+        MAU2_PrimeCmd = 1
+        MAU2_TRANSFER_ACTIVE = 1
+        MAU2_TRANSFER_SPEED_CMD = 0
+    EndIf
+
+    If ToUnit EQUALS 1 then
+        If MAU1_DampersProven10Sec is ON then
+            T_StartProof = 0
+            Done_StartProof = 0
+            SwState = 120
+            Goto TRANSFER_WAIT_NEW_FAN
+        EndIf
+    EndIf
+
+    If ToUnit EQUALS 2 then
+        If MAU2_DampersProven10Sec is ON then
+            T_StartProof = 0
+            Done_StartProof = 0
+            SwState = 120
+            Goto TRANSFER_WAIT_NEW_FAN
+        EndIf
+    EndIf
+
+    Goto APPLY_OUTPUTS
+
+
+'==============================================================================
+TRANSFER_WAIT_NEW_FAN:
+'==============================================================================
+
+    TransferActive = 1
+    TransferState = 120
+    TransferFromUnit = FromUnit
+    TransferToUnit = ToUnit
+
+    Done_TransferFail = Sectimer(1, TransferFailTimeoutSec, T_TransferFail, 0)
+    If Done_TransferFail is ON then
+        TransferFailed = 1
+        TransferFailUnit = ToUnit
+        If ToUnit EQUALS 1 then MAU1_StartFail = 1
+        If ToUnit EQUALS 2 then MAU2_StartFail = 1
+        SwState = 0
+        ActiveUnitNumber = FromUnit
+        ToUnit = 0
+        FromUnit = 0
+        T_TransferFail = 0
+        T_StartProof = 0
+        Goto APPLY_OUTPUTS
+    EndIf
+
+    Done_StartProof = 0
+    If ToUnit EQUALS 1 then
+        Done_StartProof = Sectimer((MAU1_RunningProof = 0), StartProofTimeoutSec, T_StartProof, 0)
+    EndIf
+
+    If ToUnit EQUALS 2 then
+        Done_StartProof = Sectimer((MAU2_RunningProof = 0), StartProofTimeoutSec, T_StartProof, 0)
+    EndIf
+
+    If Done_StartProof is ON then
+        TransferFailed = 1
+        TransferFailUnit = ToUnit
+        If ToUnit EQUALS 1 then MAU1_StartFail = 1
+        If ToUnit EQUALS 2 then MAU2_StartFail = 1
+        SwState = 0
+        ActiveUnitNumber = FromUnit
+        ToUnit = 0
+        FromUnit = 0
+        T_TransferFail = 0
+        T_StartProof = 0
+        Goto APPLY_OUTPUTS
+    EndIf
+
+    MAU1_EnableCmd = 0
+    MAU2_EnableCmd = 0
+    MAU1_PrimeCmd = 0
+    MAU2_PrimeCmd = 0
+
+    If FromUnit EQUALS 1 then
+        MAU1_EnableCmd = 1
+    EndIf
+
+    If FromUnit EQUALS 2 then
+        MAU2_EnableCmd = 1
+    EndIf
+
+    If ToUnit EQUALS 1 then
+        MAU1_EnableCmd = 1
+        MAU1_TRANSFER_ACTIVE = 1
+        MAU1_TRANSFER_SPEED_CMD = TransferMinSpeed
+        If MAU1_RunningProof is ON then
+            TransferTotalSpeed = MAU2_FanSpeedReq
+            If TransferTotalSpeed < TransferMinSpeed then TransferTotalSpeed = TransferMinSpeed
+            TransferRatioPct = (TransferMinSpeed / TransferTotalSpeed) * 100
+            If TransferRatioPct > 100 then TransferRatioPct = 100
+            SwState = 130
+            Goto TRANSFER_RAMP
+        EndIf
+    EndIf
+
+    If ToUnit EQUALS 2 then
+        MAU2_EnableCmd = 1
+        MAU2_TRANSFER_ACTIVE = 1
+        MAU2_TRANSFER_SPEED_CMD = TransferMinSpeed
+        If MAU2_RunningProof is ON then
+            TransferTotalSpeed = MAU1_FanSpeedReq
+            If TransferTotalSpeed < TransferMinSpeed then TransferTotalSpeed = TransferMinSpeed
+            TransferRatioPct = (TransferMinSpeed / TransferTotalSpeed) * 100
+            If TransferRatioPct > 100 then TransferRatioPct = 100
+            SwState = 130
+            Goto TRANSFER_RAMP
+        EndIf
+    EndIf
+
+    Goto APPLY_OUTPUTS
+
+
+'==============================================================================
+TRANSFER_RAMP:
+'==============================================================================
+
+    TransferActive = 1
+    TransferState = 130
+    TransferFromUnit = FromUnit
+    TransferToUnit = ToUnit
+
+    Done_TransferFail = Sectimer(1, TransferFailTimeoutSec, T_TransferFail, 0)
+    If Done_TransferFail is ON then
+        TransferFailed = 1
+        TransferFailUnit = ToUnit
+        SwState = 0
+        ActiveUnitNumber = FromUnit
+        ToUnit = 0
+        FromUnit = 0
+        T_TransferFail = 0
+        T_StartProof = 0
+        Goto APPLY_OUTPUTS
+    EndIf
+
+    ' TransferTotalSpeed is latched when the new side proves airflow.
+    ' Do not keep reading FromUnit fan request during the ramp, because the
+    ' FromUnit fan controller is tracking the transfer speed at this point.
+    If TransferTotalSpeed < TransferMinSpeed then
+        TransferTotalSpeed = TransferMinSpeed
+    EndIf
+
+    If TransferTotalSpeed > 100 then
+        TransferTotalSpeed = 100
+    EndIf
+
+    TransferRatioPct = TransferRatioPct + TransferStepPct
+    If TransferRatioPct > 100 then TransferRatioPct = 100
+
+    MAU1_EnableCmd = 0
+    MAU2_EnableCmd = 0
+    MAU1_PrimeCmd = 0
+    MAU2_PrimeCmd = 0
+
+    If FromUnit EQUALS 1 then
+        MAU1_EnableCmd = 1
+        MAU1_TRANSFER_ACTIVE = 1
+        MAU1_TRANSFER_SPEED_CMD = TransferTotalSpeed * (100 - TransferRatioPct) / 100
+    EndIf
+
+    If FromUnit EQUALS 2 then
+        MAU2_EnableCmd = 1
+        MAU2_TRANSFER_ACTIVE = 1
+        MAU2_TRANSFER_SPEED_CMD = TransferTotalSpeed * (100 - TransferRatioPct) / 100
+    EndIf
+
+    If ToUnit EQUALS 1 then
+        MAU1_EnableCmd = 1
+        MAU1_TRANSFER_ACTIVE = 1
+        MAU1_TRANSFER_SPEED_CMD = TransferTotalSpeed * TransferRatioPct / 100
+    EndIf
+
+    If ToUnit EQUALS 2 then
+        MAU2_EnableCmd = 1
+        MAU2_TRANSFER_ACTIVE = 1
+        MAU2_TRANSFER_SPEED_CMD = TransferTotalSpeed * TransferRatioPct / 100
+    EndIf
+
+    If MAU1_TRANSFER_SPEED_CMD < 0 then MAU1_TRANSFER_SPEED_CMD = 0
+    If MAU2_TRANSFER_SPEED_CMD < 0 then MAU2_TRANSFER_SPEED_CMD = 0
+    If MAU1_TRANSFER_SPEED_CMD > 100 then MAU1_TRANSFER_SPEED_CMD = 100
+    If MAU2_TRANSFER_SPEED_CMD > 100 then MAU2_TRANSFER_SPEED_CMD = 100
+
+    If TransferRatioPct >= 100 then
+
+        LeadUnitNumber = ToUnit
+        ActiveUnitNumber = ToUnit
+        LastRotateDT = Date
+
+        If LeadUnitNumber EQUALS 1 then
+            LagUnitNumber = 2
+        Else
+            LagUnitNumber = 1
+        EndIf
+
+        SwState = 0
+        FromUnit = 0
+        ToUnit = 0
+        TransferRatioPct = 0
+        T_TransferFail = 0
+        T_StartProof = 0
+        Done_TransferFail = 0
+        Done_StartProof = 0
+
+    EndIf
+
+    Goto APPLY_OUTPUTS
+
+
+'==============================================================================
+APPLY_OUTPUTS:
+'==============================================================================
+
+    TransferState = SwState
+    TransferFromUnit = FromUnit
+    TransferToUnit = ToUnit
+
+    If SwState >= 100 then
+        TransferActive = 1
+    Else
+        TransferActive = 0
+    EndIf
+
+    If SwState EQUALS 0 then
+
+        MAU1_PrimeCmd = 0
+        MAU2_PrimeCmd = 0
+
+        MAU1_TRANSFER_ACTIVE = 0
+        MAU2_TRANSFER_ACTIVE = 0
+        MAU1_TRANSFER_SPEED_CMD = 0
+        MAU2_TRANSFER_SPEED_CMD = 0
+
+        MAU1_EnableCmd = 0
+        MAU2_EnableCmd = 0
+
+        If Sys_Enable is ON then
+
+            If ActiveUnitNumber EQUALS 1 then
+                If MAU1_Available is ON then
+                    MAU1_EnableCmd = 1
+                Else
+                    ActiveUnitNumber = 0
+                EndIf
+            EndIf
+
+            If ActiveUnitNumber EQUALS 2 then
+                If MAU2_Available is ON then
+                    MAU2_EnableCmd = 1
+                Else
+                    ActiveUnitNumber = 0
+                EndIf
+            EndIf
+
+        Else
+
+            ActiveUnitNumber = 0
+
+        EndIf
+
+    EndIf
+
+
+    '-----------------------------
+    ' Final safety enforcement
+    '-----------------------------
+    If MAU1_Available is OFF then
+        MAU1_EnableCmd = 0
+        MAU1_PrimeCmd = 0
+        MAU1_TRANSFER_ACTIVE = 0
+        MAU1_TRANSFER_SPEED_CMD = 0
+
+        If ActiveUnitNumber EQUALS 1 then
+            ActiveUnitNumber = 0
+        EndIf
+    EndIf
+
+    If MAU2_Available is OFF then
+        MAU2_EnableCmd = 0
+        MAU2_PrimeCmd = 0
+        MAU2_TRANSFER_ACTIVE = 0
+        MAU2_TRANSFER_SPEED_CMD = 0
+
+        If ActiveUnitNumber EQUALS 2 then
+            ActiveUnitNumber = 0
+        EndIf
+    EndIf
+
+
+    '-----------------------------
+    ' Prime commands are allowed only during normal purge or transfer prepare.
+    '-----------------------------
+    If SwState EQUALS 10 then
+        ' Prime allowed
+    Else
+        If SwState EQUALS 110 then
+            ' Target-side prime allowed during scheduled transfer preparation
+        Else
+            MAU1_PrimeCmd = 0
+            MAU2_PrimeCmd = 0
+        EndIf
+    EndIf
+
+
+    '-----------------------------
+    ' Final enable enforcement
+    ' - Normal / fast failover states allow only one side.
+    ' - Scheduled transfer states intentionally allow both sides.
+    '-----------------------------
+    If SwState < 100 then
+
+        If MAU1_EnableCmd is ON then
+            If MAU2_EnableCmd is ON then
+                MAU2_EnableCmd = 0
+            EndIf
+        EndIf
+
+    EndIf
+
+    Wait 1
+    Goto MAIN

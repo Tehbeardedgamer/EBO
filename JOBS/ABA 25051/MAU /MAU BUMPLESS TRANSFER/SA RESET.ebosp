@@ -1,0 +1,74 @@
+'==============================================================================
+' MAU_SYS_SAT_RESET - BUMPLESS TRANSFER PATCHED
+'
+' PURPOSE
+' Compute SAT reset setpoint as a linear function of associated space sensible
+' cooling valve aggregate position.
+'
+' PATCHED BEHAVIOR
+' 1) If external communication is lost, SmartSenseValvePos is ignored and
+'    SAT_RESET_SP is forced to 55°F.
+' 2) During scheduled lead/lag transfer, SAT_RESET_SP is held at the last
+'    valid value so the handoff does not also create a temperature setpoint bump.
+'
+' REQUIRED BINDINGS
+' - EXT_COMMS_OK:    1 = external SmartSenseValvePos is valid
+' - TRANSFER_ACTIVE: 1 = scheduled MAU side handoff active
+'==============================================================================
+
+NUMERIC INPUT SmartSenseValvePos
+NUMERIC INPUT SAT_RESET_MAX_SP
+NUMERIC INPUT SAT_RESET_MIN_SP
+NUMERIC INPUT EXT_COMMS_OK
+NUMERIC INPUT TRANSFER_ACTIVE
+
+NUMERIC OUTPUT SAT_RESET_SP
+NUMERIC OUTPUT COMM_LOSS_ACTIVE
+NUMERIC OUTPUT TRANSFER_HOLD_ACTIVE
+
+NUMERIC ValvePct_Clamped
+NUMERIC COMM_LOSS_SAT_SP
+
+
+INIT:
+SAT_RESET_SP = SAT_RESET_MAX_SP
+COMM_LOSS_ACTIVE = 0
+TRANSFER_HOLD_ACTIVE = 0
+ValvePct_Clamped = 0
+COMM_LOSS_SAT_SP = 55
+
+Goto MAIN
+
+
+MAIN:
+
+COMM_LOSS_ACTIVE = 0
+If EXT_COMMS_OK is OFF then
+    COMM_LOSS_ACTIVE = 1
+EndIf
+
+TRANSFER_HOLD_ACTIVE = 0
+If TRANSFER_ACTIVE is ON then
+    TRANSFER_HOLD_ACTIVE = 1
+EndIf
+
+If COMM_LOSS_ACTIVE is ON then
+    SAT_RESET_SP = COMM_LOSS_SAT_SP
+    Wait 1
+    Goto MAIN
+EndIf
+
+If TRANSFER_HOLD_ACTIVE is ON then
+    Wait 1
+    Goto MAIN
+EndIf
+
+ValvePct_Clamped = SmartSenseValvePos
+
+If ValvePct_Clamped < 0 then ValvePct_Clamped = 0
+If ValvePct_Clamped > 100 then ValvePct_Clamped = 100
+
+SAT_RESET_SP = SAT_RESET_MAX_SP + (SAT_RESET_MIN_SP - SAT_RESET_MAX_SP) * (ValvePct_Clamped / 100)
+
+Wait 1
+Goto MAIN

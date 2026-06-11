@@ -1,0 +1,260 @@
+'==============================================================================
+' MAU_AHU_FAN_DP_CONTROL - BUMPLESS TRANSFER PATCHED
+'
+' PURPOSE
+' Generate fan speed request to maintain SPACE / room differential pressure.
+' Provide fan failure alarm based on SAF_STATUS_A / SAF_STATUS_B.
+'
+' PATCHED BEHAVIOR
+' 1) FAN_SPEED_REQ remains 0 until OA and SA dampers have both proven open
+'    continuously for 10 seconds.
+' 2) DP PID integral is reset to 20 during shutdown, safety trip, fan failure,
+'    damper proof loss, maintenance, load shed, disabled command, or comm loss.
+' 3) During scheduled transfer, the PID tracks TRANSFER_SPEED_CMD instead of
+'    integrating from stale room pressure.  This allows the new lead to return
+'    to normal PID control from the final handoff speed instead of dropping
+'    back to 20% at the end of transfer.
+' 4) During scheduled transfer, fan proof failure is owned by the Lead/Lag
+'    transfer timeout.  SAF_STATUS_A/B proof alarms are suppressed while
+'    TRANSFER_ACTIVE is true, but FAN_STATUS_ANY_FAIL still alarms.
+'
+' REQUIRED BINDINGS
+' - EXT_COMMS_OK:        1 = external pressure / valve-status points valid
+' - TRANSFER_ACTIVE:     1 = scheduled handoff active for this side
+' - TRANSFER_SPEED_CMD:  temporary handoff speed command from Lead/Lag
+'==============================================================================
+
+'-----------------------------
+' INPUTS (Bindings)
+'-----------------------------
+NUMERIC INPUT UNIT_ENABLE
+NUMERIC INPUT UNIT_MAINT
+
+NUMERIC INPUT SAFETY_OK
+NUMERIC INPUT E_POWER
+NUMERIC INPUT EXT_COMMS_OK
+
+NUMERIC INPUT TRANSFER_ACTIVE
+NUMERIC INPUT TRANSFER_SPEED_CMD
+
+NUMERIC INPUT OA_DAMPER_STATUS
+NUMERIC INPUT SA_DAMPER_STATUS
+
+NUMERIC INPUT SA_DUCT_STATIC
+NUMERIC INPUT DUCT_STATIC_SP
+
+NUMERIC INPUT SAF_STATUS_A
+NUMERIC INPUT SAF_STATUS_B
+'NUMERIC INPUT SAF_STATUS_C
+'NUMERIC INPUT SAF_STATUS_D
+NUMERIC INPUT FAN_STATUS_ANY_FAIL
+
+NUMERIC INPUT DP_KP
+NUMERIC INPUT DP_KI
+NUMERIC INPUT DP_KD
+
+NUMERIC INPUT FAN_FAIL_TIME
+
+'-----------------------------
+' OUTPUTS (Bindings)
+'-----------------------------
+NUMERIC OUTPUT FAN_SPEED_REQ
+NUMERIC OUTPUT FAN_FAIL_ALM
+NUMERIC OUTPUT DAMPERS_PROVEN_10SEC
+NUMERIC OUTPUT COMM_LOSS_ACTIVE
+NUMERIC OUTPUT PID_TRACKING_TRANSFER
+
+'-----------------------------
+' INTERNAL VARIABLES
+'-----------------------------
+NUMERIC UnitPermit
+NUMERIC DamperProofRaw
+NUMERIC DampersProven
+NUMERIC FanPermit
+
+NUMERIC DP_PID_Int
+NUMERIC DP_PID_OldErr
+NUMERIC DP_Out
+
+NUMERIC T_1
+NUMERIC T_2
+NUMERIC FailCond
+NUMERIC AnyStatusFail
+NUMERIC Done_FanFail
+NUMERIC Done_DamperProof
+NUMERIC ResetFanPID
+
+NUMERIC DAMPER_PROOF_DELAY_SEC
+NUMERIC COMM_LOSS_FAN_SPEED_REQ
+NUMERIC TransferSpeedClamped
+
+'-----------------------------
+' FUNCTIONS USED
+'-----------------------------
+FUNCTION PIDControl
+FUNCTION Sectimer
+
+
+'==============================================================================
+INIT:
+'==============================================================================
+FAN_SPEED_REQ = 0
+FAN_FAIL_ALM = 0
+DAMPERS_PROVEN_10SEC = 0
+COMM_LOSS_ACTIVE = 0
+PID_TRACKING_TRANSFER = 0
+
+UnitPermit = 0
+DamperProofRaw = 0
+DampersProven = 0
+FanPermit = 0
+
+DP_PID_Int = 20
+DP_PID_OldErr = 0
+DP_Out = 0
+
+T_1 = 0
+T_2 = 0
+FailCond = 0
+AnyStatusFail = 0
+Done_FanFail = 0
+Done_DamperProof = 0
+ResetFanPID = 0
+TransferSpeedClamped = 0
+
+DAMPER_PROOF_DELAY_SEC = 10
+COMM_LOSS_FAN_SPEED_REQ = 20
+
+Goto MAIN
+
+
+'==============================================================================
+MAIN:
+'==============================================================================
+
+COMM_LOSS_ACTIVE = 0
+If EXT_COMMS_OK is OFF then
+    COMM_LOSS_ACTIVE = 1
+EndIf
+
+PID_TRACKING_TRANSFER = 0
+
+UnitPermit = 0
+If UNIT_ENABLE is ON then
+    If UNIT_MAINT is OFF then
+        If SAFETY_OK is ON then
+            If E_POWER is OFF then
+                UnitPermit = 1
+            EndIf
+        EndIf
+    EndIf
+EndIf
+
+DamperProofRaw = 0
+If OA_DAMPER_STATUS is ON then
+    If SA_DAMPER_STATUS is ON then
+        DamperProofRaw = 1
+    EndIf
+EndIf
+
+If DamperProofRaw is OFF then
+    T_2 = 0
+EndIf
+
+Done_DamperProof = Sectimer(DamperProofRaw, DAMPER_PROOF_DELAY_SEC, T_2, 0)
+
+DampersProven = 0
+DAMPERS_PROVEN_10SEC = 0
+If Done_DamperProof is ON then
+    DampersProven = 1
+    DAMPERS_PROVEN_10SEC = 1
+EndIf
+
+FanPermit = 0
+If UnitPermit is ON then
+    If DampersProven is ON then
+        FanPermit = 1
+    EndIf
+EndIf
+
+AnyStatusFail = 0
+If FAN_STATUS_ANY_FAIL is ON then AnyStatusFail = 1
+
+If TRANSFER_ACTIVE is OFF then
+    If SAF_STATUS_A is OFF then AnyStatusFail = 1
+    If SAF_STATUS_B is OFF then AnyStatusFail = 1
+    'If SAF_STATUS_C is OFF then AnyStatusFail = 1
+    'If SAF_STATUS_D is OFF then AnyStatusFail = 1
+EndIf
+
+FailCond = 0
+If FanPermit is ON then
+    If AnyStatusFail is ON then
+        FailCond = 1
+    EndIf
+EndIf
+
+Done_FanFail = Sectimer(FailCond, FAN_FAIL_TIME, T_1, 0)
+
+FAN_FAIL_ALM = 0
+If Done_FanFail is ON then
+    FAN_FAIL_ALM = 1
+EndIf
+
+If UNIT_MAINT is ON then
+    FAN_FAIL_ALM = 0
+EndIf
+
+ResetFanPID = 0
+
+If UnitPermit is OFF then ResetFanPID = 1
+If FanPermit is OFF then ResetFanPID = 1
+If COMM_LOSS_ACTIVE is ON then ResetFanPID = 1
+If FAN_FAIL_ALM is ON then ResetFanPID = 1
+If FAN_STATUS_ANY_FAIL is ON then ResetFanPID = 1
+
+If ResetFanPID is ON then
+    DP_PID_Int = 20
+    DP_PID_OldErr = 0
+EndIf
+
+TransferSpeedClamped = TRANSFER_SPEED_CMD
+If TransferSpeedClamped < 0 then TransferSpeedClamped = 0
+If TransferSpeedClamped > 100 then TransferSpeedClamped = 100
+
+FAN_SPEED_REQ = 0
+
+If FanPermit is ON then
+
+    If FAN_FAIL_ALM is OFF then
+        If FAN_STATUS_ANY_FAIL is OFF then
+
+            If COMM_LOSS_ACTIVE is ON then
+                FAN_SPEED_REQ = COMM_LOSS_FAN_SPEED_REQ
+            Else
+                If TRANSFER_ACTIVE is ON then
+
+                    FAN_SPEED_REQ = TransferSpeedClamped
+                    DP_PID_Int = TransferSpeedClamped
+                    DP_PID_OldErr = 0
+                    PID_TRACKING_TRANSFER = 1
+
+                Else
+
+                    DP_Out = PIDControl(0, SA_DUCT_STATIC, DUCT_STATIC_SP, DP_PID_Int, DP_KP, DP_KI, DP_KD, DP_PID_OldErr)
+
+                    If DP_Out < 0 then DP_Out = 0
+                    If DP_Out > 100 then DP_Out = 100
+
+                    FAN_SPEED_REQ = DP_Out
+
+                EndIf
+            EndIf
+
+        EndIf
+    EndIf
+
+EndIf
+
+Wait 1
+Goto MAIN

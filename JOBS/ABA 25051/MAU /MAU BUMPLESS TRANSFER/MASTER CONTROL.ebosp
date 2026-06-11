@@ -1,0 +1,632 @@
+'==============================================================================
+' MAU_AHU_IO_AND_SAFETIES / MASTER CONTROL - BUMPLESS TRANSFER PATCHED
+'
+' PURPOSE:
+' Final output authority for a single MAU side / air handler.
+'
+' PATCHED BEHAVIOR
+' 1) Supply fan start and speed command are blocked until OA and SA dampers
+'    have both proven open continuously for 10 seconds.
+' 2) Fan speed command is forced to 0 immediately during safety trip, fan
+'    failure, maintenance, load shed, disabled command, or damper proof loss.
+' 3) On external communication loss, the fan PID request and transfer speed
+'    are ignored and the final speed command is held to 20%, but only after
+'    the dampers are proven open for 10 seconds.
+' 4) During scheduled lead/lag transfer, TRANSFER_SPEED_CMD overrides the
+'    normal FAN_SPEED_REQ.  If transfer speed is 0 or less, the supply fan
+'    remains off even though the side may be enabled to open/prove dampers.
+' 5) FAN_FAIL_ALM_IN is treated as a side failure that forces this side to
+'    shut down.  Lead/Lag can then change over to the other side.
+'
+' REQUIRED BINDINGS
+' - EXT_COMMS_OK:        1 = external values valid, 0 = communication loss
+' - TRANSFER_ACTIVE:     1 = scheduled handoff active for this side
+' - TRANSFER_SPEED_CMD:  temporary handoff speed command from Lead/Lag
+'==============================================================================
+
+'-----------------------------
+' INPUTS (Bindings)
+'-----------------------------
+NUMERIC INPUT UNIT_ENABLE
+NUMERIC INPUT UNIT_PRIME
+NUMERIC INPUT UNIT_MAINT
+
+NUMERIC INPUT SAFETY_OK              ' 1=OK, 0=Trip/Not OK
+NUMERIC INPUT E_POWER                ' LOAD SHED FLAG: 1=ON (shed load), 0=OFF
+NUMERIC INPUT EXT_COMMS_OK           ' 1=external values valid, 0=comm loss
+
+NUMERIC INPUT TRANSFER_ACTIVE
+NUMERIC INPUT TRANSFER_SPEED_CMD
+
+NUMERIC INPUT OA_DAMPER_STATUS       ' end switch proof
+NUMERIC INPUT SA_DAMPER_STATUS       ' end switch proof
+NUMERIC INPUT AIRFLOW_PROOF          ' airflow switch proof
+
+NUMERIC INPUT FAN_SPEED_REQ          ' 0..100
+NUMERIC INPUT HW_PREHEAT_REQ         ' 0..100
+NUMERIC INPUT CHW_VALVE_REQ          ' 0..100
+NUMERIC INPUT HW_REHEAT_REQ          ' 0..100
+
+NUMERIC INPUT HUM_ENABLE_REQ         ' 1=enable request
+NUMERIC INPUT HUM_OUTPUT_REQ         ' 0..100
+NUMERIC INPUT SPACE_RH_SP            ' optional if device accepts setpoint
+
+NUMERIC INPUT FAN_FAIL_ALM_IN        ' 1=fan failure alarm from fan module
+
+'-----------------------------
+' OUTPUTS (Bindings)
+'-----------------------------
+NUMERIC OUTPUT OA_DAMPER_CMD         ' 0/1
+NUMERIC OUTPUT SA_DAMPER_CMD         ' 0/1
+
+NUMERIC OUTPUT SAF_SS                ' 0/1
+NUMERIC OUTPUT SAF_SPEED_CMD         ' 0..100
+
+NUMERIC OUTPUT HW_PREHEAT_CMD        ' 0..100
+NUMERIC OUTPUT CHW_VALVE_CMD         ' 0..100
+NUMERIC OUTPUT HW_REHEAT_CMD         ' 0..100
+
+NUMERIC OUTPUT HUM_ENABLE_CMD        ' 0/1
+NUMERIC OUTPUT HUM_OUTPUT_CMD        ' 0..100
+NUMERIC OUTPUT HUM_RH_SP_CMD         ' numeric if applicable
+
+NUMERIC OUTPUT UNIT_RunningProof     ' 0/1
+NUMERIC OUTPUT UNIT_Failure          ' 0/1
+NUMERIC OUTPUT FAN_FAIL_ALM_OUT      ' 0/1
+NUMERIC OUTPUT SAFETY_SHUTDOWN       ' 0/1
+NUMERIC OUTPUT DAMPERS_PROVEN_10SEC  ' 0/1
+NUMERIC OUTPUT COMM_LOSS_ACTIVE      ' 0/1
+NUMERIC OUTPUT TRANSFER_SPEED_ACTIVE ' 0/1 diagnostic
+STRING  OUTPUT CURRENT_TASK
+
+'-----------------------------
+' INTERNAL VARIABLES
+'-----------------------------
+NUMERIC UnitPermit
+NUMERIC DamperProofRaw
+NUMERIC DampersProven
+NUMERIC FanPermit
+NUMERIC HumPermit
+NUMERIC HumOutClamped
+NUMERIC DamperProofTimer
+NUMERIC AirflowProofTimer
+NUMERIC DAMPER_PROOF_TIMEOUT_SEC
+NUMERIC AIRFLOW_PROOF_TIMEOUT_SEC
+NUMERIC DAMPER_PROVEN_DELAY_SEC
+NUMERIC COMM_LOSS_FAN_SPEED_CMD
+NUMERIC T_DamperProven
+NUMERIC Done_DamperProven
+NUMERIC FanSpeedClamped
+NUMERIC TransferSpeedClamped
+
+'-----------------------------
+' FUNCTIONS USED
+'-----------------------------
+FUNCTION Sectimer
+
+
+'==============================================================================
+INIT:
+'==============================================================================
+CURRENT_TASK = "INIT / FAILSAFE OUTPUTS"
+
+OA_DAMPER_CMD = 0
+SA_DAMPER_CMD = 0
+
+SAF_SS = 0
+SAF_SPEED_CMD = 0
+
+HW_PREHEAT_CMD = 0
+CHW_VALVE_CMD  = 5
+HW_REHEAT_CMD  = 0
+
+HUM_ENABLE_CMD = 0
+HUM_OUTPUT_CMD = 0
+HUM_RH_SP_CMD  = SPACE_RH_SP
+
+UNIT_RunningProof = 0
+UNIT_Failure = 0
+FAN_FAIL_ALM_OUT = 0
+SAFETY_SHUTDOWN = 0
+DAMPERS_PROVEN_10SEC = 0
+COMM_LOSS_ACTIVE = 0
+TRANSFER_SPEED_ACTIVE = 0
+
+UnitPermit = 0
+DamperProofRaw = 0
+DampersProven = 0
+FanPermit = 0
+HumPermit = 0
+
+HumOutClamped = 0
+DamperProofTimer = 0
+AirflowProofTimer = 0
+T_DamperProven = 0
+Done_DamperProven = 0
+FanSpeedClamped = 0
+TransferSpeedClamped = 0
+
+DAMPER_PROOF_TIMEOUT_SEC = 120
+AIRFLOW_PROOF_TIMEOUT_SEC = 45
+DAMPER_PROVEN_DELAY_SEC = 10
+COMM_LOSS_FAN_SPEED_CMD = 20
+
+WAIT 1
+GOTO STAGE_CHECK_PERMITS
+
+
+'==============================================================================
+' STAGE 1: CHECK PERMITS / SAFETIES
+'==============================================================================
+STAGE_CHECK_PERMITS:
+CURRENT_TASK = "CHECKING PERMITS / SAFETIES"
+
+TRANSFER_SPEED_ACTIVE = 0
+
+COMM_LOSS_ACTIVE = 0
+If EXT_COMMS_OK is OFF then
+    COMM_LOSS_ACTIVE = 1
+EndIf
+
+SAFETY_SHUTDOWN = 0
+
+If SAFETY_OK = FALSE then
+    SAFETY_SHUTDOWN = 1
+EndIf
+
+If E_POWER = TRUE then
+    SAFETY_SHUTDOWN = 1
+EndIf
+
+If UNIT_MAINT = TRUE then
+    SAFETY_SHUTDOWN = 1
+EndIf
+
+If UNIT_ENABLE = FALSE then
+    SAFETY_SHUTDOWN = 1
+EndIf
+
+If FAN_FAIL_ALM_IN = TRUE then
+    SAFETY_SHUTDOWN = 1
+EndIf
+
+UnitPermit = 0
+If SAFETY_SHUTDOWN = FALSE then
+    UnitPermit = 1
+EndIf
+
+If UnitPermit = FALSE then
+    CURRENT_TASK = "NOT PERMITTED: SHUTTING DOWN OUTPUTS"
+
+    OA_DAMPER_CMD = 0
+    SA_DAMPER_CMD = 0
+    SAF_SS = 0
+    SAF_SPEED_CMD = 0
+
+    HW_PREHEAT_CMD = 0
+    CHW_VALVE_CMD  = 5
+    HW_REHEAT_CMD  = 0
+
+    HUM_ENABLE_CMD = 0
+    HUM_OUTPUT_CMD = 0
+    HUM_RH_SP_CMD  = SPACE_RH_SP
+
+    UNIT_RunningProof = 0
+    DamperProofRaw = 0
+    DampersProven = 0
+    DAMPERS_PROVEN_10SEC = 0
+    FanPermit = 0
+    HumPermit = 0
+    TRANSFER_SPEED_ACTIVE = 0
+
+    T_DamperProven = 0
+    DamperProofTimer = 0
+    AirflowProofTimer = 0
+
+    GOTO STAGE_STATUS_ALARMS
+EndIf
+
+DamperProofRaw = 0
+If OA_DAMPER_STATUS = TRUE then
+    If SA_DAMPER_STATUS = TRUE then
+        DamperProofRaw = 1
+    EndIf
+EndIf
+
+If DamperProofRaw = FALSE then
+    T_DamperProven = 0
+EndIf
+
+Done_DamperProven = Sectimer(DamperProofRaw, DAMPER_PROVEN_DELAY_SEC, T_DamperProven, 0)
+
+DampersProven = 0
+DAMPERS_PROVEN_10SEC = 0
+If Done_DamperProven = TRUE then
+    DampersProven = 1
+    DAMPERS_PROVEN_10SEC = 1
+EndIf
+
+UNIT_RunningProof = 0
+If SAF_SS = TRUE then
+    If AIRFLOW_PROOF = TRUE then
+        UNIT_RunningProof = 1
+    EndIf
+EndIf
+
+If DampersProven = FALSE then
+    SAF_SS = 0
+    SAF_SPEED_CMD = 0
+    TRANSFER_SPEED_ACTIVE = 0
+    GOTO STAGE_OPEN_DAMPERS
+EndIf
+
+If UNIT_RunningProof = FALSE then
+    GOTO STAGE_FAN_STARTUP
+EndIf
+
+GOTO STAGE_RUN_COMMANDS
+
+
+'==============================================================================
+' STAGE 2: ISSUE DAMPER OPEN COMMANDS
+'==============================================================================
+STAGE_OPEN_DAMPERS:
+CURRENT_TASK = "OPENING OA/SA DAMPERS"
+
+OA_DAMPER_CMD = 1
+SA_DAMPER_CMD = 1
+
+SAF_SS = 0
+SAF_SPEED_CMD = 0
+TRANSFER_SPEED_ACTIVE = 0
+
+DamperProofTimer = 0
+
+WAIT 1
+GOTO STAGE_VERIFY_DAMPERS
+
+
+'==============================================================================
+' STAGE 3: VERIFY DAMPERS OPEN WITH TIMEOUT AND 10 SECOND PROOF DELAY
+'==============================================================================
+STAGE_VERIFY_DAMPERS:
+CURRENT_TASK = "VERIFYING DAMPERS OPEN"
+
+If SAFETY_OK = FALSE then GOTO STAGE_IMMEDIATE_SHUTDOWN
+If E_POWER = TRUE then GOTO STAGE_IMMEDIATE_SHUTDOWN
+If UNIT_MAINT = TRUE then GOTO STAGE_IMMEDIATE_SHUTDOWN
+If UNIT_ENABLE = FALSE then GOTO STAGE_IMMEDIATE_SHUTDOWN
+If FAN_FAIL_ALM_IN = TRUE then GOTO STAGE_IMMEDIATE_SHUTDOWN
+
+COMM_LOSS_ACTIVE = 0
+If EXT_COMMS_OK is OFF then
+    COMM_LOSS_ACTIVE = 1
+EndIf
+
+DamperProofRaw = 0
+If OA_DAMPER_STATUS = TRUE then
+    If SA_DAMPER_STATUS = TRUE then
+        DamperProofRaw = 1
+    EndIf
+EndIf
+
+If DamperProofRaw = FALSE then
+    T_DamperProven = 0
+EndIf
+
+Done_DamperProven = Sectimer(DamperProofRaw, DAMPER_PROVEN_DELAY_SEC, T_DamperProven, 0)
+
+DampersProven = 0
+DAMPERS_PROVEN_10SEC = 0
+If Done_DamperProven = TRUE then
+    DampersProven = 1
+    DAMPERS_PROVEN_10SEC = 1
+EndIf
+
+If DampersProven = TRUE then
+    CURRENT_TASK = "DAMPERS PROVEN OPEN FOR 10 SEC"
+    WAIT 1
+    GOTO STAGE_FAN_STARTUP
+EndIf
+
+DamperProofTimer = DamperProofTimer + 1
+
+If DamperProofTimer >= DAMPER_PROOF_TIMEOUT_SEC then
+    CURRENT_TASK = "DAMPER PROOF TIMEOUT: SHUTTING DOWN"
+    SAFETY_SHUTDOWN = 1
+    GOTO STAGE_IMMEDIATE_SHUTDOWN
+EndIf
+
+SAF_SS = 0
+SAF_SPEED_CMD = 0
+TRANSFER_SPEED_ACTIVE = 0
+
+WAIT 1
+GOTO STAGE_VERIFY_DAMPERS
+
+
+'==============================================================================
+' STAGE 4: FAN STARTUP
+'==============================================================================
+STAGE_FAN_STARTUP:
+CURRENT_TASK = "FAN STARTUP"
+
+If SAFETY_OK = FALSE then GOTO STAGE_IMMEDIATE_SHUTDOWN
+If E_POWER = TRUE then GOTO STAGE_IMMEDIATE_SHUTDOWN
+If UNIT_MAINT = TRUE then GOTO STAGE_IMMEDIATE_SHUTDOWN
+If UNIT_ENABLE = FALSE then GOTO STAGE_IMMEDIATE_SHUTDOWN
+If FAN_FAIL_ALM_IN = TRUE then GOTO STAGE_IMMEDIATE_SHUTDOWN
+
+COMM_LOSS_ACTIVE = 0
+If EXT_COMMS_OK is OFF then
+    COMM_LOSS_ACTIVE = 1
+EndIf
+
+DamperProofRaw = 0
+If OA_DAMPER_STATUS = TRUE then
+    If SA_DAMPER_STATUS = TRUE then
+        DamperProofRaw = 1
+    EndIf
+EndIf
+
+If DamperProofRaw = FALSE then
+    T_DamperProven = 0
+EndIf
+
+Done_DamperProven = Sectimer(DamperProofRaw, DAMPER_PROVEN_DELAY_SEC, T_DamperProven, 0)
+
+DampersProven = 0
+DAMPERS_PROVEN_10SEC = 0
+If Done_DamperProven = TRUE then
+    DampersProven = 1
+    DAMPERS_PROVEN_10SEC = 1
+EndIf
+
+If DampersProven = FALSE then
+    CURRENT_TASK = "FAN START BLOCKED: DAMPERS NOT PROVEN 10 SEC"
+    SAF_SS = 0
+    SAF_SPEED_CMD = 0
+    TRANSFER_SPEED_ACTIVE = 0
+    GOTO STAGE_OPEN_DAMPERS
+EndIf
+
+TransferSpeedClamped = TRANSFER_SPEED_CMD
+If TransferSpeedClamped < 0 then TransferSpeedClamped = 0
+If TransferSpeedClamped > 100 then TransferSpeedClamped = 100
+
+If COMM_LOSS_ACTIVE = TRUE then
+    SAF_SS = 1
+    SAF_SPEED_CMD = COMM_LOSS_FAN_SPEED_CMD
+    TRANSFER_SPEED_ACTIVE = 0
+Else
+    If TRANSFER_ACTIVE = TRUE then
+        If TransferSpeedClamped > 0 then
+            SAF_SS = 1
+            SAF_SPEED_CMD = TransferSpeedClamped
+            TRANSFER_SPEED_ACTIVE = 1
+        Else
+            SAF_SS = 0
+            SAF_SPEED_CMD = 0
+            TRANSFER_SPEED_ACTIVE = 0
+        EndIf
+    Else
+        SAF_SS = 1
+        SAF_SPEED_CMD = 20
+        TRANSFER_SPEED_ACTIVE = 0
+    EndIf
+EndIf
+
+AirflowProofTimer = 0
+
+WAIT 1
+GOTO STAGE_RUN_COMMANDS
+
+
+'==============================================================================
+' STAGE 5: RUN COMMANDS
+'==============================================================================
+STAGE_RUN_COMMANDS:
+CURRENT_TASK = "RUNNING: UPDATING COMMANDS"
+
+If SAFETY_OK = FALSE then GOTO STAGE_IMMEDIATE_SHUTDOWN
+If E_POWER = TRUE then GOTO STAGE_IMMEDIATE_SHUTDOWN
+If UNIT_MAINT = TRUE then GOTO STAGE_IMMEDIATE_SHUTDOWN
+If UNIT_ENABLE = FALSE then GOTO STAGE_IMMEDIATE_SHUTDOWN
+If FAN_FAIL_ALM_IN = TRUE then GOTO STAGE_IMMEDIATE_SHUTDOWN
+
+COMM_LOSS_ACTIVE = 0
+If EXT_COMMS_OK is OFF then
+    COMM_LOSS_ACTIVE = 1
+EndIf
+
+DamperProofRaw = 0
+If OA_DAMPER_STATUS = TRUE then
+    If SA_DAMPER_STATUS = TRUE then
+        DamperProofRaw = 1
+    EndIf
+EndIf
+
+If DamperProofRaw = FALSE then
+    T_DamperProven = 0
+EndIf
+
+Done_DamperProven = Sectimer(DamperProofRaw, DAMPER_PROVEN_DELAY_SEC, T_DamperProven, 0)
+
+DampersProven = 0
+DAMPERS_PROVEN_10SEC = 0
+If Done_DamperProven = TRUE then
+    DampersProven = 1
+    DAMPERS_PROVEN_10SEC = 1
+EndIf
+
+If DampersProven = FALSE then
+    CURRENT_TASK = "DAMPER PROOF LOST: STOPPING FAN"
+    SAF_SS = 0
+    SAF_SPEED_CMD = 0
+    TRANSFER_SPEED_ACTIVE = 0
+    GOTO STAGE_OPEN_DAMPERS
+EndIf
+
+FanSpeedClamped = FAN_SPEED_REQ
+If FanSpeedClamped < 0 then FanSpeedClamped = 0
+If FanSpeedClamped > 100 then FanSpeedClamped = 100
+
+TransferSpeedClamped = TRANSFER_SPEED_CMD
+If TransferSpeedClamped < 0 then TransferSpeedClamped = 0
+If TransferSpeedClamped > 100 then TransferSpeedClamped = 100
+
+SAF_SS = 1
+TRANSFER_SPEED_ACTIVE = 0
+
+If COMM_LOSS_ACTIVE = TRUE then
+    SAF_SPEED_CMD = COMM_LOSS_FAN_SPEED_CMD
+Else
+    If TRANSFER_ACTIVE = TRUE then
+        SAF_SPEED_CMD = TransferSpeedClamped
+        TRANSFER_SPEED_ACTIVE = 1
+        If TransferSpeedClamped <= 0 then
+            SAF_SS = 0
+            SAF_SPEED_CMD = 0
+            TRANSFER_SPEED_ACTIVE = 0
+        EndIf
+    Else
+        SAF_SPEED_CMD = FanSpeedClamped
+    EndIf
+EndIf
+
+HW_PREHEAT_CMD = HW_PREHEAT_REQ
+CHW_VALVE_CMD  = MAXIMUM(CHW_VALVE_REQ,5)
+HW_REHEAT_CMD  = HW_REHEAT_REQ
+
+If UNIT_PRIME = TRUE then
+    CURRENT_TASK = "PRIME ACTIVE: FORCING COILS OPEN"
+    HW_PREHEAT_CMD = 100
+    CHW_VALVE_CMD  = 100
+EndIf
+
+WAIT 1
+GOTO STAGE_HUMIDIFIER
+
+
+'==============================================================================
+' STAGE 6: HUMIDIFIER ENABLE + ANALOG DEMAND
+'==============================================================================
+STAGE_HUMIDIFIER:
+CURRENT_TASK = "UPDATING HUMIDIFIER COMMANDS"
+
+If SAFETY_OK = FALSE then GOTO STAGE_IMMEDIATE_SHUTDOWN
+If E_POWER = TRUE then GOTO STAGE_IMMEDIATE_SHUTDOWN
+If UNIT_MAINT = TRUE then GOTO STAGE_IMMEDIATE_SHUTDOWN
+If UNIT_ENABLE = FALSE then GOTO STAGE_IMMEDIATE_SHUTDOWN
+If FAN_FAIL_ALM_IN = TRUE then GOTO STAGE_IMMEDIATE_SHUTDOWN
+
+HUM_RH_SP_CMD = SPACE_RH_SP
+
+HUM_ENABLE_CMD = 0
+HUM_OUTPUT_CMD = 0
+
+HumPermit = 0
+If AIRFLOW_PROOF = TRUE then
+    HumPermit = 1
+EndIf
+
+HumOutClamped = HUM_OUTPUT_REQ
+If HumOutClamped < 0 then HumOutClamped = 0
+If HumOutClamped > 100 then HumOutClamped = 100
+
+If HumPermit = TRUE then
+    If HUM_ENABLE_REQ = TRUE then
+        HUM_ENABLE_CMD = 1
+        HUM_OUTPUT_CMD = HumOutClamped
+    EndIf
+EndIf
+
+WAIT 1
+GOTO STAGE_STATUS_ALARMS
+
+
+'==============================================================================
+' STAGE 7: STATUS + ALARMS
+'==============================================================================
+STAGE_STATUS_ALARMS:
+CURRENT_TASK = "UPDATING STATUS / ALARMS"
+
+COMM_LOSS_ACTIVE = 0
+If EXT_COMMS_OK is OFF then
+    COMM_LOSS_ACTIVE = 1
+EndIf
+
+UNIT_RunningProof = 0
+If SAF_SS = TRUE then
+    If AIRFLOW_PROOF = TRUE then
+        UNIT_RunningProof = 1
+    EndIf
+EndIf
+
+FAN_FAIL_ALM_OUT = FAN_FAIL_ALM_IN
+
+UNIT_Failure = 0
+If FAN_FAIL_ALM_IN = TRUE then
+    UNIT_Failure = 1
+EndIf
+
+If SAFETY_OK = FALSE then
+    UNIT_Failure = 1
+EndIf
+
+If UNIT_MAINT = TRUE then
+    FAN_FAIL_ALM_OUT = 0
+    UNIT_Failure = 0
+EndIf
+
+If SAFETY_SHUTDOWN = TRUE then
+    OA_DAMPER_CMD = 0
+    SA_DAMPER_CMD = 0
+    SAF_SS = 0
+    SAF_SPEED_CMD = 0
+    HUM_ENABLE_CMD = 0
+    HUM_OUTPUT_CMD = 0
+    TRANSFER_SPEED_ACTIVE = 0
+EndIf
+
+WAIT 1
+GOTO STAGE_CHECK_PERMITS
+
+
+'==============================================================================
+' IMMEDIATE SHUTDOWN
+'==============================================================================
+STAGE_IMMEDIATE_SHUTDOWN:
+CURRENT_TASK = "IMMEDIATE SHUTDOWN: DROPPING OUTPUTS"
+
+SAFETY_SHUTDOWN = 1
+UnitPermit = 0
+FanPermit = 0
+HumPermit = 0
+DamperProofRaw = 0
+DampersProven = 0
+DAMPERS_PROVEN_10SEC = 0
+TRANSFER_SPEED_ACTIVE = 0
+
+OA_DAMPER_CMD = 0
+SA_DAMPER_CMD = 0
+
+SAF_SS = 0
+SAF_SPEED_CMD = 0
+
+HW_PREHEAT_CMD = 0
+CHW_VALVE_CMD  = 5
+HW_REHEAT_CMD  = 0
+
+HUM_ENABLE_CMD = 0
+HUM_OUTPUT_CMD = 0
+HUM_RH_SP_CMD  = SPACE_RH_SP
+
+UNIT_RunningProof = 0
+
+T_DamperProven = 0
+DamperProofTimer = 0
+AirflowProofTimer = 0
+
+WAIT 1
+GOTO STAGE_STATUS_ALARMS

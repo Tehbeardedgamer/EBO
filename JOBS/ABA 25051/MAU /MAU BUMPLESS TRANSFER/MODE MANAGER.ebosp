@@ -1,0 +1,289 @@
+'==============================================================================
+' MAU_MODE_MANAGER - BUMPLESS TRANSFER PATCHED
+'
+' PURPOSE
+' Select active operating mode and supply air temperature setpoint.
+'
+' PATCHED BEHAVIOR
+' 1) If external communication is lost, external-driven timers and mode logic
+'    stop updating and SA_TEMP_SP is forced to 55°F.
+' 2) During scheduled lead/lag transfer, mode and SA_TEMP_SP are held at the
+'    last valid values.  Communication loss still overrides this hold.
+'
+' REQUIRED BINDINGS
+' - EXT_COMMS_OK:    1 = external values valid
+' - TRANSFER_ACTIVE: 1 = scheduled MAU side handoff active
+'==============================================================================
+
+NUMERIC INPUT UNIT_ENABLE
+NUMERIC INPUT OA_TEMP
+NUMERIC INPUT OA_DEWPOINT
+NUMERIC INPUT SPACE_RH
+NUMERIC INPUT SPACE_RH_SP
+NUMERIC INPUT MAINTENANCE
+NUMERIC INPUT SAT_RESET_SP
+NUMERIC INPUT EXT_COMMS_OK
+NUMERIC INPUT TRANSFER_ACTIVE
+
+NUMERIC INPUT OA_DEWPOINT_LOW
+NUMERIC INPUT HUMIDITY_ENABLE_TIME
+
+NUMERIC INPUT OA_DEWPOINT_HIGH
+NUMERIC INPUT HUMIDITY_STANDBY_TRIGGER_TIME
+NUMERIC INPUT HUMIDITY_STANDBY_DURATION
+
+NUMERIC INPUT COOLING_ENABLE_OAT
+NUMERIC INPUT COOLING_ENABLE_DEWPOINT
+NUMERIC INPUT COOLING_ENABLE_TIME
+NUMERIC INPUT COOLING_DISABLE_OAT
+NUMERIC INPUT COOLING_DISABLE_TIME
+
+NUMERIC INPUT DEHUMIDIFICATION_ENABLE_DEWPOINT
+NUMERIC INPUT DEHUMIDIFICATION_ENABLE_DEWPOINT_TIME
+NUMERIC INPUT SPACE_DEHUM_ENABLE_TIME
+
+NUMERIC INPUT SAT_COOL_SETPOINT
+NUMERIC INPUT SAT_HUMIDIFY_SETPOINT
+NUMERIC INPUT SAT_DEHUMIDIFY_SETPOINT
+
+NUMERIC OUTPUT ActiveMode
+NUMERIC OUTPUT HeatingActive
+NUMERIC OUTPUT CoolingActive
+NUMERIC OUTPUT HumidActive
+NUMERIC OUTPUT DehumActive
+NUMERIC OUTPUT SA_TEMP_SP
+NUMERIC OUTPUT DEHUMID_SA_TEMP_SP
+NUMERIC OUTPUT HumStandbyActive
+NUMERIC OUTPUT UNIT_MAINT
+NUMERIC OUTPUT COMM_LOSS_ACTIVE
+NUMERIC OUTPUT TRANSFER_HOLD_ACTIVE
+
+NUMERIC T_1
+NUMERIC T_2
+NUMERIC T_3
+NUMERIC T_4
+NUMERIC T_5
+NUMERIC T_6
+NUMERIC T_7
+NUMERIC T_8
+
+NUMERIC CoolingLatched
+NUMERIC HumStandbyLatch
+NUMERIC HumReq
+NUMERIC CoolReq
+NUMERIC DehumReq
+NUMERIC Done_HumDewLow
+NUMERIC Done_HumRHLow
+NUMERIC Done_HumStandbyTrig
+NUMERIC Done_HumStandbyHold
+NUMERIC Done_CoolEnable
+NUMERIC Done_CoolDisable
+NUMERIC Done_DehumDewHigh
+NUMERIC Done_DehumRHHigh
+NUMERIC COMM_LOSS_SA_TEMP_SP
+
+FUNCTION Sectimer
+
+
+INIT:
+T_1 = 0
+T_2 = 0
+T_3 = 0
+T_4 = 0
+T_5 = 0
+T_6 = 0
+T_7 = 0
+T_8 = 0
+
+CoolingLatched = 0
+HumStandbyLatch = 0
+UNIT_MAINT = 0
+
+ActiveMode = 0
+HeatingActive = 0
+CoolingActive = 0
+HumidActive = 0
+DehumActive = 0
+
+SA_TEMP_SP = SAT_RESET_SP
+DEHUMID_SA_TEMP_SP = 0
+HumStandbyActive = 0
+COMM_LOSS_ACTIVE = 0
+TRANSFER_HOLD_ACTIVE = 0
+COMM_LOSS_SA_TEMP_SP = 55
+
+Goto MAIN
+
+
+MAIN:
+IF MAINTENANCE = TRUE THEN UNIT_MAINT = TRUE ELSE UNIT_MAINT = FALSE
+
+If UNIT_ENABLE is OFF then
+    ActiveMode = 0
+    HeatingActive = 0
+    CoolingActive = 0
+    HumidActive = 0
+    DehumActive = 0
+
+    SA_TEMP_SP = SAT_RESET_SP
+    DEHUMID_SA_TEMP_SP = 0
+    HumStandbyActive = 0
+    COMM_LOSS_ACTIVE = 0
+    TRANSFER_HOLD_ACTIVE = 0
+
+    T_1 = 0
+    T_2 = 0
+    T_3 = 0
+    T_4 = 0
+    T_5 = 0
+    T_6 = 0
+    T_7 = 0
+    T_8 = 0
+
+    Wait 1
+    Goto MAIN
+EndIf
+
+COMM_LOSS_ACTIVE = 0
+If EXT_COMMS_OK is OFF then
+    COMM_LOSS_ACTIVE = 1
+EndIf
+
+TRANSFER_HOLD_ACTIVE = 0
+If TRANSFER_ACTIVE is ON then
+    TRANSFER_HOLD_ACTIVE = 1
+EndIf
+
+If COMM_LOSS_ACTIVE is ON then
+
+    T_1 = 0
+    T_2 = 0
+    T_3 = 0
+    T_4 = 0
+    T_5 = 0
+    T_6 = 0
+    T_7 = 0
+    T_8 = 0
+
+    CoolingLatched = 0
+    HumStandbyLatch = 0
+    HumStandbyActive = 0
+
+    ActiveMode = 2
+    HeatingActive = 0
+    CoolingActive = 1
+    HumidActive = 0
+    DehumActive = 0
+
+    SA_TEMP_SP = COMM_LOSS_SA_TEMP_SP
+    DEHUMID_SA_TEMP_SP = 0
+
+    Wait 1
+    Goto MAIN
+EndIf
+
+If TRANSFER_HOLD_ACTIVE is ON then
+    Wait 1
+    Goto MAIN
+EndIf
+
+Done_HumStandbyTrig = Sectimer(OA_DEWPOINT > OA_DEWPOINT_HIGH, HUMIDITY_STANDBY_TRIGGER_TIME, T_3, 0)
+
+Done_HumStandbyHold = 0
+If HumStandbyLatch is ON then
+    Done_HumStandbyHold = Sectimer(1, HUMIDITY_STANDBY_DURATION, T_4, 0)
+EndIf
+
+If HumStandbyLatch is OFF then
+    If Done_HumStandbyTrig is ON then
+        HumStandbyLatch = 1
+        T_4 = 0
+    EndIf
+EndIf
+
+If HumStandbyLatch is ON then
+    If Done_HumStandbyHold is ON then
+        HumStandbyLatch = 0
+        T_4 = 0
+    EndIf
+EndIf
+
+HumStandbyActive = 0
+If HumStandbyLatch is ON then HumStandbyActive = 1
+
+Done_CoolEnable = Sectimer((OA_TEMP > COOLING_ENABLE_OAT) AND (OA_DEWPOINT < COOLING_ENABLE_DEWPOINT), COOLING_ENABLE_TIME, T_5, 0)
+Done_CoolDisable = Sectimer(OA_TEMP < COOLING_DISABLE_OAT, COOLING_DISABLE_TIME, T_6, 0)
+
+If Done_CoolDisable is ON then
+    CoolingLatched = 0
+EndIf
+
+If CoolingLatched is OFF then
+    If Done_CoolEnable is ON then
+        CoolingLatched = 1
+    EndIf
+EndIf
+
+Done_HumDewLow = Sectimer(OA_DEWPOINT < OA_DEWPOINT_LOW, HUMIDITY_ENABLE_TIME, T_1, 0)
+Done_HumRHLow = Sectimer(SPACE_RH < SPACE_RH_SP, HUMIDITY_ENABLE_TIME, T_2, 0)
+
+Done_DehumDewHigh = Sectimer(OA_DEWPOINT > DEHUMIDIFICATION_ENABLE_DEWPOINT, DEHUMIDIFICATION_ENABLE_DEWPOINT_TIME, T_7, 0)
+Done_DehumRHHigh = Sectimer(SPACE_RH > SPACE_RH_SP, SPACE_DEHUM_ENABLE_TIME, T_8, 0)
+
+HumReq = 0
+If HumStandbyActive is OFF then
+    If Done_HumDewLow is ON then
+        HumReq = 1
+    Else
+        If Done_HumRHLow is ON then
+            HumReq = 1
+        EndIf
+    EndIf
+EndIf
+
+CoolReq = 0
+If CoolingLatched is ON then CoolReq = 1
+
+DehumReq = 0
+If Done_DehumDewHigh is ON then
+    DehumReq = 1
+Else
+    If Done_DehumRHHigh is ON then
+        DehumReq = 1
+    EndIf
+EndIf
+
+ActiveMode = 1
+If CoolReq is ON then ActiveMode = 2
+If HumReq is ON then ActiveMode = 3
+If DehumReq is ON then ActiveMode = 4
+
+HeatingActive = 0
+CoolingActive = 0
+HumidActive = 0
+DehumActive = 0
+DEHUMID_SA_TEMP_SP = 0
+
+If ActiveMode EQUALS 1 then
+    HeatingActive = 1
+    SA_TEMP_SP = SAT_RESET_SP
+EndIf
+
+If ActiveMode EQUALS 2 then
+    CoolingActive = 1
+    SA_TEMP_SP = SAT_COOL_SETPOINT
+EndIf
+
+If ActiveMode EQUALS 3 then
+    HumidActive = 1
+    SA_TEMP_SP = SAT_HUMIDIFY_SETPOINT
+EndIf
+
+If ActiveMode EQUALS 4 then
+    DehumActive = 1
+    DEHUMID_SA_TEMP_SP = SAT_DEHUMIDIFY_SETPOINT
+    SA_TEMP_SP = SAT_RESET_SP
+EndIf
+
+Wait 1
+Goto MAIN
