@@ -1,20 +1,26 @@
 '==============================================================================
-' MAU_AHU_FAN_DP_CONTROL
+' MAU_AHU_FAN_DP_CONTROL  - PATCHED
 '
 ' PURPOSE
-' Generate fan speed request to maintain SPACE differential pressure setpoint.
-' Provide fan failure alarm based on SAF_STATUS_A / SAF_STATUS_B (+ optional extra fan statuses).
+' Generate fan speed request to maintain SPACE / room differential pressure.
+' Provide fan failure alarm based on SAF_STATUS_A / SAF_STATUS_B.
 '
-' SOO REQUIREMENTS COVERED
-' - Fan speed modulates to maintain DUCT_STATIC_SP.
-' - Fan failure detected via status feedback (here: SAF_STATUS_A, SAF_STATUS_B).
-' - Upon failure of any fan: alarm to BAS (speed demand will naturally rise via PID).
+' PATCHED BEHAVIOR
+' 1) FAN_SPEED_REQ remains 0 until OA and SA dampers have both proven open
+'    continuously for 10 seconds.
+' 2) DP PID integral is reset to 20 during shutdown, safety trip, fan failure,
+'    damper proof loss, maintenance, load shed, disabled command, or comm loss.
+' 3) On external communication loss, the PID is not executed.  The request is
+'    held to a fixed safe fallback of 20% only if the unit is otherwise permitted
+'    and dampers are proven for 10 seconds.
+'
+' REQUIRED NEW BINDING
+' - EXT_COMMS_OK: 1 = external pressure / valve-status points are valid
+'                 0 = communication loss / external values not reliable
 '
 ' NOTES
-' - Final output authority remains in IO_AND_SAFETIES (SAF_SS and SAF_SPEED_CMD).
-'   This script only outputs FAN_SPEED_REQ and FAN_FAIL_ALM.
-' - Alarm is masked during MAINT_MODE (per SoO) by forcing FAN_FAIL_ALM = 0.
-' - PID integrals are preserved (not reset) when disabled.
+' - Final output authority remains in MASTER CONTROL / IO_AND_SAFETIES.
+' - This script only outputs FAN_SPEED_REQ and FAN_FAIL_ALM.
 '==============================================================================
 
 '-----------------------------
@@ -25,6 +31,7 @@ NUMERIC INPUT UNIT_MAINT
 
 NUMERIC INPUT SAFETY_OK
 NUMERIC INPUT E_POWER
+NUMERIC INPUT EXT_COMMS_OK
 
 NUMERIC INPUT OA_DAMPER_STATUS
 NUMERIC INPUT SA_DAMPER_STATUS
@@ -49,13 +56,16 @@ NUMERIC INPUT FAN_FAIL_TIME
 '-----------------------------
 ' OUTPUTS (Bindings)
 '-----------------------------
-NUMERIC OUTPUT FAN_SPEED_REQ     ' 0..100
-NUMERIC OUTPUT FAN_FAIL_ALM      ' 0/1
+NUMERIC OUTPUT FAN_SPEED_REQ          ' 0..100
+NUMERIC OUTPUT FAN_FAIL_ALM           ' 0/1
+NUMERIC OUTPUT DAMPERS_PROVEN_10SEC   ' 0/1
+NUMERIC OUTPUT COMM_LOSS_ACTIVE       ' 0/1
 
 '-----------------------------
 ' INTERNAL VARIABLES
 '-----------------------------
 NUMERIC UnitPermit
+NUMERIC DamperProofRaw
 NUMERIC DampersProven
 NUMERIC FanPermit
 
@@ -64,23 +74,33 @@ NUMERIC DP_PID_OldErr
 NUMERIC DP_Out
 
 NUMERIC T_1                    ' Fan fail timer storage for Sectimer
+NUMERIC T_2                    ' Damper proven 10 second timer
 NUMERIC FailCond
 NUMERIC AnyStatusFail
 NUMERIC Done_FanFail
+NUMERIC Done_DamperProof
+NUMERIC ResetFanPID
+
+NUMERIC DAMPER_PROOF_DELAY_SEC
+NUMERIC COMM_LOSS_FAN_SPEED_REQ
 
 '-----------------------------
 ' FUNCTIONS USED
 '-----------------------------
 FUNCTION PIDControl
 FUNCTION Sectimer
+
+
 '==============================================================================
 INIT:
 '==============================================================================
-
 FAN_SPEED_REQ = 0
 FAN_FAIL_ALM = 0
+DAMPERS_PROVEN_10SEC = 0
+COMM_LOSS_ACTIVE = 0
 
 UnitPermit = 0
+DamperProofRaw = 0
 DampersProven = 0
 FanPermit = 0
 
@@ -89,9 +109,15 @@ DP_PID_OldErr = 0
 DP_Out = 0
 
 T_1 = 0
+T_2 = 0
 FailCond = 0
 AnyStatusFail = 0
 Done_FanFail = 0
+Done_DamperProof = 0
+ResetFanPID = 0
+
+DAMPER_PROOF_DELAY_SEC = 10
+COMM_LOSS_FAN_SPEED_REQ = 20
 
 Goto MAIN
 
@@ -101,7 +127,16 @@ MAIN:
 '==============================================================================
 
 '-----------------------------
-' Determine permits (mirror of IO gating for request generation only)
+' Communication status
+'-----------------------------
+COMM_LOSS_ACTIVE = 0
+If EXT_COMMS_OK is OFF then
+    COMM_LOSS_ACTIVE = 1
+EndIf
+
+
+'-----------------------------
+' Determine unit permit
 '-----------------------------
 UnitPermit = 0
 If UNIT_ENABLE is ON then
@@ -114,13 +149,34 @@ If UNIT_ENABLE is ON then
     EndIf
 EndIf
 
-DampersProven = 0
+
+'-----------------------------
+' Require OA and SA damper proof for 10 continuous seconds
+'-----------------------------
+DamperProofRaw = 0
 If OA_DAMPER_STATUS is ON then
     If SA_DAMPER_STATUS is ON then
-        DampersProven = 1
+        DamperProofRaw = 1
     EndIf
 EndIf
 
+If DamperProofRaw is OFF then
+    T_2 = 0
+EndIf
+
+Done_DamperProof = Sectimer(DamperProofRaw, DAMPER_PROOF_DELAY_SEC, T_2, 0)
+
+DampersProven = 0
+DAMPERS_PROVEN_10SEC = 0
+If Done_DamperProof is ON then
+    DampersProven = 1
+    DAMPERS_PROVEN_10SEC = 1
+EndIf
+
+
+'-----------------------------
+' Build fan permit
+'-----------------------------
 FanPermit = 0
 If UnitPermit is ON then
     If DampersProven is ON then
@@ -130,28 +186,9 @@ EndIf
 
 
 '-----------------------------
-' DP PID -> FAN_SPEED_REQ
-'-----------------------------
-FAN_SPEED_REQ = 0
-
-If FanPermit is ON then
-    ' ReverseActing = 0 (Direct acting): DP low -> increase output
-    DP_Out = PIDControl(0, SA_DUCT_STATIC, DUCT_STATIC_SP, DP_PID_Int, DP_KP, DP_KI, DP_KD, DP_PID_OldErr)
-	
-    ' Clamp to 0..100 (do not invent min speed unless you provide limits)
-    If DP_Out < 0 then DP_Out = 0
-    If DP_Out > 100 then DP_Out = 100
-
-    FAN_SPEED_REQ = DP_Out
-ELSE
-DP_PID_Int = 20
-
-EndIf
-
-
-'-----------------------------
-' Fan failure detection (any fan status or pre-aggregated fail)
-' Alarm if commanded to run (FanPermit) AND either status is NOT ON for FAN_FAIL_TIME
+' Fan failure detection
+' Alarm if permitted to run and either status is not ON for FAN_FAIL_TIME.
+' FAN_STATUS_ANY_FAIL is treated as an immediate failed-status input.
 '-----------------------------
 AnyStatusFail = 0
 If FAN_STATUS_ANY_FAIL is ON then AnyStatusFail = 1
@@ -177,6 +214,55 @@ EndIf
 ' Maintenance Mode requirement: no alarms while in maintenance
 If UNIT_MAINT is ON then
     FAN_FAIL_ALM = 0
+EndIf
+
+
+'-----------------------------
+' Reset PID integral on shutdowns, safety trips, fan failures, proof loss,
+' maintenance, disabled command, load shed, or communication loss.
+'-----------------------------
+ResetFanPID = 0
+
+If UnitPermit is OFF then ResetFanPID = 1
+If FanPermit is OFF then ResetFanPID = 1
+If COMM_LOSS_ACTIVE is ON then ResetFanPID = 1
+If FAN_FAIL_ALM is ON then ResetFanPID = 1
+If FAN_STATUS_ANY_FAIL is ON then ResetFanPID = 1
+
+If ResetFanPID is ON then
+    DP_PID_Int = 20
+    DP_PID_OldErr = 0
+EndIf
+
+
+'-----------------------------
+' DP PID -> FAN_SPEED_REQ
+'-----------------------------
+FAN_SPEED_REQ = 0
+
+If FanPermit is ON then
+
+    If FAN_FAIL_ALM is OFF then
+        If FAN_STATUS_ANY_FAIL is OFF then
+
+            If COMM_LOSS_ACTIVE is ON then
+                ' External values are not reliable.  Do not execute PID.
+                ' Use fixed fallback only after damper proof delay has passed.
+                FAN_SPEED_REQ = COMM_LOSS_FAN_SPEED_REQ
+            Else
+                ' Direct acting: DP low -> increase output
+                DP_Out = PIDControl(0, SA_DUCT_STATIC, DUCT_STATIC_SP, DP_PID_Int, DP_KP, DP_KI, DP_KD, DP_PID_OldErr)
+
+                ' Clamp to 0..100
+                If DP_Out < 0 then DP_Out = 0
+                If DP_Out > 100 then DP_Out = 100
+
+                FAN_SPEED_REQ = DP_Out
+            EndIf
+
+        EndIf
+    EndIf
+
 EndIf
 
 

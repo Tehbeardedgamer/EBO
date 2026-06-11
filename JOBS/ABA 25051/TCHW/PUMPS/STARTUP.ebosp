@@ -1,0 +1,251 @@
+'==============================================================================
+' G1_PUMP_STARTUP
+'
+' PURPOSE:
+'   Per-pump physical command controller.
+'
+'   - Decides whether this pump should run based on ORDER and PUMPS_REQ
+'   - Issues start/stop command
+'   - Issues rate-limited speed command
+'   - Verifies start proof
+'   - Detects loss of proof while running
+'   - Latches failure until reset
+'   - Performs soft-stop ramp-down before dropping SS
+'
+' INPUTS:
+'   PUMP_STATUS            1 = VFD proven
+'   PUMPS_REQ              0..3 required from staging
+'   ORDER                  1 = lead, 2 = lag1, 3 = lag2, 0 = unavailable/out
+'   CHWP_MASTER_SPEED_CMD  common speed request from DP PI
+'   CHWP_DOWN              1 = maintenance / locked out / unavailable
+'   CHWP_FAULT_RESET       momentary 1 clears failure latch
+'   AUTO_ENABLE            1 = auto enabled
+'
+'   START_TIMEOUT          sec to prove on start
+'   LOSS_TIMEOUT           sec loss-of-proof debounce
+'   DELTA_T                sec per scan
+'   RATE_UP                %/sec ramp up
+'   RATE_DN                %/sec ramp down
+'   STOP_AT_SPEED          % threshold to drop SS after ramp-down
+'
+' OUTPUTS:
+'   CHWP_SPEED_CMD         0..100% commanded speed
+'   CHWP_SS                1 = start, 0 = stop
+'   CHWP_FAILED            1 = failure latch
+'==============================================================================
+
+'---------------- INPUTS ----------------
+NUMERIC INPUT PUMP_STATUS
+NUMERIC INPUT PUMPS_REQ
+NUMERIC INPUT ORDER
+NUMERIC INPUT CHWP_MASTER_SPEED_CMD
+NUMERIC INPUT CHWP_DOWN
+NUMERIC INPUT CHWP_FAULT_RESET
+NUMERIC INPUT AUTO_ENABLE
+
+NUMERIC INPUT START_TIMEOUT
+NUMERIC INPUT LOSS_TIMEOUT
+NUMERIC INPUT DELTA_T
+NUMERIC INPUT RATE_UP
+NUMERIC INPUT RATE_DN
+NUMERIC INPUT STOP_AT_SPEED
+
+'---------------- OUTPUTS ---------------
+NUMERIC OUTPUT CHWP_SPEED_CMD
+NUMERIC OUTPUT CHWP_SS
+NUMERIC OUTPUT CHWP_FAILED
+
+'---------------- INTERNALS -------------
+NUMERIC FIRST_INIT_DONE
+
+NUMERIC CMD_ON
+NUMERIC TARGET
+NUMERIC UP_STEP
+NUMERIC DN_STEP
+NUMERIC PREV_STATUS
+NUMERIC WAS_RUNNING
+
+NUMERIC DT_USE
+NUMERIC RATE_UP_USE
+NUMERIC RATE_DN_USE
+NUMERIC START_TIMEOUT_USE
+NUMERIC LOSS_TIMEOUT_USE
+NUMERIC STOP_AT_SPEED_USE
+
+NUMERIC T_START
+NUMERIC T_LOSS
+
+FUNCTION SECTIMER
+
+GOTO INIT
+
+
+INIT:
+  IF FIRST_INIT_DONE = 0 THEN
+    CHWP_SS = 0
+    CHWP_SPEED_CMD = 0
+    CHWP_FAILED = 0
+
+    CMD_ON = 0
+    TARGET = 0
+    UP_STEP = 0
+    DN_STEP = 0
+    PREV_STATUS = PUMP_STATUS
+    WAS_RUNNING = 0
+
+    DT_USE = 0
+    RATE_UP_USE = 0
+    RATE_DN_USE = 0
+    START_TIMEOUT_USE = 0
+    LOSS_TIMEOUT_USE = 0
+    STOP_AT_SPEED_USE = 0
+
+    T_START = 0
+    T_LOSS = 0
+
+    FIRST_INIT_DONE = 1
+  ENDIF
+
+  GOTO CONTROL_LOOP
+
+
+CONTROL_LOOP:
+
+  '--------------------------------------------------------------------------
+  ' SAFE INTERNAL COPIES OF TUNING INPUTS
+  '--------------------------------------------------------------------------
+
+  DT_USE = DELTA_T
+  IF DT_USE <= 0 THEN DT_USE = 2
+
+  RATE_UP_USE = RATE_UP
+  IF RATE_UP_USE <= 0 THEN RATE_UP_USE = 1.0
+
+  RATE_DN_USE = RATE_DN
+  IF RATE_DN_USE <= 0 THEN RATE_DN_USE = 0.7
+
+  START_TIMEOUT_USE = START_TIMEOUT
+  IF START_TIMEOUT_USE <= 0 THEN START_TIMEOUT_USE = 180
+
+  LOSS_TIMEOUT_USE = LOSS_TIMEOUT
+  IF LOSS_TIMEOUT_USE <= 0 THEN LOSS_TIMEOUT_USE = 30
+
+  STOP_AT_SPEED_USE = STOP_AT_SPEED
+  IF STOP_AT_SPEED_USE < 0 THEN STOP_AT_SPEED_USE = 0
+
+
+  '--------------------------------------------------------------------------
+  ' SHOULD THIS PUMP BE ON?
+  '--------------------------------------------------------------------------
+
+  CMD_ON = 0
+
+  IF ORDER > 0 THEN
+    IF ORDER <= PUMPS_REQ THEN
+      IF CHWP_DOWN = 0 THEN
+        IF CHWP_FAILED = 0 THEN
+          IF AUTO_ENABLE = 1 THEN
+            CMD_ON = 1
+          ENDIF
+        ENDIF
+      ENDIF
+    ENDIF
+  ENDIF
+
+
+  '--------------------------------------------------------------------------
+  ' COMMON CALCS
+  '--------------------------------------------------------------------------
+
+  UP_STEP = RATE_UP_USE * DT_USE
+  DN_STEP = RATE_DN_USE * DT_USE
+
+  TARGET = 0
+  IF CMD_ON = 1 THEN TARGET = CHWP_MASTER_SPEED_CMD
+
+  WAS_RUNNING = 0
+  IF PREV_STATUS = 1 THEN WAS_RUNNING = 1
+
+
+  '--------------------------------------------------------------------------
+  ' FAILURE DETECTION
+  '--------------------------------------------------------------------------
+
+  IF SECTIMER((CMD_ON = 1) & (PUMP_STATUS = 0) & (WAS_RUNNING = 0), START_TIMEOUT_USE, T_START, 0) THEN
+    CHWP_FAILED = 1
+  ENDIF
+
+  IF SECTIMER((CMD_ON = 1) & (PUMP_STATUS = 0) & (WAS_RUNNING = 1), LOSS_TIMEOUT_USE, T_LOSS, 0) THEN
+    CHWP_FAILED = 1
+  ENDIF
+
+
+  '--------------------------------------------------------------------------
+  ' MANUAL FAILURE RESET
+  '--------------------------------------------------------------------------
+
+  IF CHWP_FAULT_RESET = 1 THEN
+    CHWP_FAILED = 0
+    T_START = 0
+    T_LOSS = 0
+  ENDIF
+
+
+  '--------------------------------------------------------------------------
+  ' ACTION SELECTION
+  '--------------------------------------------------------------------------
+
+  IF CHWP_FAILED = 1 THEN GOTO FAIL_ACTION
+  IF CMD_ON = 1 THEN GOTO RUN_ACTION ELSE GOTO STOP_ACTION
+
+
+RUN_ACTION:
+  CHWP_SS = 1
+
+  IF TARGET > CHWP_SPEED_CMD THEN
+    CHWP_SPEED_CMD = MINIMUM(TARGET, CHWP_SPEED_CMD + UP_STEP)
+  ELSE
+    CHWP_SPEED_CMD = MAXIMUM(TARGET, CHWP_SPEED_CMD - DN_STEP)
+  ENDIF
+
+  IF CHWP_SPEED_CMD < 0 THEN CHWP_SPEED_CMD = 0
+  IF CHWP_SPEED_CMD > 100 THEN CHWP_SPEED_CMD = 100
+
+  GOTO END_SCAN
+
+
+STOP_ACTION:
+  IF CHWP_SPEED_CMD > STOP_AT_SPEED_USE THEN
+    CHWP_SS = 1
+    CHWP_SPEED_CMD = MAXIMUM(0, CHWP_SPEED_CMD - DN_STEP)
+  ELSE
+    CHWP_SPEED_CMD = 0
+    CHWP_SS = 0
+  ENDIF
+
+  GOTO END_SCAN
+
+
+FAIL_ACTION:
+  IF PUMP_STATUS = 1 THEN
+    IF CHWP_SPEED_CMD > STOP_AT_SPEED_USE THEN
+      CHWP_SS = 1
+      CHWP_SPEED_CMD = MAXIMUM(0, CHWP_SPEED_CMD - DN_STEP)
+    ELSE
+      CHWP_SPEED_CMD = 0
+      CHWP_SS = 0
+    ENDIF
+  ELSE
+    CHWP_SS = 0
+    IF CHWP_SPEED_CMD > 0 THEN
+      CHWP_SPEED_CMD = MAXIMUM(0, CHWP_SPEED_CMD - DN_STEP)
+    ENDIF
+  ENDIF
+
+  GOTO END_SCAN
+
+
+END_SCAN:
+  PREV_STATUS = PUMP_STATUS
+  WAIT 2
+  GOTO CONTROL_LOOP

@@ -1,43 +1,18 @@
 '==============================================================================
-' MAU_MODE_MANAGER  (Sectimer direct-assignment, no SAT reset math)
+' MAU_MODE_MANAGER  - PATCHED
 '
-' Mode priority (highest to lowest):
-'   1) Safety shutdowns (handled upstream via UNIT_ENABLE / IO&Safeties)
-'   2) Maintenance Mode (per-unit; handled in MAU_LEAD_STANDBY + IO)
-'   3) Dehumidification
-'   4) Humidification
-'   5) Cooling
-'   6) Heating (default)
+' PURPOSE
+' Select active operating mode and supply air temperature setpoint.
 '
-' Timed enables using Sectimer():
-'   - Humidify enable:
-'       (OA_DEWPOINT < OA_DEWPOINT_LOW for HUMIDITY_ENABLE_TIME)
-'        OR (SPACE_RH < SPACE_RH_SP for HUMIDITY_ENABLE_TIME)
+' PATCHED BEHAVIOR
+' 1) Adds EXT_COMMS_OK input.
+' 2) If external communication is lost, external-driven timers and mode logic
+'    stop updating.
+' 3) During communication loss, SA_TEMP_SP is forced to 55°F.
 '
-'   - Humidify standby lockout:
-'       OA_DEWPOINT > OA_DEWPOINT_HIGH for HUMIDITY_STANDBY_TRIGGER_TIME
-'       -> lockout for HUMIDITY_STANDBY_DURATION
-'
-'   - Cooling enable:
-'       (OA_TEMP > COOLING_ENABLE_OAT AND OA_DEWPOINT < COOLING_ENABLE_DEWPOINT)
-'       for COOLING_ENABLE_TIME
-'     Cooling disable:
-'       OA_TEMP < COOLING_DISABLE_OAT for COOLING_DISABLE_TIME
-'     Cooling is latched ON once enabled; released only by disable timer.
-'
-'   - Dehumidification enable:
-'       (OA_DEWPOINT > DEHUMIDIFICATION_ENABLE_DEWPOINT for DEHUMIDIFICATION_ENABLE_DEWPOINT_TIME)
-'        OR (SPACE_RH > SPACE_RH_SP for SPACE_DEHUM_ENABLE_TIME)
-'
-' Setpoints:
-'   - Cooling: SAT = SAT_COOL_SETPOINT
-'   - Humidify: SAT = SAT_HUMIDIFY_SETPOINT
-'   - Heating: SAT = SAT_RESET_SP (computed externally)
-'   - Dehum:  LAT_SP = SAT_DEHUMIDIFY_SETPOINT (name per your mapping)
-'            SAT = SAT_RESET_SP (computed externally)
-'
-' NOTE:
-' - All Sectimer() calls pass AutoReset=0 to avoid TS-based resets in loop scripts.
+' REQUIRED NEW BINDING
+' - EXT_COMMS_OK: 1 = external values valid
+'                 0 = communication loss / external values not reliable
 '==============================================================================
 
 NUMERIC INPUT UNIT_ENABLE
@@ -47,6 +22,7 @@ NUMERIC INPUT SPACE_RH
 NUMERIC INPUT SPACE_RH_SP
 NUMERIC INPUT MAINTENANCE
 NUMERIC INPUT SAT_RESET_SP
+NUMERIC INPUT EXT_COMMS_OK
 
 NUMERIC INPUT OA_DEWPOINT_LOW
 NUMERIC INPUT HUMIDITY_ENABLE_TIME
@@ -63,7 +39,7 @@ NUMERIC INPUT COOLING_DISABLE_TIME
 
 NUMERIC INPUT DEHUMIDIFICATION_ENABLE_DEWPOINT
 NUMERIC INPUT DEHUMIDIFICATION_ENABLE_DEWPOINT_TIME
-NUMERIC INPUT SPACE_DEHUM_ENABLE_TIME     ' 300 sec = 5 min typical
+NUMERIC INPUT SPACE_DEHUM_ENABLE_TIME
 
 NUMERIC INPUT SAT_COOL_SETPOINT
 NUMERIC INPUT SAT_HUMIDIFY_SETPOINT
@@ -78,6 +54,7 @@ NUMERIC OUTPUT SA_TEMP_SP
 NUMERIC OUTPUT DEHUMID_SA_TEMP_SP
 NUMERIC OUTPUT HumStandbyActive
 NUMERIC OUTPUT UNIT_MAINT
+NUMERIC OUTPUT COMM_LOSS_ACTIVE
 
 NUMERIC T_1  ' Hum enable: OA dewpoint low
 NUMERIC T_2  ' Hum enable: SPACE RH low
@@ -86,7 +63,8 @@ NUMERIC T_4  ' Hum standby hold: duration
 NUMERIC T_5  ' Cooling enable
 NUMERIC T_6  ' Cooling disable
 NUMERIC T_7  ' Dehum enable: OA dewpoint high
-NUMERIC T_8  ' Dehum enable: SPACE RH high > SP for fixed timer
+NUMERIC T_8  ' Dehum enable: SPACE RH high > SP
+
 NUMERIC CoolingLatched
 NUMERIC HumStandbyLatch
 NUMERIC HumReq
@@ -100,8 +78,10 @@ NUMERIC Done_CoolEnable
 NUMERIC Done_CoolDisable
 NUMERIC Done_DehumDewHigh
 NUMERIC Done_DehumRHHigh
+NUMERIC COMM_LOSS_SA_TEMP_SP
 
 FUNCTION Sectimer
+
 
 INIT:
 T_1 = 0
@@ -126,10 +106,79 @@ DehumActive = 0
 SA_TEMP_SP = SAT_RESET_SP
 DEHUMID_SA_TEMP_SP = 0
 HumStandbyActive = 0
+COMM_LOSS_ACTIVE = 0
+COMM_LOSS_SA_TEMP_SP = 55
 
 Goto MAIN
 
+
 MAIN:
+IF MAINTENANCE = TRUE THEN UNIT_MAINT = TRUE ELSE UNIT_MAINT = FALSE
+
+If UNIT_ENABLE is OFF then
+    ActiveMode = 0
+    HeatingActive = 0
+    CoolingActive = 0
+    HumidActive = 0
+    DehumActive = 0
+
+    SA_TEMP_SP = SAT_RESET_SP
+    DEHUMID_SA_TEMP_SP = 0
+    HumStandbyActive = 0
+    COMM_LOSS_ACTIVE = 0
+
+    T_1 = 0
+    T_2 = 0
+    T_3 = 0
+    T_4 = 0
+    T_5 = 0
+    T_6 = 0
+    T_7 = 0
+    T_8 = 0
+
+    Wait 1
+    Goto MAIN
+EndIf
+
+
+'-----------------------------
+' Communication loss fallback
+'-----------------------------
+COMM_LOSS_ACTIVE = 0
+If EXT_COMMS_OK is OFF then
+    COMM_LOSS_ACTIVE = 1
+EndIf
+
+If COMM_LOSS_ACTIVE is ON then
+
+    ' Do not continue updating external-driven timers or mode decisions.
+    T_1 = 0
+    T_2 = 0
+    T_3 = 0
+    T_4 = 0
+    T_5 = 0
+    T_6 = 0
+    T_7 = 0
+    T_8 = 0
+
+    CoolingLatched = 0
+    HumStandbyLatch = 0
+    HumStandbyActive = 0
+
+    ActiveMode = 2
+    HeatingActive = 0
+    CoolingActive = 1
+    HumidActive = 0
+    DehumActive = 0
+
+    SA_TEMP_SP = COMM_LOSS_SA_TEMP_SP
+    DEHUMID_SA_TEMP_SP = 0
+
+    Wait 1
+    Goto MAIN
+EndIf
+
+
 Done_HumStandbyTrig = Sectimer(OA_DEWPOINT > OA_DEWPOINT_HIGH, HUMIDITY_STANDBY_TRIGGER_TIME, T_3, 0)
 
 Done_HumStandbyHold = 0
@@ -172,22 +221,6 @@ Done_HumRHLow = Sectimer(SPACE_RH < SPACE_RH_SP, HUMIDITY_ENABLE_TIME, T_2, 0)
 
 Done_DehumDewHigh = Sectimer(OA_DEWPOINT > DEHUMIDIFICATION_ENABLE_DEWPOINT, DEHUMIDIFICATION_ENABLE_DEWPOINT_TIME, T_7, 0)
 Done_DehumRHHigh = Sectimer(SPACE_RH > SPACE_RH_SP, SPACE_DEHUM_ENABLE_TIME, T_8, 0)
-
-IF MAINTENANCE = TRUE THEN UNIT_MAINT = TRUE ELSE UNIT_MAINT = FALSE
-
-If UNIT_ENABLE is OFF then
-    ActiveMode = 0
-    HeatingActive = 0
-    CoolingActive = 0
-    HumidActive = 0
-    DehumActive = 0
-
-    SA_TEMP_SP = SAT_RESET_SP
-    DEHUMID_SA_TEMP_SP = 0
-
-    Wait 1
-    Goto MAIN
-EndIf
 
 HumReq = 0
 If HumStandbyActive is OFF then

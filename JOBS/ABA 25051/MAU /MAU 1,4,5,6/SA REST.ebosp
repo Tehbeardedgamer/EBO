@@ -1,43 +1,48 @@
 '==============================================================================
-' MAU_SYS_SAT_RESET
+' MAU_SYS_SAT_RESET  - PATCHED
 '
-' Responsibilities (per SoO):
-' - Compute SAT reset setpoint as a linear function of the associated space
-'   sensible cooling valve aggregate position (0-100%).
+' PURPOSE
+' Compute SAT reset setpoint as a linear function of associated space sensible
+' cooling valve aggregate position.
 '
-' Reset definition:
-'   SmartSenseValvePos = 0%   -> SAT_RESET_SP = SAT_RESET_MAX_SP
-'   SmartSenseValvePos = 100% -> SAT_RESET_SP = SAT_RESET_MIN_SP
+' PATCHED BEHAVIOR
+' 1) Adds EXT_COMMS_OK input.
+' 2) If external communication is lost, SmartSenseValvePos is ignored and
+'    SAT_RESET_SP is forced to 55°F.
 '
-' Notes:
-' - Clamps SmartSenseValvePos to 0..100.
-' - No assumptions are made about how aggregation is computed; that is external.
+' REQUIRED NEW BINDING
+' - EXT_COMMS_OK: 1 = external SmartSenseValvePos is valid
+'                 0 = communication loss / value not reliable
 '==============================================================================
 
 '-----------------------------
 ' INPUTS (Bindings)
 '-----------------------------
 NUMERIC INPUT SmartSenseValvePos
-
 NUMERIC INPUT SAT_RESET_MAX_SP
 NUMERIC INPUT SAT_RESET_MIN_SP
+NUMERIC INPUT EXT_COMMS_OK
 
 '-----------------------------
 ' OUTPUTS (Bindings)
 '-----------------------------
 NUMERIC OUTPUT SAT_RESET_SP
+NUMERIC OUTPUT COMM_LOSS_ACTIVE
 
 '-----------------------------
 ' INTERNAL VARIABLES
 '-----------------------------
 NUMERIC ValvePct_Clamped
+NUMERIC COMM_LOSS_SAT_SP
+
 
 '==============================================================================
 INIT:
 '==============================================================================
-
 SAT_RESET_SP = SAT_RESET_MAX_SP
+COMM_LOSS_ACTIVE = 0
 ValvePct_Clamped = 0
+COMM_LOSS_SAT_SP = 55
 
 Goto MAIN
 
@@ -45,6 +50,18 @@ Goto MAIN
 '==============================================================================
 MAIN:
 '==============================================================================
+
+COMM_LOSS_ACTIVE = 0
+If EXT_COMMS_OK is OFF then
+    COMM_LOSS_ACTIVE = 1
+EndIf
+
+If COMM_LOSS_ACTIVE is ON then
+    SAT_RESET_SP = COMM_LOSS_SAT_SP
+
+    Wait 1
+    Goto MAIN
+EndIf
 
 ValvePct_Clamped = SmartSenseValvePos
 

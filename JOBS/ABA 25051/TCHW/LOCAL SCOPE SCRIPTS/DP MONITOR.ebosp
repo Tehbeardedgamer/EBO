@@ -1,0 +1,88 @@
+' Dual-sensor validation and averaging for Group 1
+' Outputs a stable DPS value, health flags, and front-end status text
+' for use by the speed PI script.
+'
+' OPERATION:
+' - If both DP sensors are healthy, DPS = average of DPS_1A and DPS_1B
+' - If one sensor fails, DPS = remaining healthy sensor
+' - If both sensors fail, DPS holds last value and DPS_FAILED = 1
+
+' ------------------------- INPUTS -------------------------
+NUMERIC INPUT DPS_1A                 ' DP sensor A (psi)
+NUMERIC INPUT DPS_1B                 ' DP sensor B (psi)
+
+' Simple “bad” detector: sensor below threshold for a duration => bad
+NUMERIC PUBLIC DP_LOW_LIMIT          ' psi  (e.g., 5.0)
+NUMERIC PUBLIC DP_LOW_TIME           ' sec  (e.g., 300)
+
+' ------------------------- OUTPUTS ------------------------
+NUMERIC PUBLIC DPS                   ' Selected / averaged DP (psi)
+NUMERIC PUBLIC DPS_FAILED            ' 1 if both sensors bad
+NUMERIC PUBLIC DPS_SEL               ' 0=failed/hold, 1=A only, 2=B only, 3=AVG(A,B)
+NUMERIC PUBLIC A_BAD                 ' 1 if A is bad
+NUMERIC PUBLIC B_BAD                 ' 1 if B is bad
+STRING  PUBLIC DPS_STATUS            ' Front-end status text
+
+' ------------------------- INTERNALS ----------------------
+NUMERIC FIRST_INIT_DONE
+NUMERIC DP_FAIL_A, DP_FAIL_B         ' SECTIMER remainders
+FUNCTION SECTIMER
+
+GOTO INIT
+
+INIT:
+  IF DP_LOW_LIMIT <= 0 THEN DP_LOW_LIMIT = 5.0
+  IF DP_LOW_TIME <= 0 THEN DP_LOW_TIME = 300
+
+  IF FIRST_INIT_DONE = 0 THEN
+    ' Seed with average on first pass
+    DPS = (DPS_1A + DPS_1B) / 2
+    DPS_SEL = 3
+    DPS_FAILED = 0
+    A_BAD = 0
+    B_BAD = 0
+    DPS_STATUS = "AVERAGE A+B"
+    DP_FAIL_A = 0
+    DP_FAIL_B = 0
+    FIRST_INIT_DONE = 1
+  ENDIF
+  GOTO LOOP
+
+LOOP:
+  ' Mark sensor bad if it stays below threshold for DP_LOW_TIME seconds
+  A_BAD = SECTIMER(DPS_1A <= DP_LOW_LIMIT, DP_LOW_TIME, DP_FAIL_A, 0)
+  B_BAD = SECTIMER(DPS_1B <= DP_LOW_LIMIT, DP_LOW_TIME, DP_FAIL_B, 0)
+
+  ' Determine group failure
+  DPS_FAILED = 0
+  IF (A_BAD = 1) & (B_BAD = 1) THEN DPS_FAILED = 1
+
+  ' -------------------- Selection --------------------
+  IF DPS_FAILED = 1 THEN
+    ' Both bad -> hold last DPS; signal failed
+    DPS_SEL = 0
+    DPS_STATUS = "FAILED - HOLD LAST"
+  ELSE
+    IF (A_BAD = 0) & (B_BAD = 0) THEN
+      ' Both good -> average both sensors
+      DPS = (DPS_1A + DPS_1B) / 2
+      DPS_SEL = 3
+      DPS_STATUS = "AVERAGE A+B"
+    ELSE
+      IF (A_BAD = 0) & (B_BAD = 1) THEN
+        ' A good, B failed
+        DPS = DPS_1A
+        DPS_SEL = 1
+        DPS_STATUS = "A ONLY"
+      ELSE
+        ' A failed, B good
+        DPS = DPS_1B
+        DPS_SEL = 2
+        DPS_STATUS = "B ONLY"
+      ENDIF
+    ENDIF
+  ENDIF
+  ' ------------------ end Selection ------------------
+
+  WAIT 2
+  GOTO LOOP
