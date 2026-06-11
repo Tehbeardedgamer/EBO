@@ -1,0 +1,939 @@
+'==============================================================================
+' MAU_SYS_LEAD_STANDBY - SAFETY CHANGEOVER VERSION
+'
+' Responsibilities:
+' - Weekly lead/lag rotation
+' - Maintenance mode lead/lag rotation
+' - Hardwired side safety trip lead/lag changeover
+' - Side failure lead/lag changeover
+' - Only one MAU side enabled at a time
+' - Standby purge/prime before start
+' - Prime command drops out after purge window is complete
+' - Maintenance >24h alarms
+'
+' Side Mapping:
+' - Side A = MAU1
+' - Side B = MAU2
+'
+' Important Behavior Change:
+' - If the current lead side is unavailable because of Maintenance, Failure,
+'   Safety Not Okay, or Freeze Trip, the lead assignment is changed to the
+'   opposite side if the opposite side is available.
+' - This is different from the previous version where Failure only changed
+'   DesiredActive and did not change LeadUnitNumber.
+'
+' Notes:
+' - SAFETY_OKAY_A / SAFETY_OKAY_B should come from the Safety Watch program.
+' - FREEZE_A / FREEZE_B should come from the Safety Watch program if freeze trips
+'   are intended to make that side unavailable.
+' - If a duct detector is common to the entire MAU and must shut down both sides,
+'   do not treat it as a side-only failover input. Use that as a whole-unit
+'   shutdown upstream of Sys_Enable.
+'==============================================================================
+
+
+'-----------------------------
+' PUBLIC INPUTS
+'-----------------------------
+NUMERIC INPUT Sys_Enable
+
+NUMERIC INPUT MAU1_Failure
+NUMERIC INPUT MAU2_Failure
+
+NUMERIC INPUT MAU1_RunningProof
+NUMERIC INPUT MAU2_RunningProof
+
+NUMERIC INPUT MAU1_MaintMode
+NUMERIC INPUT MAU2_MaintMode
+
+NUMERIC INPUT SAFETY_OKAY_A
+NUMERIC INPUT SAFETY_OKAY_B
+NUMERIC INPUT FREEZE_A
+NUMERIC INPUT FREEZE_B
+
+NUMERIC INPUT AutoRotateEnable
+NUMERIC INPUT PurgeTimer        ' seconds, normal value = 120
+
+
+'-----------------------------
+' PUBLIC OUTPUTS
+'-----------------------------
+NUMERIC OUTPUT MAU1_EnableCmd
+NUMERIC OUTPUT MAU2_EnableCmd
+
+NUMERIC OUTPUT MAU1_PrimeCmd
+NUMERIC OUTPUT MAU2_PrimeCmd
+
+NUMERIC OUTPUT MAU1_Lead
+NUMERIC OUTPUT MAU2_Lead
+NUMERIC OUTPUT MAU1_Lag
+NUMERIC OUTPUT MAU2_Lag
+
+NUMERIC OUTPUT LeadUnitNumber       ' 1 or 2
+NUMERIC OUTPUT LagUnitNumber        ' 1 or 2
+NUMERIC OUTPUT ActiveUnitNumber     ' 0, 1, or 2
+
+NUMERIC OUTPUT LeadFailAlarm
+NUMERIC OUTPUT MAU1_MaintOver24h_Alm
+NUMERIC OUTPUT MAU2_MaintOver24h_Alm
+
+
+'-----------------------------
+' INTERNAL / PUBLIC VARIABLES
+'-----------------------------
+NUMERIC PUBLIC InitDone
+
+NUMERIC PUBLIC DesiredActive
+NUMERIC PUBLIC StandbyUnit
+
+NUMERIC PUBLIC SwState
+NUMERIC PUBLIC FromUnit
+NUMERIC PUBLIC ToUnit
+
+NUMERIC PUBLIC MAU1_Available
+NUMERIC PUBLIC MAU2_Available
+NUMERIC PUBLIC MAU1_SafetyTrip
+NUMERIC PUBLIC MAU2_SafetyTrip
+NUMERIC PUBLIC MAU1_Unavailable
+NUMERIC PUBLIC MAU2_Unavailable
+NUMERIC PUBLIC LeadChangeoverActive
+NUMERIC PUBLIC LeadChangeoverFrom
+NUMERIC PUBLIC LeadChangeoverTo
+
+NUMERIC PUBLIC EffectivePurgeTimer
+
+DATETIME PUBLIC LastRotateDT
+
+NUMERIC PUBLIC T_Maint1
+NUMERIC PUBLIC T_Maint2
+NUMERIC PUBLIC Done_Maint1
+NUMERIC PUBLIC Done_Maint2
+
+NUMERIC PUBLIC T_Purge
+NUMERIC PUBLIC Done_Purge
+
+
+'-----------------------------
+' FUNCTIONS USED
+'-----------------------------
+FUNCTION Sectimer
+
+
+'==============================================================================
+INIT:
+'==============================================================================
+
+    If InitDone EQUALS 0 then
+
+        LeadUnitNumber = 1
+        LagUnitNumber = 2
+        LastRotateDT = Date
+
+        SwState = 0
+        FromUnit = 0
+        ToUnit = 0
+        DesiredActive = 0
+        StandbyUnit = 2
+
+        MAU1_EnableCmd = 0
+        MAU2_EnableCmd = 0
+
+        MAU1_PrimeCmd = 0
+        MAU2_PrimeCmd = 0
+
+        MAU1_Lead = 1
+        MAU2_Lead = 0
+        MAU1_Lag = 0
+        MAU2_Lag = 1
+
+        ActiveUnitNumber = 0
+
+        If MAU1_RunningProof is ON then
+            If MAU2_RunningProof is OFF then
+                ActiveUnitNumber = 1
+            EndIf
+        EndIf
+
+        If MAU2_RunningProof is ON then
+            If MAU1_RunningProof is OFF then
+                ActiveUnitNumber = 2
+            EndIf
+        EndIf
+
+        LeadFailAlarm = 0
+
+        MAU1_MaintOver24h_Alm = 0
+        MAU2_MaintOver24h_Alm = 0
+
+        MAU1_Available = 0
+        MAU2_Available = 0
+        MAU1_SafetyTrip = 0
+        MAU2_SafetyTrip = 0
+        MAU1_Unavailable = 0
+        MAU2_Unavailable = 0
+        LeadChangeoverActive = 0
+        LeadChangeoverFrom = 0
+        LeadChangeoverTo = 0
+
+        T_Maint1 = 0
+        T_Maint2 = 0
+        Done_Maint1 = 0
+        Done_Maint2 = 0
+
+        T_Purge = 0
+        Done_Purge = 0
+
+        InitDone = 1
+
+    EndIf
+
+    Goto MAIN
+
+
+'==============================================================================
+MAIN:
+'==============================================================================
+
+    '-----------------------------
+    ' Validate purge timer
+    '-----------------------------
+    EffectivePurgeTimer = PurgeTimer
+
+    If EffectivePurgeTimer <= 0 then
+        EffectivePurgeTimer = 120
+    EndIf
+
+
+    '-----------------------------
+    ' Calculate side safety trip status
+    '
+    ' SAFETY_OKAY_A/B are expected to be TRUE when no hardwired safety is tripped.
+    ' FREEZE_A/B are expected to be TRUE when freeze protection is active/tripped.
+    '-----------------------------
+    MAU1_SafetyTrip = 0
+    MAU2_SafetyTrip = 0
+
+    If SAFETY_OKAY_A is OFF then
+        MAU1_SafetyTrip = 1
+    EndIf
+
+    If FREEZE_A is ON then
+        MAU1_SafetyTrip = 1
+    EndIf
+
+    If SAFETY_OKAY_B is OFF then
+        MAU2_SafetyTrip = 1
+    EndIf
+
+    If FREEZE_B is ON then
+        MAU2_SafetyTrip = 1
+    EndIf
+
+
+    '-----------------------------
+    ' Calculate availability
+    '
+    ' Available = not failed, not safety-tripped, and not in maintenance.
+    '-----------------------------
+    MAU1_Available = 0
+    MAU2_Available = 0
+    MAU1_Unavailable = 0
+    MAU2_Unavailable = 0
+
+    If MAU1_Failure is ON then
+        MAU1_Unavailable = 1
+    EndIf
+
+    If MAU1_MaintMode is ON then
+        MAU1_Unavailable = 1
+    EndIf
+
+    If MAU1_SafetyTrip is ON then
+        MAU1_Unavailable = 1
+    EndIf
+
+    If MAU2_Failure is ON then
+        MAU2_Unavailable = 1
+    EndIf
+
+    If MAU2_MaintMode is ON then
+        MAU2_Unavailable = 1
+    EndIf
+
+    If MAU2_SafetyTrip is ON then
+        MAU2_Unavailable = 1
+    EndIf
+
+    If MAU1_Unavailable is OFF then
+        MAU1_Available = 1
+    EndIf
+
+    If MAU2_Unavailable is OFF then
+        MAU2_Available = 1
+    EndIf
+
+
+    '-----------------------------
+    ' Forced lead changeover
+    '
+    ' If the current lead is no longer available and the opposite side is
+    ' available, make the available side the new lead.
+    '
+    ' Causes:
+    ' - Maintenance mode
+    ' - Failure input
+    ' - Safety Watch SAFETY_OKAY false
+    ' - Freeze trip
+    '-----------------------------
+    LeadChangeoverActive = 0
+    LeadChangeoverFrom = 0
+    LeadChangeoverTo = 0
+
+    If LeadUnitNumber EQUALS 1 then
+
+        If MAU1_Available is OFF then
+
+            If MAU2_Available is ON then
+                LeadUnitNumber = 2
+                LastRotateDT = Date
+                LeadChangeoverActive = 1
+                LeadChangeoverFrom = 1
+                LeadChangeoverTo = 2
+            EndIf
+
+        EndIf
+
+    Else
+
+        If LeadUnitNumber EQUALS 2 then
+
+            If MAU2_Available is OFF then
+
+                If MAU1_Available is ON then
+                    LeadUnitNumber = 1
+                    LastRotateDT = Date
+                    LeadChangeoverActive = 1
+                    LeadChangeoverFrom = 2
+                    LeadChangeoverTo = 1
+                EndIf
+
+            EndIf
+
+        Else
+
+            LeadUnitNumber = 1
+            LastRotateDT = Date
+
+        EndIf
+
+    EndIf
+
+
+    '-----------------------------
+    ' Weekly lead rotation
+    '
+    ' Only rotate if both sides are available.
+    ' This prevents rotating into a failed, safety-tripped, or maintenance side.
+    '-----------------------------
+    If AutoRotateEnable is ON then
+
+        If Difftime(WKD, LastRotateDT, Date) >= 7 then
+
+            If MAU1_Available is ON then
+
+                If MAU2_Available is ON then
+
+                    If LeadUnitNumber EQUALS 1 then
+                        LeadUnitNumber = 2
+                    Else
+                        LeadUnitNumber = 1
+                    EndIf
+
+                    LastRotateDT = Date
+
+                EndIf
+
+            EndIf
+
+        EndIf
+
+    EndIf
+
+
+    '-----------------------------
+    ' Compute lag / standby assignment
+    '-----------------------------
+    If LeadUnitNumber EQUALS 1 then
+        StandbyUnit = 2
+        LagUnitNumber = 2
+    Else
+        StandbyUnit = 1
+        LagUnitNumber = 1
+    EndIf
+
+
+    '-----------------------------
+    ' Lead / lag assignment outputs
+    ' These are assignment indicators only.
+    ' They are not purge commands.
+    '-----------------------------
+    MAU1_Lead = 0
+    MAU2_Lead = 0
+    MAU1_Lag = 0
+    MAU2_Lag = 0
+
+    If LeadUnitNumber EQUALS 1 then
+        MAU1_Lead = 1
+        MAU2_Lag = 1
+    Else
+        MAU2_Lead = 1
+        MAU1_Lag = 1
+    EndIf
+
+
+    '-----------------------------
+    ' Lead fail / unavailable alarm
+    '
+    ' This alarm is true when the currently assigned lead is not available.
+    ' Because this version changes LeadUnitNumber when possible, this will
+    ' normally only remain active if the assigned lead is unavailable and the
+    ' opposite side is also unavailable.
+    '-----------------------------
+    LeadFailAlarm = 0
+
+    If LeadUnitNumber EQUALS 1 then
+        If MAU1_Available is OFF then
+            LeadFailAlarm = 1
+        EndIf
+    Else
+        If MAU2_Available is OFF then
+            LeadFailAlarm = 1
+        EndIf
+    EndIf
+
+
+    '-----------------------------
+    ' Maintenance >24h alarms
+    ' 24 hours = 86400 seconds
+    '-----------------------------
+    If MAU1_MaintMode is OFF then
+        T_Maint1 = 0
+    EndIf
+
+    If MAU2_MaintMode is OFF then
+        T_Maint2 = 0
+    EndIf
+
+    Done_Maint1 = Sectimer(MAU1_MaintMode, 86400, T_Maint1, 0)
+    Done_Maint2 = Sectimer(MAU2_MaintMode, 86400, T_Maint2, 0)
+
+    MAU1_MaintOver24h_Alm = 0
+    MAU2_MaintOver24h_Alm = 0
+
+    If Done_Maint1 is ON then
+        MAU1_MaintOver24h_Alm = 1
+    EndIf
+
+    If Done_Maint2 is ON then
+        MAU2_MaintOver24h_Alm = 1
+    EndIf
+
+
+    '-----------------------------
+    ' Determine DesiredActive
+    '
+    ' Priority:
+    ' 1. System disabled = no active side
+    ' 2. Run assigned lead if available
+    ' 3. If assigned lead unavailable, run lag if available
+    ' 4. If neither available, run none
+    '-----------------------------
+    DesiredActive = 0
+
+    If Sys_Enable is OFF then
+
+        DesiredActive = 0
+
+    Else
+
+        If LeadUnitNumber EQUALS 1 then
+
+            If MAU1_Available is ON then
+
+                DesiredActive = 1
+
+            Else
+
+                If MAU2_Available is ON then
+                    DesiredActive = 2
+                Else
+                    DesiredActive = 0
+                EndIf
+
+            EndIf
+
+        Else
+
+            If MAU2_Available is ON then
+
+                DesiredActive = 2
+
+            Else
+
+                If MAU1_Available is ON then
+                    DesiredActive = 1
+                Else
+                    DesiredActive = 0
+                EndIf
+
+            EndIf
+
+        EndIf
+
+    EndIf
+
+
+    '-----------------------------
+    ' State machine entry
+    '-----------------------------
+    If SwState EQUALS 0 then
+
+        If ActiveUnitNumber EQUALS DesiredActive then
+            Goto APPLY_OUTPUTS
+        EndIf
+
+        FromUnit = ActiveUnitNumber
+        ToUnit = DesiredActive
+
+        MAU1_EnableCmd = 0
+        MAU2_EnableCmd = 0
+        MAU1_PrimeCmd = 0
+        MAU2_PrimeCmd = 0
+
+        ActiveUnitNumber = 0
+
+        T_Purge = 0
+        Done_Purge = 0
+
+        If ToUnit EQUALS 0 then
+            SwState = 0
+            Goto APPLY_OUTPUTS
+        EndIf
+
+        SwState = 10
+        Goto LEAD_WAIT
+
+    EndIf
+
+
+    '-----------------------------
+    ' Continue active state
+    '-----------------------------
+    If SwState EQUALS 10 then
+        Goto LEAD_WAIT
+    EndIf
+
+    If SwState EQUALS 20 then
+        Goto START_WAIT
+    EndIf
+
+    SwState = 0
+    Goto APPLY_OUTPUTS
+
+
+'==============================================================================
+LEAD_WAIT:
+'==============================================================================
+
+    '-----------------------------
+    ' Abort if system disabled
+    '-----------------------------
+    If Sys_Enable is OFF then
+
+        SwState = 0
+        ToUnit = 0
+        FromUnit = 0
+        ActiveUnitNumber = 0
+
+        T_Purge = 0
+        Done_Purge = 0
+
+        MAU1_EnableCmd = 0
+        MAU2_EnableCmd = 0
+        MAU1_PrimeCmd = 0
+        MAU2_PrimeCmd = 0
+
+        Goto APPLY_OUTPUTS
+
+    EndIf
+
+
+    '-----------------------------
+    ' Abort if DesiredActive changed
+    '-----------------------------
+    If DesiredActive EQUALS ToUnit then
+
+        ' Continue
+
+    Else
+
+        SwState = 0
+        ToUnit = 0
+        FromUnit = 0
+        ActiveUnitNumber = 0
+
+        T_Purge = 0
+        Done_Purge = 0
+
+        MAU1_EnableCmd = 0
+        MAU2_EnableCmd = 0
+        MAU1_PrimeCmd = 0
+        MAU2_PrimeCmd = 0
+
+        Goto APPLY_OUTPUTS
+
+    EndIf
+
+
+    '-----------------------------
+    ' Abort if target side became unavailable
+    '-----------------------------
+    If ToUnit EQUALS 1 then
+
+        If MAU1_Available is OFF then
+
+            SwState = 0
+            ToUnit = 0
+            FromUnit = 0
+            ActiveUnitNumber = 0
+
+            T_Purge = 0
+            Done_Purge = 0
+
+            MAU1_EnableCmd = 0
+            MAU2_EnableCmd = 0
+            MAU1_PrimeCmd = 0
+            MAU2_PrimeCmd = 0
+
+            Goto APPLY_OUTPUTS
+
+        EndIf
+
+    EndIf
+
+    If ToUnit EQUALS 2 then
+
+        If MAU2_Available is OFF then
+
+            SwState = 0
+            ToUnit = 0
+            FromUnit = 0
+            ActiveUnitNumber = 0
+
+            T_Purge = 0
+            Done_Purge = 0
+
+            MAU1_EnableCmd = 0
+            MAU2_EnableCmd = 0
+            MAU1_PrimeCmd = 0
+            MAU2_PrimeCmd = 0
+
+            Goto APPLY_OUTPUTS
+
+        EndIf
+
+    EndIf
+
+
+    '-----------------------------
+    ' Prime target side only
+    '
+    ' Prime command is active only during this purge window.
+    ' Both enable commands remain off during purge.
+    '-----------------------------
+    MAU1_EnableCmd = 0
+    MAU2_EnableCmd = 0
+
+    MAU1_PrimeCmd = 0
+    MAU2_PrimeCmd = 0
+
+    If ToUnit EQUALS 1 then
+        MAU1_PrimeCmd = 1
+    EndIf
+
+    If ToUnit EQUALS 2 then
+        MAU2_PrimeCmd = 1
+    EndIf
+
+
+    '-----------------------------
+    ' Purge / prime timer
+    '-----------------------------
+    Done_Purge = Sectimer(1, EffectivePurgeTimer, T_Purge, 0)
+
+    If Done_Purge is OFF then
+        Goto APPLY_OUTPUTS
+    EndIf
+
+
+    '-----------------------------
+    ' Purge complete.
+    ' Drop prime command before starting target side.
+    '-----------------------------
+    MAU1_PrimeCmd = 0
+    MAU2_PrimeCmd = 0
+
+    T_Purge = 0
+    Done_Purge = 0
+
+    SwState = 20
+    Goto START_WAIT
+
+
+'==============================================================================
+START_WAIT:
+'==============================================================================
+
+    '-----------------------------
+    ' Abort if system disabled
+    '-----------------------------
+    If Sys_Enable is OFF then
+
+        SwState = 0
+        ToUnit = 0
+        FromUnit = 0
+        ActiveUnitNumber = 0
+
+        T_Purge = 0
+        Done_Purge = 0
+
+        MAU1_EnableCmd = 0
+        MAU2_EnableCmd = 0
+        MAU1_PrimeCmd = 0
+        MAU2_PrimeCmd = 0
+
+        Goto APPLY_OUTPUTS
+
+    EndIf
+
+
+    '-----------------------------
+    ' Abort if DesiredActive changed
+    '-----------------------------
+    If DesiredActive EQUALS ToUnit then
+
+        ' Continue
+
+    Else
+
+        SwState = 0
+        ToUnit = 0
+        FromUnit = 0
+        ActiveUnitNumber = 0
+
+        T_Purge = 0
+        Done_Purge = 0
+
+        MAU1_EnableCmd = 0
+        MAU2_EnableCmd = 0
+        MAU1_PrimeCmd = 0
+        MAU2_PrimeCmd = 0
+
+        Goto APPLY_OUTPUTS
+
+    EndIf
+
+
+    '-----------------------------
+    ' Abort if target side became unavailable
+    '-----------------------------
+    If ToUnit EQUALS 1 then
+
+        If MAU1_Available is OFF then
+
+            SwState = 0
+            ToUnit = 0
+            FromUnit = 0
+            ActiveUnitNumber = 0
+
+            T_Purge = 0
+            Done_Purge = 0
+
+            MAU1_EnableCmd = 0
+            MAU2_EnableCmd = 0
+            MAU1_PrimeCmd = 0
+            MAU2_PrimeCmd = 0
+
+            Goto APPLY_OUTPUTS
+
+        EndIf
+
+    EndIf
+
+    If ToUnit EQUALS 2 then
+
+        If MAU2_Available is OFF then
+
+            SwState = 0
+            ToUnit = 0
+            FromUnit = 0
+            ActiveUnitNumber = 0
+
+            T_Purge = 0
+            Done_Purge = 0
+
+            MAU1_EnableCmd = 0
+            MAU2_EnableCmd = 0
+            MAU1_PrimeCmd = 0
+            MAU2_PrimeCmd = 0
+
+            Goto APPLY_OUTPUTS
+
+        EndIf
+
+    EndIf
+
+
+    '-----------------------------
+    ' Start target side
+    '
+    ' Prime command remains OFF in START_WAIT.
+    ' The purge window is complete at this point.
+    ' Normal valve control should now resume.
+    '-----------------------------
+    MAU1_EnableCmd = 0
+    MAU2_EnableCmd = 0
+
+    MAU1_PrimeCmd = 0
+    MAU2_PrimeCmd = 0
+
+    If ToUnit EQUALS 1 then
+
+        MAU1_EnableCmd = 1
+
+        If MAU1_RunningProof is ON then
+            ActiveUnitNumber = 1
+            SwState = 0
+            ToUnit = 0
+            FromUnit = 0
+        EndIf
+
+    EndIf
+
+    If ToUnit EQUALS 2 then
+
+        MAU2_EnableCmd = 1
+
+        If MAU2_RunningProof is ON then
+            ActiveUnitNumber = 2
+            SwState = 0
+            ToUnit = 0
+            FromUnit = 0
+        EndIf
+
+    EndIf
+
+    Goto APPLY_OUTPUTS
+
+
+'==============================================================================
+APPLY_OUTPUTS:
+'==============================================================================
+
+    '-----------------------------
+    ' Steady-state output enforcement
+    '-----------------------------
+    If SwState EQUALS 0 then
+
+        MAU1_PrimeCmd = 0
+        MAU2_PrimeCmd = 0
+
+        MAU1_EnableCmd = 0
+        MAU2_EnableCmd = 0
+
+        If Sys_Enable is ON then
+
+            If ActiveUnitNumber EQUALS 1 then
+
+                If MAU1_Available is ON then
+                    MAU1_EnableCmd = 1
+                Else
+                    ActiveUnitNumber = 0
+                EndIf
+
+            EndIf
+
+            If ActiveUnitNumber EQUALS 2 then
+
+                If MAU2_Available is ON then
+                    MAU2_EnableCmd = 1
+                Else
+                    ActiveUnitNumber = 0
+                EndIf
+
+            EndIf
+
+        Else
+
+            ActiveUnitNumber = 0
+
+        EndIf
+
+    EndIf
+
+
+    '-----------------------------
+    ' Final safety enforcement
+    '
+    ' If a side is not available, its enable and prime commands are removed.
+    ' This is the final hard stop before single-enable enforcement.
+    '-----------------------------
+    If MAU1_Available is OFF then
+        MAU1_EnableCmd = 0
+        MAU1_PrimeCmd = 0
+
+        If ActiveUnitNumber EQUALS 1 then
+            ActiveUnitNumber = 0
+        EndIf
+    EndIf
+
+    If MAU2_Available is OFF then
+        MAU2_EnableCmd = 0
+        MAU2_PrimeCmd = 0
+
+        If ActiveUnitNumber EQUALS 2 then
+            ActiveUnitNumber = 0
+        EndIf
+    EndIf
+
+
+    '-----------------------------
+    ' Prime commands must never remain active outside SwState 10.
+    ' This prevents the valves from staying forced 100% open after purge.
+    '-----------------------------
+    If SwState EQUALS 10 then
+
+        ' Prime state allowed
+
+    Else
+
+        MAU1_PrimeCmd = 0
+        MAU2_PrimeCmd = 0
+
+    EndIf
+
+
+    '-----------------------------
+    ' Final single-enable enforcement
+    '-----------------------------
+    If MAU1_EnableCmd is ON then
+
+        If MAU2_EnableCmd is ON then
+            MAU2_EnableCmd = 0
+        EndIf
+
+    EndIf
+
+
+    Wait 1
+    Goto MAIN

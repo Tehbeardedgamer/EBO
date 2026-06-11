@@ -1,0 +1,106 @@
+'==============================================================================
+' MAU_PH_VALVE_CONTROL
+'
+' PURPOSE
+' Generate HW_PREHEAT_REQ only.
+'
+' FUNCTIONAL INTENT RETAINED FROM ORIGINAL TEMP COIL CONTROL
+' - If unit is not permitted, output = 0
+' - If PH_DAT is below PH_DAT_SP, preheat controls to PH_DAT_SP as a hard LAT clamp
+' - Else in HEAT or HUM mode, preheat controls SA_TEMP to SA_TEMP_SP
+' - Else preheat = 0
+'
+' NOTES
+' - This script is the only writer for HW_PREHEAT_REQ.
+' - Reheat assist logic remains in the dedicated RH script.
+'==============================================================================
+
+NUMERIC INPUT UNIT_ENABLE
+NUMERIC INPUT UNIT_MAINT
+NUMERIC INPUT SAFETY_OK
+NUMERIC INPUT E_POWER
+NUMERIC INPUT ActiveMode          ' 0=OFF, 1=HEAT, 2=COOL, 3=HUM, 4=DEHUM
+NUMERIC INPUT SA_TEMP_SP
+NUMERIC INPUT SA_TEMP
+NUMERIC INPUT PH_DAT
+NUMERIC INPUT PH_DAT_SP
+
+NUMERIC INPUT PH_KP
+NUMERIC INPUT PH_KI
+NUMERIC INPUT PH_KD
+
+NUMERIC OUTPUT HW_PREHEAT_REQ     ' 0..100
+
+NUMERIC UnitPermit
+NUMERIC HeatMode
+NUMERIC HumMode
+NUMERIC PH_Out
+NUMERIC PH_Int
+NUMERIC PH_OldErr
+NUMERIC PH_DAT_MIN_ACTIVE
+
+FUNCTION PIDControl
+
+INIT:
+HW_PREHEAT_REQ = 0
+
+UnitPermit = 0
+HeatMode = 0
+HumMode = 0
+
+PH_Out = 0
+PH_Int = 0
+PH_OldErr = 0
+PH_DAT_MIN_ACTIVE = 0
+
+Goto MAIN
+
+MAIN:
+UnitPermit = 0
+If UNIT_ENABLE is ON then
+    If UNIT_MAINT is OFF then
+        If SAFETY_OK is ON then
+            If E_POWER is OFF then
+                UnitPermit = 1
+            EndIf
+        EndIf
+    EndIf
+EndIf
+
+HeatMode = 0
+HumMode = 0
+If ActiveMode EQUALS 1 then HeatMode = 1
+If ActiveMode EQUALS 3 then HumMode = 1
+
+HW_PREHEAT_REQ = 0
+PH_Out = 0
+PH_DAT_MIN_ACTIVE = 0
+
+If UnitPermit is OFF then
+    Wait 10
+    Goto MAIN
+EndIf
+
+If PH_DAT < PH_DAT_SP then
+    PH_DAT_MIN_ACTIVE = 1
+EndIf
+
+If PH_DAT_MIN_ACTIVE is ON then
+    PH_Out = PIDControl(0, PH_DAT, PH_DAT_SP, PH_Int, PH_KP, PH_KI, PH_KD, PH_OldErr)
+Else
+    If HeatMode is ON then
+       PH_Out = PIDControl(0, SA_TEMP, SA_TEMP_SP, PH_Int, PH_KP, PH_KI, PH_KD, PH_OldErr)
+  Else
+      If HumMode is ON then
+	       PH_Out = PIDControl(0, SA_TEMP, SA_TEMP_SP, PH_Int, PH_KP, PH_KI, PH_KD, PH_OldErr)
+     EndIf
+ EndIf
+EndIf
+
+If PH_Out < 0 then PH_Out = 0
+If PH_Out > 100 then PH_Out = 100
+
+HW_PREHEAT_REQ = PH_Out
+
+Wait 10
+Goto MAIN

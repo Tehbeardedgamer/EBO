@@ -1,0 +1,97 @@
+'==============================================================================
+' MAU_CHW_VALVE_CONTROL
+'
+' PURPOSE
+' Generate CHW_VALVE_REQ only.
+'
+' FUNCTIONAL INTENT RETAINED FROM ORIGINAL TEMP COIL CONTROL
+' - If unit is not permitted, output = 0
+' - In COOL mode, CHW controls SA_TEMP to SA_TEMP_SP
+' - In DEHUM mode, CHW controls CHW_DAT to DEHUMID_SA_TEMP_SP
+' - In HUM mode, CHW also controls SA_TEMP to SA_TEMP_SP
+'   (retained because the original live script did this)
+' - Otherwise CHW = 0
+'==============================================================================
+
+NUMERIC INPUT UNIT_ENABLE
+NUMERIC INPUT UNIT_MAINT
+NUMERIC INPUT SAFETY_OK
+NUMERIC INPUT E_POWER
+NUMERIC INPUT ActiveMode          ' 0=OFF, 1=HEAT, 2=COOL, 3=HUM, 4=DEHUM
+NUMERIC INPUT SA_TEMP_SP
+NUMERIC INPUT DEHUMID_SA_TEMP_SP
+NUMERIC INPUT SA_TEMP
+NUMERIC INPUT CHW_DAT
+
+NUMERIC INPUT CHW_KP
+NUMERIC INPUT CHW_KI
+NUMERIC INPUT CHW_KD
+
+NUMERIC OUTPUT CHW_VALVE_REQ      ' 0..100
+
+NUMERIC UnitPermit
+NUMERIC CoolMode
+NUMERIC HumMode
+NUMERIC DehumMode
+NUMERIC CHW_Out
+NUMERIC CHW_Int
+NUMERIC CHW_OldErr
+
+FUNCTION PIDControl
+
+INIT:
+CHW_VALVE_REQ = 0
+
+UnitPermit = 0
+CoolMode = 0
+HumMode = 0
+DehumMode = 0
+
+CHW_Out = 0
+CHW_Int = 0
+CHW_OldErr = 0
+
+Goto MAIN
+
+MAIN:
+UnitPermit = 0
+If UNIT_ENABLE is ON then
+    If UNIT_MAINT is OFF then
+        If SAFETY_OK is ON then
+            If E_POWER is OFF then
+                UnitPermit = 1
+            EndIf
+        EndIf
+    EndIf
+EndIf
+
+CoolMode = 0
+HumMode = 0
+DehumMode = 0
+If ActiveMode EQUALS 2 then CoolMode = 1
+If ActiveMode EQUALS 3 then HumMode = 1
+If ActiveMode EQUALS 4 then DehumMode = 1
+
+CHW_VALVE_REQ = 0
+CHW_Out = 0
+
+If UnitPermit is OFF then
+    Wait 10
+    Goto MAIN
+EndIf
+
+If CoolMode is ON OR HumMode is ON then
+    CHW_Out = PIDControl(1, SA_TEMP, SA_TEMP_SP, CHW_Int, CHW_KP, CHW_KI, CHW_KD, CHW_OldErr)
+EndIf
+
+If DehumMode is ON then
+    CHW_Out = PIDControl(1, CHW_DAT, DEHUMID_SA_TEMP_SP, CHW_Int, CHW_KP, CHW_KI, CHW_KD, CHW_OldErr)
+EndIf
+
+If CHW_Out < 0 then CHW_Out = 0
+If CHW_Out > 100 then CHW_Out = 100
+
+CHW_VALVE_REQ = CHW_Out
+
+Wait 10
+Goto MAIN

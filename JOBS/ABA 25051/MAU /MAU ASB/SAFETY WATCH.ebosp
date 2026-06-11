@@ -1,0 +1,95 @@
+'==============================================================================
+' SAFETY WATCH - SIDE A / SIDE B
+'
+' Responsibilities:
+' - Monitor side-specific hardwired safety trips
+' - Provide a clean SAFETY_OKAY signal for each side
+' - Provide individual trip flags for troubleshooting and alarming
+'
+' Notes:
+' - SAFETY_OKAY_A / SAFETY_OKAY_B should be bound into the Lead/Lag program.
+' - FREEZE_A / FREEZE_B should also be bound into the Lead/Lag program if a freeze trip
+'   should make that side unavailable.
+' - If a duct detector is common to the entire MAU and must shut down both sides,
+'   do not use it as a side-only failover input. Use it as a whole-unit shutdown.
+'==============================================================================
+
+NUMERIC INPUT DUCT_DETECTOR_A
+NUMERIC INPUT HP_SWITCH_A
+NUMERIC INPUT LP_SWITCH_A
+NUMERIC INPUT FREEZE_STAT_A
+
+NUMERIC INPUT DUCT_DETECTOR_B
+NUMERIC INPUT HP_SWITCH_B
+NUMERIC INPUT LP_SWITCH_B
+NUMERIC INPUT FREEZE_STAT_B
+
+NUMERIC OUTPUT SAFETY_OKAY_A
+NUMERIC OUTPUT SAFETY_OKAY_B
+NUMERIC OUTPUT SAFETY_TRIP_A
+NUMERIC OUTPUT SAFETY_TRIP_B
+NUMERIC OUTPUT FREEZE_A
+NUMERIC OUTPUT FREEZE_B
+
+
+'-----------------------------
+' SIDE A SAFETY STATUS
+'-----------------------------
+SAFETY_TRIP_A = 0
+
+If DUCT_DETECTOR_A is ON then
+    SAFETY_TRIP_A = 1
+EndIf
+
+If HP_SWITCH_A is ON then
+    SAFETY_TRIP_A = 1
+EndIf
+
+If LP_SWITCH_A is ON then
+    SAFETY_TRIP_A = 1
+EndIf
+
+FREEZE_A = FREEZE_STAT_A
+
+If FREEZE_A is ON then
+    SAFETY_TRIP_A = 1
+EndIf
+
+SAFETY_OKAY_A = 1
+
+If SAFETY_TRIP_A is ON then
+    SAFETY_OKAY_A = 0
+EndIf
+
+
+'-----------------------------
+' SIDE B SAFETY STATUS
+'-----------------------------
+SAFETY_TRIP_B = 0
+
+If DUCT_DETECTOR_B is ON then
+    SAFETY_TRIP_B = 1
+EndIf
+
+If HP_SWITCH_B is ON then
+    SAFETY_TRIP_B = 1
+EndIf
+
+If LP_SWITCH_B is ON then
+    SAFETY_TRIP_B = 1
+EndIf
+
+FREEZE_B = FREEZE_STAT_B
+
+If FREEZE_B is ON then
+    SAFETY_TRIP_B = 1
+EndIf
+
+SAFETY_OKAY_B = 1
+
+If SAFETY_TRIP_B is ON then
+    SAFETY_OKAY_B = 0
+EndIf
+
+
+Wait 5
