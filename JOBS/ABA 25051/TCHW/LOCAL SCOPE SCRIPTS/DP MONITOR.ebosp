@@ -1,88 +1,94 @@
-' Dual-sensor validation and averaging for Group 1
-' Outputs a stable DPS value, health flags, and front-end status text
-' for use by the speed PI script.
+'==============================================================================
+' DP MONITOR - SINGLE DP VERSION
 '
-' OPERATION:
-' - If both DP sensors are healthy, DPS = average of DPS_1A and DPS_1B
-' - If one sensor fails, DPS = remaining healthy sensor
-' - If both sensors fail, DPS holds last value and DPS_FAILED = 1
+' Responsibilities:
+' - Monitor one hardwired differential-pressure sensor
+' - Pass the raw DP value through to DPS while the sensor is healthy
+' - Mark DPS_FAILED if the DP value remains below DP_LOW_LIMIT for DP_LOW_TIME
+' - Default failure delay is 300 seconds / 5 minutes
+' - Hold the last good DPS value while failed so downstream PI/staging logic does
+'   not continue reacting to a bad low reading
+'
+' Downstream compatibility:
+' - Output DPS remains the selected/usable DP value
+' - Output DPS_FAILED remains the fail flag used by Speed Control and Staging
+' - DPS_SEL, A_BAD, and B_BAD are retained for front-end/backward compatibility
+'==============================================================================
 
-' ------------------------- INPUTS -------------------------
-NUMERIC INPUT DPS_1A                 ' DP sensor A (psi)
-NUMERIC INPUT DPS_1B                 ' DP sensor B (psi)
+'-----------------------------
+' INPUTS
+'-----------------------------
+NUMERIC INPUT DPS_RAW              ' Single hardwired DP sensor value, psi
 
-' Simple “bad” detector: sensor below threshold for a duration => bad
-NUMERIC PUBLIC DP_LOW_LIMIT          ' psi  (e.g., 5.0)
-NUMERIC PUBLIC DP_LOW_TIME           ' sec  (e.g., 300)
+'-----------------------------
+' PUBLIC TUNABLES
+'-----------------------------
+NUMERIC PUBLIC DP_LOW_LIMIT        ' psi; failed if DPS_RAW <= this value
+NUMERIC PUBLIC DP_LOW_TIME         ' seconds; default 300 seconds / 5 minutes
 
-' ------------------------- OUTPUTS ------------------------
-NUMERIC PUBLIC DPS                   ' Selected / averaged DP (psi)
-NUMERIC PUBLIC DPS_FAILED            ' 1 if both sensors bad
-NUMERIC PUBLIC DPS_SEL               ' 0=failed/hold, 1=A only, 2=B only, 3=AVG(A,B)
-NUMERIC PUBLIC A_BAD                 ' 1 if A is bad
-NUMERIC PUBLIC B_BAD                 ' 1 if B is bad
-STRING  PUBLIC DPS_STATUS            ' Front-end status text
+'-----------------------------
+' OUTPUTS / PUBLIC STATUS
+'-----------------------------
+NUMERIC PUBLIC DPS                 ' Usable DP value sent to speed/staging logic
+NUMERIC PUBLIC DPS_FAILED          ' 1 = single DP sensor failed
+NUMERIC PUBLIC DPS_SEL             ' 0 = failed/hold last, 1 = single DP active
+NUMERIC PUBLIC DP_BAD              ' 1 = single DP failed
+NUMERIC PUBLIC A_BAD               ' Legacy mirror of DP_BAD
+NUMERIC PUBLIC B_BAD               ' Legacy output retained; always 0 in single-DP version
+STRING  PUBLIC DPS_STATUS          ' Front-end status text
 
-' ------------------------- INTERNALS ----------------------
+'-----------------------------
+' INTERNALS
+'-----------------------------
 NUMERIC FIRST_INIT_DONE
-NUMERIC DP_FAIL_A, DP_FAIL_B         ' SECTIMER remainders
+NUMERIC DP_FAIL_TMR
 FUNCTION SECTIMER
 
 GOTO INIT
 
+'==============================================================================
 INIT:
-  IF DP_LOW_LIMIT <= 0 THEN DP_LOW_LIMIT = 5.0
-  IF DP_LOW_TIME <= 0 THEN DP_LOW_TIME = 300
+'==============================================================================
 
-  IF FIRST_INIT_DONE = 0 THEN
-    ' Seed with average on first pass
-    DPS = (DPS_1A + DPS_1B) / 2
-    DPS_SEL = 3
-    DPS_FAILED = 0
-    A_BAD = 0
-    B_BAD = 0
-    DPS_STATUS = "AVERAGE A+B"
-    DP_FAIL_A = 0
-    DP_FAIL_B = 0
-    FIRST_INIT_DONE = 1
-  ENDIF
-  GOTO LOOP
+    IF DP_LOW_LIMIT <= 0 THEN DP_LOW_LIMIT = 5.0
+    IF DP_LOW_TIME <= 0 THEN DP_LOW_TIME = 300
 
-LOOP:
-  ' Mark sensor bad if it stays below threshold for DP_LOW_TIME seconds
-  A_BAD = SECTIMER(DPS_1A <= DP_LOW_LIMIT, DP_LOW_TIME, DP_FAIL_A, 0)
-  B_BAD = SECTIMER(DPS_1B <= DP_LOW_LIMIT, DP_LOW_TIME, DP_FAIL_B, 0)
-
-  ' Determine group failure
-  DPS_FAILED = 0
-  IF (A_BAD = 1) & (B_BAD = 1) THEN DPS_FAILED = 1
-
-  ' -------------------- Selection --------------------
-  IF DPS_FAILED = 1 THEN
-    ' Both bad -> hold last DPS; signal failed
-    DPS_SEL = 0
-    DPS_STATUS = "FAILED - HOLD LAST"
-  ELSE
-    IF (A_BAD = 0) & (B_BAD = 0) THEN
-      ' Both good -> average both sensors
-      DPS = (DPS_1A + DPS_1B) / 2
-      DPS_SEL = 3
-      DPS_STATUS = "AVERAGE A+B"
-    ELSE
-      IF (A_BAD = 0) & (B_BAD = 1) THEN
-        ' A good, B failed
-        DPS = DPS_1A
+    IF FIRST_INIT_DONE = 0 THEN
+        DPS = DPS_RAW
+        DPS_FAILED = 0
         DPS_SEL = 1
-        DPS_STATUS = "A ONLY"
-      ELSE
-        ' A failed, B good
-        DPS = DPS_1B
-        DPS_SEL = 2
-        DPS_STATUS = "B ONLY"
-      ENDIF
+        DP_BAD = 0
+        A_BAD = 0
+        B_BAD = 0
+        DPS_STATUS = "DP OK"
+        DP_FAIL_TMR = 0
+        FIRST_INIT_DONE = 1
     ENDIF
-  ENDIF
-  ' ------------------ end Selection ------------------
 
-  WAIT 2
-  GOTO LOOP
+    GOTO LOOP
+
+'==============================================================================
+LOOP:
+'==============================================================================
+
+    ' Single DP failure detection.
+    ' The value must remain below the low limit continuously for 5 minutes.
+    DP_BAD = SECTIMER(DPS_RAW <= DP_LOW_LIMIT, DP_LOW_TIME, DP_FAIL_TMR, 0)
+
+    DPS_FAILED = DP_BAD
+    A_BAD = DP_BAD
+    B_BAD = 0
+
+    IF DPS_FAILED = 1 THEN
+        ' Failed sensor: hold last good DPS value and notify downstream logic.
+        DPS_SEL = 0
+        DPS_STATUS = "FAILED - HOLD LAST"
+    ELSE
+        ' Healthy sensor: pass through the current DP value.
+        DPS = DPS_RAW
+        DPS_SEL = 1
+        DPS_STATUS = "SINGLE DP ACTIVE"
+    ENDIF
+
+    WAIT 2
+    GOTO LOOP

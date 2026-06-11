@@ -2,7 +2,7 @@
 ' Spec rules:
 '  - Stage UP at ?90% command for 10 minutes (lead->lag1, lag1->lag2), while DP below SP
 '  - Stage DOWN at ?50% (3->2) or ?35% (2->1) for 10 minutes, while DP ? SP
-'  - Emergency power or DP sensor fail-safe => 1 pump
+'  - Emergency power or single DP sensor fail-safe => 1 pump
 '  - Dwell after any stage change to prevent chatter
 
 ' -------------------- INPUTS --------------------
@@ -10,7 +10,7 @@ NUMERIC INPUT CHWP_MASTER_SPEED_CMD     ' 0..100 % (group PI command)
 NUMERIC INPUT DPS                       ' psi (selected DP)
 NUMERIC INPUT DPS_SP                    ' psi (setpoint)
 NUMERIC INPUT EMERGENCY_POWER           ' 1 = emergency mode isACTIVE
-NUMERIC INPUT DPS_FAILED                ' 1 = both DP sensors bad (from selector)
+NUMERIC INPUT DPS_FAILED                ' 1 = single DP sensor failed (from DP Monitor)
 
 ' -------------------- OUTPUTS -------------------
 NUMERIC PUBLIC PUMPS_REQ                ' 0..3 pumps requested
@@ -199,7 +199,7 @@ OVERRIDE_1:
     GOTO STATE_
 
 FAILSAFE_1:
-    ' DP sensor fail-safe -> 1 pump
+    ' Single DP sensor fail-safe -> 1 pump
     PUMPS_REQ = 1
     WAIT 2
     GOTO STATE_

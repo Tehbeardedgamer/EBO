@@ -1,5 +1,5 @@
 '==============================================================================
-' G1_PUMP_STARTUP
+' G1_PUMP_STARTUP - PATCHED
 '
 ' PURPOSE:
 '   Per-pump physical command controller.
@@ -11,6 +11,17 @@
 '   - Detects loss of proof while running
 '   - Latches failure until reset
 '   - Performs soft-stop ramp-down before dropping SS
+'
+' PATCH NOTES:
+'   - Compatible with date-based ORDER MANAGER rotation.
+'   - Compatible with single-DP DP MONITOR because this script only needs the
+'     downstream PUMPS_REQ and CHWP_MASTER_SPEED_CMD values.
+'   - Added PROOF_SEEN latch so loss-of-proof detection is based on whether the
+'     pump has actually proven during the current run command, not only the
+'     previous scan status.
+'   - Start failure uses START_TIMEOUT until proof has been seen.
+'   - Loss of proof uses LOSS_TIMEOUT after proof has been seen.
+'   - Master speed command is clamped locally from 0..100 before being used.
 '
 ' INPUTS:
 '   PUMP_STATUS            1 = VFD proven
@@ -64,6 +75,7 @@ NUMERIC UP_STEP
 NUMERIC DN_STEP
 NUMERIC PREV_STATUS
 NUMERIC WAS_RUNNING
+NUMERIC PROOF_SEEN
 
 NUMERIC DT_USE
 NUMERIC RATE_UP_USE
@@ -92,6 +104,7 @@ INIT:
     DN_STEP = 0
     PREV_STATUS = PUMP_STATUS
     WAS_RUNNING = 0
+    PROOF_SEEN = 0
 
     DT_USE = 0
     RATE_UP_USE = 0
@@ -162,20 +175,44 @@ CONTROL_LOOP:
 
   TARGET = 0
   IF CMD_ON = 1 THEN TARGET = CHWP_MASTER_SPEED_CMD
+  IF TARGET < 0 THEN TARGET = 0
+  IF TARGET > 100 THEN TARGET = 100
 
   WAS_RUNNING = 0
   IF PREV_STATUS = 1 THEN WAS_RUNNING = 1
 
 
   '--------------------------------------------------------------------------
+  ' PROOF HISTORY FOR CURRENT RUN COMMAND
+  '--------------------------------------------------------------------------
+
+  IF CMD_ON = 0 THEN
+    PROOF_SEEN = 0
+    T_START = 0
+    T_LOSS = 0
+  ENDIF
+
+  IF CMD_ON = 1 THEN
+    IF PUMP_STATUS = 1 THEN
+      PROOF_SEEN = 1
+      T_START = 0
+      T_LOSS = 0
+    ENDIF
+  ENDIF
+
+
+  '--------------------------------------------------------------------------
   ' FAILURE DETECTION
   '--------------------------------------------------------------------------
 
-  IF SECTIMER((CMD_ON = 1) & (PUMP_STATUS = 0) & (WAS_RUNNING = 0), START_TIMEOUT_USE, T_START, 0) THEN
+  ' Start failure: pump has been commanded on but proof has never been seen
+  ' during this run command.
+  IF SECTIMER((CMD_ON = 1) & (PUMP_STATUS = 0) & (PROOF_SEEN = 0), START_TIMEOUT_USE, T_START, 0) THEN
     CHWP_FAILED = 1
   ENDIF
 
-  IF SECTIMER((CMD_ON = 1) & (PUMP_STATUS = 0) & (WAS_RUNNING = 1), LOSS_TIMEOUT_USE, T_LOSS, 0) THEN
+  ' Loss of proof: pump already proved during this run command, then proof was lost.
+  IF SECTIMER((CMD_ON = 1) & (PUMP_STATUS = 0) & (PROOF_SEEN = 1), LOSS_TIMEOUT_USE, T_LOSS, 0) THEN
     CHWP_FAILED = 1
   ENDIF
 
@@ -186,6 +223,7 @@ CONTROL_LOOP:
 
   IF CHWP_FAULT_RESET = 1 THEN
     CHWP_FAILED = 0
+    PROOF_SEEN = 0
     T_START = 0
     T_LOSS = 0
   ENDIF
@@ -196,7 +234,8 @@ CONTROL_LOOP:
   '--------------------------------------------------------------------------
 
   IF CHWP_FAILED = 1 THEN GOTO FAIL_ACTION
-  IF CMD_ON = 1 THEN GOTO RUN_ACTION ELSE GOTO STOP_ACTION
+  IF CMD_ON = 1 THEN GOTO RUN_ACTION
+  GOTO STOP_ACTION
 
 
 RUN_ACTION:

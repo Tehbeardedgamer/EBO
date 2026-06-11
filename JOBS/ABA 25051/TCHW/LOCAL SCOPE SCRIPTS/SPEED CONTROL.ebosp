@@ -1,10 +1,10 @@
 ' G1_Speed_PI – Group 1 speed control using your PIControl() function.
-' Drives CHWP_MASTER_SPEED_CMD from DPS and DPS_SP, with fault gating from DPS_FAILED.
+' Drives CHWP_MASTER_SPEED_CMD from DPS and DPS_SP, with fault gating from single-DP DPS_FAILED.
 
 ' ------------------------- INPUTS -------------------------
 NUMERIC INPUT DPS_SP                 ' DP setpoint (psi)
 NUMERIC INPUT DPS                    ' Selected DP from G1_DP_Select (psi)
-NUMERIC INPUT DPS_FAILED             ' 1 if both sensors bad (from G1_DP_Select)
+NUMERIC INPUT DPS_FAILED             ' 1 if single DP sensor failed (from DP Monitor)
 FUNCTION PIControl
 ' ------------------------- OUTPUTS ------------------------
 NUMERIC OUTPUT CHWP_MASTER_SPEED_CMD ' 0..100% target for all running pumps
@@ -59,7 +59,7 @@ INIT:
 
 LOOP:
   
-  ' Fault gating: freeze I and cap output if sensors failed
+  ' Fault gating: freeze I and cap output if the single DP sensor failed
   USE_KI     = Ki
   USE_OUT_MAX = OUT_MAX
   IF DPS_FAILED = 1 THEN
