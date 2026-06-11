@@ -8,6 +8,7 @@
 ' - Side failure lead/lag changeover
 ' - Only one MAU side enabled at a time
 ' - Standby purge/prime before start
+' - Target-side start proof timeout and local start-fail removal
 ' - Prime command drops out after purge window is complete
 ' - Maintenance >24h alarms
 '
@@ -53,6 +54,7 @@ NUMERIC INPUT FREEZE_B
 
 NUMERIC INPUT AutoRotateEnable
 NUMERIC INPUT PurgeTimer        ' seconds, normal value = 120
+NUMERIC INPUT MAU_START_FAIL_RESET
 
 
 '-----------------------------
@@ -74,6 +76,8 @@ NUMERIC OUTPUT LagUnitNumber        ' 1 or 2
 NUMERIC OUTPUT ActiveUnitNumber     ' 0, 1, or 2
 
 NUMERIC OUTPUT LeadFailAlarm
+NUMERIC OUTPUT MAU1_StartFail
+NUMERIC OUTPUT MAU2_StartFail
 NUMERIC OUTPUT MAU1_MaintOver24h_Alm
 NUMERIC OUTPUT MAU2_MaintOver24h_Alm
 
@@ -101,6 +105,9 @@ NUMERIC PUBLIC LeadChangeoverFrom
 NUMERIC PUBLIC LeadChangeoverTo
 
 NUMERIC PUBLIC EffectivePurgeTimer
+NUMERIC PUBLIC StartProofTimeoutSec
+NUMERIC PUBLIC T_StartProof
+NUMERIC PUBLIC Done_StartProof
 
 DATETIME PUBLIC LastRotateDT
 
@@ -161,6 +168,8 @@ INIT:
         EndIf
 
         LeadFailAlarm = 0
+        MAU1_StartFail = 0
+        MAU2_StartFail = 0
 
         MAU1_MaintOver24h_Alm = 0
         MAU2_MaintOver24h_Alm = 0
@@ -182,6 +191,8 @@ INIT:
 
         T_Purge = 0
         Done_Purge = 0
+        T_StartProof = 0
+        Done_StartProof = 0
 
         InitDone = 1
 
@@ -201,6 +212,21 @@ MAIN:
 
     If EffectivePurgeTimer <= 0 then
         EffectivePurgeTimer = 120
+    EndIf
+
+    If StartProofTimeoutSec <= 0 then
+        StartProofTimeoutSec = 180
+    EndIf
+
+
+    '-----------------------------
+    ' Manual reset for locally latched start-fail conditions.
+    '-----------------------------
+    If MAU_START_FAIL_RESET is ON then
+        MAU1_StartFail = 0
+        MAU2_StartFail = 0
+        T_StartProof = 0
+        Done_StartProof = 0
     EndIf
 
 
@@ -244,6 +270,10 @@ MAIN:
         MAU1_Unavailable = 1
     EndIf
 
+    If MAU1_StartFail is ON then
+        MAU1_Unavailable = 1
+    EndIf
+
     If MAU1_MaintMode is ON then
         MAU1_Unavailable = 1
     EndIf
@@ -253,6 +283,10 @@ MAIN:
     EndIf
 
     If MAU2_Failure is ON then
+        MAU2_Unavailable = 1
+    EndIf
+
+    If MAU2_StartFail is ON then
         MAU2_Unavailable = 1
     EndIf
 
@@ -514,6 +548,8 @@ MAIN:
 
         T_Purge = 0
         Done_Purge = 0
+        T_StartProof = 0
+        Done_StartProof = 0
 
         If ToUnit EQUALS 0 then
             SwState = 0
@@ -685,6 +721,8 @@ LEAD_WAIT:
 
     T_Purge = 0
     Done_Purge = 0
+    T_StartProof = 0
+    Done_StartProof = 0
 
     SwState = 20
     Goto START_WAIT
@@ -795,6 +833,46 @@ START_WAIT:
 
 
     '-----------------------------
+    ' Start-proof timeout.
+    '
+    ' If the selected target side is enabled but never reaches running proof,
+    ' locally latch that side failed.  This removes it from availability so
+    ' the opposite available side can become lead/active on the next scan.
+    '-----------------------------
+    If ToUnit EQUALS 1 then
+        Done_StartProof = Sectimer((MAU1_RunningProof = 0), StartProofTimeoutSec, T_StartProof, 0)
+        If Done_StartProof is ON then
+            MAU1_StartFail = 1
+            SwState = 0
+            ToUnit = 0
+            FromUnit = 0
+            ActiveUnitNumber = 0
+            MAU1_EnableCmd = 0
+            MAU2_EnableCmd = 0
+            MAU1_PrimeCmd = 0
+            MAU2_PrimeCmd = 0
+            Goto APPLY_OUTPUTS
+        EndIf
+    EndIf
+
+    If ToUnit EQUALS 2 then
+        Done_StartProof = Sectimer((MAU2_RunningProof = 0), StartProofTimeoutSec, T_StartProof, 0)
+        If Done_StartProof is ON then
+            MAU2_StartFail = 1
+            SwState = 0
+            ToUnit = 0
+            FromUnit = 0
+            ActiveUnitNumber = 0
+            MAU1_EnableCmd = 0
+            MAU2_EnableCmd = 0
+            MAU1_PrimeCmd = 0
+            MAU2_PrimeCmd = 0
+            Goto APPLY_OUTPUTS
+        EndIf
+    EndIf
+
+
+    '-----------------------------
     ' Start target side
     '
     ' Prime command remains OFF in START_WAIT.
@@ -816,6 +894,8 @@ START_WAIT:
             SwState = 0
             ToUnit = 0
             FromUnit = 0
+            T_StartProof = 0
+            Done_StartProof = 0
         EndIf
 
     EndIf
@@ -829,6 +909,8 @@ START_WAIT:
             SwState = 0
             ToUnit = 0
             FromUnit = 0
+            T_StartProof = 0
+            Done_StartProof = 0
         EndIf
 
     EndIf
